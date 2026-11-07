@@ -9,13 +9,31 @@ from .acceptance import TARGET_RATIO, cases, compare, regresses, summary
 from .evaluate import run
 from .model import load_policy
 from .overnight import write_json
-from .provenance import contracts, provenance, require_compatible
+from .provenance import contracts, feature_equivalences, inference_implementation, require_compatible
 from .scenarios import config
 from .trajectories import model_digest
 
 
 SCREEN = [dict(seed=8101, size=20, turns=150, swap=False),
           dict(seed=8102, size=24, turns=150, swap=True)]
+
+
+def cache_identity_matches(actual, expected):
+    if actual == expected:
+        return True
+    if not isinstance(actual,dict) or actual.keys()!=expected.keys():
+        return False
+    if any(actual[k]!=v for k,v in expected.items() if k!='runtime'):
+        return False
+    before,after=actual['runtime'],expected['runtime']
+    if not isinstance(before,dict) or before.keys()!=after.keys():
+        return False
+    if any(before[k]!=v for k,v in after.items() if k!='implementation'):
+        return False
+    transition=dict(before=before['implementation'],after=after['implementation'])
+    return any(record.get('implementation_transition')==transition and
+               record.get('feature_contract')==expected['contracts']['feature_contract']
+               for record in feature_equivalences().values())
 
 
 def check_teacher(report, case, expected):
@@ -65,7 +83,7 @@ def main():
     torch.set_num_threads(args.threads)
     args.out.mkdir(parents=True, exist_ok=True)
     args.cache.mkdir(parents=True, exist_ok=True)
-    runtime = dict(implementation=provenance()['implementation'], torch=str(torch.__version__), threads=args.threads)
+    runtime = dict(implementation=inference_implementation(), torch=str(torch.__version__), threads=args.threads)
     evaluations = []
     try:
         for path in paths:
@@ -88,7 +106,7 @@ def main():
                 cache_identity = dict(runtime=runtime, case=case, policy_sha256=digest, contracts=expected)
                 if student_path.exists():
                     cached = json.loads(student_path.read_text())
-                    if cached.get('identity') != cache_identity:
+                    if not cache_identity_matches(cached.get('identity'),cache_identity):
                         raise ValueError(f'Student cache identity mismatch: {student_path}')
                     student = cached['student']
                     require_compatible(student, expected)

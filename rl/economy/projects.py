@@ -16,6 +16,7 @@ from ruleai.v13plus.economy import Planner
 from ruleai.v13.entry import RuleClient as BaseClient
 from .adapter import observation, label, RESOURCES, scale
 from .model import Policy, collate, device_of, prepare
+from .query_cache import memo_read_queries
 
 
 @contextmanager
@@ -67,7 +68,7 @@ class InvestmentPlanner(Planner):
         return recipe,reserve
 
     def encode(self):
-        with memo_planning(self.player):
+        with memo_planning(self.player), memo_read_queries(self.player):
             return self._encode()
 
     def _encode(self):

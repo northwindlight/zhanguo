@@ -70,13 +70,39 @@ def digest(parts):
     return hashlib.sha256(json.dumps(parts,sort_keys=True,separators=(',',':')).encode()).hexdigest()
 
 
+@lru_cache(maxsize=1)
+def feature_equivalences():
+    """Exact whole-contract digests approved by recorded long-game audits.
+
+    This is not a schema exemption: any later rule, feature, reward, or cache
+    implementation edit produces an unknown digest and is rejected as usual.
+    """
+    path=Path(__file__).with_name('feature_equivalences.json')
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
 def contracts_from_files(files):
     world={p:canonical(b,Path(p).suffix)for p,b in files.items() if p=='host.py' or any(p.startswith(f+'/')for f in WORLD_FOLDERS)}
     feature=dict(version=1,world=world,economy={p:canonical(files[p],Path(p).suffix)for p in ECONOMY_FILES},
         adapter=canonical(files['rl/economy/adapter.py'],'.py'),
         projects=selected(files['rl/economy/projects.py'],PROJECT_NODES),
         reward=selected(files['rl/economy/online.py'],REWARD_NODES,reward_writes=True))
-    feature_hash=digest(feature)
+    cache=files.get('rl/economy/query_cache.py')
+    if cache is not None:
+        feature['query_cache']=canonical(cache,'.py')
+        bindings=[]
+        for node in ast.parse(files['rl/economy/projects.py']).body:
+            if isinstance(node,(ast.ImportFrom,ast.Import)) and any(
+                (alias.asname or alias.name)=='memo_read_queries' for alias in node.names):
+                bindings.append(stable_ast(node))
+            if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef)) and node.name=='memo_read_queries':
+                bindings.append(stable_ast(node))
+            if isinstance(node,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='memo_read_queries' for t in node.targets):
+                bindings.append(stable_ast(node))
+        expected=stable_ast(ast.parse('from .query_cache import memo_read_queries').body[0])
+        if bindings!=[expected]:raise ValueError('Unverified query cache binding; include its implementation in a new audit')
+    raw_hash=digest(feature)
+    feature_hash=feature_equivalences().get(raw_hash,{}).get('feature_contract',raw_hash)
     teacher=digest(dict(version=1,feature_contract=feature_hash,
         policies={p:canonical(b,Path(p).suffix)for p,b in files.items()if p.startswith('ruleai/')},
         scenario=selected(files['rl/economy/scenarios.py'],{'config','snapshot'})))
@@ -90,10 +116,25 @@ def contract_files(root=ROOT):
             if p.suffix in ('.py','.toml','.c'):result[str(p.relative_to(root))]=p.read_bytes()
     for name in ('host.py','rl/economy/adapter.py','rl/economy/projects.py','rl/economy/online.py','rl/economy/scenarios.py'):
         result[name]=(root/name).read_bytes()
+    cache=root/'rl/economy/query_cache.py'
+    if cache.exists():result['rl/economy/query_cache.py']=cache.read_bytes()
     return result
 
 
 def contracts():return contracts_from_files(contract_files())
+
+
+def inference_implementation(files=None):
+    """Evaluation semantics, independent of trainer and rollout hyperparameters."""
+    names=('model.py','layers.py','evaluate.py','client.py','benchmark.py')
+    if files is None:
+        files=contract_files()
+        for name in names:
+            path='rl/economy/'+name
+            files[path]=(ROOT/path).read_bytes()
+    return digest(dict(version=1,contracts=contracts_from_files(files),
+        modules={name:canonical(files['rl/economy/'+name],'.py') for name in names},
+        controller=selected(files['rl/economy/projects.py'],{'LearnedProjects'})))
 
 
 def provenance():

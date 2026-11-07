@@ -40,3 +40,39 @@ class ProvenanceChecks(unittest.TestCase):
             self.assertEqual(require_compatible(metadata,expected)['feature_contract'],expected['feature_contract'])
             self.assertEqual(metadata,original)
         with self.assertRaisesRegex(ValueError,'Unverified legacy'):require_compatible(dict(source='unknown'))
+
+    def test_audited_query_cache_keeps_existing_data_contract(self):
+        self.assertEqual(contracts(),dict(
+            feature_contract='fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9',
+            teacher_contract='e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a'))
+
+    def test_cache_or_encoder_edits_need_a_new_equivalence_audit(self):
+        before=contracts();files=contract_files()
+        path='rl/economy/query_cache.py'
+        self.assertIn(b'quantity >= 0',files[path])
+        files[path]=files[path].replace(b'quantity >= 0',b'quantity > 0')
+        changed=contracts_from_files(files)
+        self.assertNotEqual(changed['feature_contract'],before['feature_contract'])
+        with self.assertRaisesRegex(ValueError,'contract mismatch'):require_compatible(before,changed)
+
+    def test_inference_cache_ignores_training_but_tracks_model_and_controller(self):
+        from rl.economy.provenance import ROOT,inference_implementation
+        files=contract_files()
+        for name in ('model.py','layers.py','evaluate.py','client.py','benchmark.py'):
+            path='rl/economy/'+name;files[path]=(ROOT/path).read_bytes()
+        before=inference_implementation(files)
+        files['rl/economy/train.py']=b'irrelevant trainer'
+        files['rl/economy/online.py']=files['rl/economy/online.py'].replace(b'lr=3e-5',b'lr=1e-5')
+        self.assertEqual(inference_implementation(files),before)
+        changed=dict(files);changed['rl/economy/model.py']+=b'\nchanged_inference=True\n'
+        self.assertNotEqual(inference_implementation(changed),before)
+        changed=dict(files);changed['rl/economy/projects.py']=changed['rl/economy/projects.py'].replace(
+            b'self.max_economy_actions=max_economy_actions',b'self.max_economy_actions=max_economy_actions+1')
+        self.assertNotEqual(inference_implementation(changed),before)
+
+    def test_cache_import_cannot_switch_to_an_untracked_helper(self):
+        files=contract_files();path='rl/economy/projects.py'
+        files[path]=files[path].replace(b'from .query_cache import memo_read_queries',
+                                        b'from .different_cache import memo_read_queries')
+        with self.assertRaisesRegex(ValueError,'Unverified query cache binding'):
+            contracts_from_files(files)

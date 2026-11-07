@@ -1,0 +1,52 @@
+{
+  "e8ce9309d759df733dc792565dcc2b60cc499b7748db6e1cfb533960945ede39": {
+    "feature_contract": "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+    "reference_commit": "b3996721123b5813fa8fff657afccf7fbabec4fb",
+    "evidence": "docs/reviews/经济RL编码查询缓存验证-20261107.md",
+    "audited_implementation": "37333faa552195666609cb4b9ab78c575279134489d16e258656c4bba99823ac",
+    "audited_files": {
+      "rl/economy/projects.py": "ca57440a16f0e92ad163c05c30b7cc9171254e769198a5861075308da883df8d",
+      "rl/economy/query_cache.py": "cb86fc7081c148593325c00e9b0e11c72ee58a5bdefa6f79dcfb9e80b31ca274"
+    },
+    "cases": [
+      {
+        "seed": 8101,
+        "size": 20,
+        "swap": false,
+        "turns": 150,
+        "decisions": 853,
+        "receipts": 7853,
+        "checks": {
+          "observations": true,
+          "actions": true,
+          "final_sha256": true,
+          "modules_sha256": true,
+          "consumption": true,
+          "failures": true
+        },
+        "summary_sha256": "3f8e69c384b333694962382a9ec9f8d5d5447a9b59eb71624f7dc68933b34793"
+      },
+      {
+        "seed": 8102,
+        "size": 24,
+        "swap": true,
+        "turns": 150,
+        "decisions": 900,
+        "receipts": 8832,
+        "checks": {
+          "observations": true,
+          "actions": true,
+          "final_sha256": true,
+          "modules_sha256": true,
+          "consumption": true,
+          "failures": true
+        },
+        "summary_sha256": "3aa70f63bc60c48e4381d2ac62c5c4b2395f0cd62df510f98f25a37d1382d0d1"
+      }
+    ],
+    "implementation_transition": {
+      "before": "d12a99711e46f8cf7b114bc9e3d4b76d25c8e2b12bdbfa35feea66130195b96a",
+      "after": "565098b324f839658f9d7a0ffd9c9532f93350980c3acbcc396cd0df4d639291"
+    }
+  }
+}
