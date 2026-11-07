@@ -24,10 +24,13 @@ class TestPortableRelease(unittest.TestCase):
 
     def checkout(self, tmp):
         root=Path(tmp)/'checkout';root.mkdir()
-        (root/'VERSION').write_text('0.6.3\n')
-        notes=root/'docs/releases/v0.6.3.md';notes.parent.mkdir(parents=True);notes.write_text('Offline release fixture\n')
-        (root/'source.py').write_text('version = 1\n')
+        (root/'VERSION').write_bytes(b'0.6.3\n')
+        notes=root/'docs/releases/v0.6.3.md';notes.parent.mkdir(parents=True);notes.write_bytes(b'Offline release fixture\n')
+        (root/'source.py').write_bytes(b'version = 1\n')
         subprocess.run(['git','init','-q',str(root)],check=True)
+        # 夹具仓库固定 LF：git archive 会按仓库 eol 配置转换换行，宿主的 core.autocrlf
+        # 不能让本测试在 Windows 上失败（CI 在 Linux 上跑不出差别）。
+        subprocess.run(['git','config','core.autocrlf','false'],cwd=root,check=True)
         subprocess.run(['git','add','.'],cwd=root,check=True)
         subprocess.run(['git','-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture'],cwd=root,check=True)
         commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
