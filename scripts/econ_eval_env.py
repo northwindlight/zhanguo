@@ -8,7 +8,7 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, '/home/northwind/zhanguo-rl-economy')
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import torch
 from rl.economy.acceptance import compare
 from rl.economy.evaluate import run
