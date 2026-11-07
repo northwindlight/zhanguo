@@ -43,7 +43,8 @@ class Schema:
 
 
 RUN_SCHEMA=Schema({'mods':Field((str,)), 'save':Field((str,)),
-                   'journal':Field((str,)), 'max_turns':Field((int,),minimum=0)})
+                   'journal':Field((str,)), 'max_turns':Field((int,),minimum=0),
+                   'planning_workers':Field((int,),minimum=1)})
 
 
 def read_config(path):

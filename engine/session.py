@@ -42,6 +42,11 @@ class Session:
         # The composition root injects presentation; the engine never imports a UI.
         self.presentation=presentation
         self.clients={};self.roster={};self.lock=threading.RLock();self.last_results=[]
+        # 并发行动期：>1 时并行等待各国客户端；写入仍由会话锁串行入账。
+        # 默认 1 保持既有串行行为；真人或演出背压存在时强制退回串行。
+        workers=self.cfg.get('planning_workers',1)
+        self.planning_workers=workers if type(workers) is int and workers>1 else 1
+        self._callback_lock=threading.Lock()
         self.scenario_text='';self._boundary=True
         self.victory_event=None
         self.scenario_id=self.cfg.get('scenario')
@@ -393,36 +398,17 @@ class Session:
 
     def cycle(self,*,on_result=None,emit=None,head=None,on_call=None,on_stream=None,on_batch=None,on_human=None):
         if self.victory_event is not None:raise ValueError('Game has ended with a victory event')
-        def call(actor,step,receipts):
-            if on_call:on_call(actor,step,receipts)
-            if on_batch:on_batch(actor,step+1)
         self.scheduled();receipts=[];self._boundary=False
         self._callbacks=on_result;self._emit=emit
         try:
-            for actor in self.turn_order():
-                initial=self.player(actor)
-                if initial.action_state()['can_act'] and self.before_actor(initial) and on_batch:on_batch(actor,None)
-                client=self.clients[actor];transitions=0
-                while True:
-                    player=self.player(actor);generation=player.generation
-                    if not player.action_state()['can_act']:break
-                    if client.kind=='human':
-                        receipts.extend(client.play(player,request=on_human))
-                    elif client.kind=='rule':
-                        cfg=next(n for n in self.entries() if n['id']==actor)
-                        receipts.extend(client.play(player,max_actions=cfg.get('max_actions')))
-                    else:
-                        callback_call=(lambda step,result,a=actor:call(a,step,result)) if on_call or on_batch else None
-                        receipts.extend(client.play(player,emit=emit,head=head,on_call=callback_call,
-                            **({'on_stream':on_stream} if on_stream and client.kind=='llm' else {})))
-                    # Rule turns are a single batch, with individual receipts
-                    # still available to the presenter. Also flush automatic
-                    # end_turn / clients without call callbacks before changing
-                    # actor or entering settlement.
-                    if on_batch:on_batch(actor,None)
-                    if self.generations[actor]==generation:break
-                    transitions+=1
-                    if transitions>8:raise RuntimeError('Too many actor control transitions in one cycle')
+            if self._parallel_action(on_batch,on_human):
+                receipts.extend(self._cycle_parallel(emit,head,on_call,on_stream))
+            else:
+                for actor in self.turn_order():
+                    initial=self.player(actor)
+                    if initial.action_state()['can_act'] and self.before_actor(initial) and on_batch:on_batch(actor,None)
+                    receipts.extend(self._play_actor(actor,emit=emit,head=head,on_call=on_call,
+                                                     on_batch=on_batch,on_human=on_human,on_stream=on_stream))
             self.before_settlement()
             self.world.resolve_turn();self.world.phase='行动'
             if self._scenario:
@@ -441,6 +427,66 @@ class Session:
             self.last_results=receipts;self._boundary=True
             return receipts
         finally:self._callbacks=None;self._emit=None
+
+    def _parallel_action(self,on_batch,on_human):
+        """是否启用并发行动期。真人输入与演出背压由主线程驱动，工作线程里等待
+        会死锁，因此这两类存在时一律退回串行；默认 planning_workers=1 不变。"""
+        if self.planning_workers<=1:return False
+        if on_batch is not None or on_human is not None:return False
+        return all(client.kind!='human' for client in self.clients.values())
+
+    def _play_actor(self,actor,*,emit,head,on_call,on_batch,on_human,on_stream=None):
+        def call(step,result):
+            if on_call:on_call(actor,step,result)
+            if on_batch:on_batch(actor,step+1)
+        receipts=[];client=self.clients[actor];transitions=0
+        while True:
+            player=self.player(actor);generation=player.generation
+            if not player.action_state()['can_act']:break
+            if client.kind=='human':
+                receipts.extend(client.play(player,request=on_human))
+            elif client.kind=='rule':
+                cfg=next(n for n in self.entries() if n['id']==actor)
+                receipts.extend(client.play(player,max_actions=cfg.get('max_actions')))
+            else:
+                callback_call=(lambda step,result:call(step,result)) if on_call or on_batch else None
+                receipts.extend(client.play(player,emit=emit,head=head,on_call=callback_call,
+                    **({'on_stream':on_stream} if on_stream and client.kind=='llm' else {})))
+            # Rule turns are a single batch, with individual receipts still
+            # available to the presenter. Also flush automatic end_turn / clients
+            # without call callbacks before changing actor or entering settlement.
+            if on_batch:on_batch(actor,None)
+            if self.generations[actor]==generation:break
+            transitions+=1
+            if transitions>8:raise RuntimeError('Too many actor control transitions in one cycle')
+        return receipts
+
+    def _cycle_parallel(self,emit,head,on_call,on_stream):
+        """并发等待、串行入账：各国客户端同时跑，世界写入仍由会话锁逐条生效。
+        回执按 turn_order 归并；结算仍只执行一次。"""
+        from concurrent.futures import ThreadPoolExecutor
+        actors=list(self.turn_order())
+        # 行动开始前的分发工作（如自动军令推进）先串行做完。
+        for actor in actors:
+            initial=self.player(actor)
+            if initial.action_state()['can_act']:self.before_actor(initial)
+        lock=self._callback_lock
+        def guard(fn):
+            if fn is None:return None
+            def invoke(*args,**kwargs):
+                with lock:return fn(*args,**kwargs)
+            return invoke
+        emit,head,on_call,on_stream=guard(emit),guard(head),guard(on_call),guard(on_stream)
+        results={}
+        if not actors:return []
+        with ThreadPoolExecutor(max_workers=min(len(actors),self.planning_workers)) as pool:
+            futures={actor:pool.submit(self._play_actor,actor,emit=emit,head=head,
+                on_call=on_call,on_batch=None,on_human=None,
+                **({'on_stream':on_stream} if on_stream else {})) for actor in actors}
+            for actor in actors:results[actor]=futures[actor].result()
+        receipts=[]
+        for actor in actors:receipts.extend(results[actor])
+        return receipts
 
     def to_save(self):
         if not self._boundary or self.world.phase!='行动':raise SaveFormatError('Save only at an action boundary')
