@@ -71,7 +71,10 @@ class AutomaticTrading:
                 'last':deepcopy(self._auto_runs.get(owner))}
 
     def _auto_quantity(self, owner, rule, side, requested, stocks):
-        cap=min(requested,self._inventory[rule.resource]) if side=='buy' else min(requested,math.floor(stocks[rule.resource]))
+        # Buys are no longer capped by the buffer: the market settles its book at
+        # the turn boundary and may end the period short. Sells are still capped
+        # by what the owner actually holds.
+        cap=requested if side=='buy' else min(requested,math.floor(stocks[rule.resource]))
         budget=max(0,stocks[self.currency]-rule.reserve_gold)
         def allowed(quantity):
             quote=self.quote(rule.resource,quantity,side,owner)
@@ -111,7 +114,7 @@ class AutomaticTrading:
                 try:
                     quantity=self._auto_quantity(owner,rule,side,requested,stocks)
                     if not quantity:
-                        order['reason']='市场缺货、可用资金或整单均价不满足限制' if side=='buy' else '整单均价低于出售底价'
+                        order['reason']='可用资金或整单均价不满足限制' if side=='buy' else '整单均价低于出售底价'
                     else:
                         trade=getattr(self,side)(owner,resource,quantity)
                         trade_data=asdict(trade)

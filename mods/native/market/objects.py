@@ -1,11 +1,13 @@
 """Owned market state: inventory, reference stock, refill and currency carry.
 
 The market owns everything that changes over time; the pricing engine is a pure
-curve it consults. Two numbers move: the inventory (trades in, outside refill
-in) and the reference stock the price is measured against (net flow drifts it).
-One quote is published per period and every buyer in that period gets it, so
-arrival order can never move anybody's price; order size is priced by the curve
-itself, because a deeper order sweeps further into the buffer.
+curve it consults. Two numbers move: the inventory (trades in) and the reference
+stock the price is measured against (net flow drifts it). Trades move the two
+accounts immediately, but the market's own book is only settled once at the turn
+boundary; it may end a period short (negative inventory). One quote is published
+per period and every buyer in that period gets it, so arrival order can never
+move anybody's price; order size is priced by the curve itself, because a deeper
+order sweeps further into the buffer.
 """
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields
@@ -13,7 +15,7 @@ import math
 from types import MappingProxyType
 
 from engine.identifiers import content_id
-from engine.runtime import DomainRejection, ModError
+from engine.runtime import ModError
 from engine.state import active_unit
 from .contracts import BufferPolicy, PricePath, PriceSettlement, integer, number
 from .automation import AutomaticTrading
@@ -191,9 +193,6 @@ class Market(AutomaticTrading):
         integer(quantity, 1)
         if side not in ('buy', 'sell'):
             raise ValueError('Invalid trade side')
-        if side == 'buy' and quantity > self._inventory[resource]:
-            raise DomainRejection('市场库存不足', {'reason': 'market_inventory', 'resource': resource,
-                                                   'requested': quantity, 'available': self._inventory[resource]})
         if owner is not None:self._owner(owner)
         # The period's quote is the same for everyone; only the size of this
         # order moves its own average price.
@@ -224,10 +223,9 @@ class Market(AutomaticTrading):
         integer(quantity, 1)
         rows = []
         for key in self._listings:
-            affordable = min(quantity, self._inventory[key])
-            buy = self.quote(key, affordable, 'buy').exact_total if affordable > 0 else None
+            buy = self.quote(key, quantity, 'buy').exact_total
             sell = self.quote(key, quantity, 'sell').exact_total
-            rows.append((key, None if buy is None else round(buy, 2), round(sell, 2)))
+            rows.append((key, round(buy, 2), round(sell, 2)))
         return tuple(rows)
 
     def unit_price(self, resource, side):
@@ -247,9 +245,9 @@ class Market(AutomaticTrading):
         # Both resource legs validate and commit together. Everything which
         # can reject a trade is completed before advancing market state.
         self._exchange(owner, cash if side == 'buy' else goods, goods if side == 'buy' else cash)
-        # The buffer moves, the published quote does not: it is re-priced at
-        # the period boundary, from whatever is left.
-        self._inventory[resource] += quantity if side == 'sell' else -quantity
+        # The order moves the two accounts now; the market's own book only moves
+        # at the turn boundary (see settle()), so a period's orders never wait
+        # for each other and the buffer may end the period short.
         key = (owner, side, resource)
         self._volume[key] = self._volume.get(key, 0) + quantity
         self._carry[owner] = quote.carry_after
@@ -283,11 +281,16 @@ class Market(AutomaticTrading):
                      buy_n, buy_average, sell_n, sell_average)
 
     def settle(self):
-        """Close the period in three steps: this period's net flow moves the
-        reference stock, the outside world refills towards it, and the surviving
-        inventory is priced against it. The old quote is never carried forward."""
+        """Close the period: this period's net flow moves the buffer (shortages
+        stay negative), the reference stock drifts by the same flow, the outside
+        world refills towards the reference, and the next quote is published.
+        The old quote is never carried forward."""
         self._write()
+        trades = self._period_trades()
         for key in self._listings:
+            net = sum(row.quantity if row.side == 'sell' else -row.quantity
+                      for row in trades if row.resource == key)
+            self._inventory[key] += net
             self._reference[key] = self._drift(key)
             self._inventory[key] = self._refill(key)
         self._volume.clear()
@@ -328,7 +331,7 @@ class Market(AutomaticTrading):
         reference = {key:number(data['reference'][key], positive=True) for key in self.ids}
         if not isinstance(data['inventory'],dict) or set(data['inventory']) != set(self.ids):
             raise ValueError('Market save does not match listings')
-        inventory = {key:integer(data['inventory'][key]) for key in self.ids}
+        inventory = {key:integer(data['inventory'][key], minimum=None) for key in self.ids}
         raw = data['prices']
         if not isinstance(raw, dict) or set(raw) != set(self.ids):
             raise ValueError('Market save does not match listings')

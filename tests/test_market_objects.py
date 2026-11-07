@@ -111,8 +111,11 @@ class TestMarket(unittest.TestCase):
         self.assertEqual(trade.gold, quote.gold)
         self.assertEqual(world.resources.balance('Qin', 'native:gold'), 100000-quote.gold)
         self.assertEqual(world.resources.balance('Qin', 'native:food'), 10010)
-        self.assertEqual(dict(world.market.snapshot().inventory)['native:food'], FOOD_DEPTH-10)
+        # 双方账户当场转移；市场自己的库存只在回合末结算时变更。
+        self.assertEqual(dict(world.market.snapshot().inventory)['native:food'], FOOD_DEPTH)
         self.assertEqual(dict(world.market.snapshot().prices)['native:food'], FOOD_BASE)
+        world.market.settle()
+        self.assertEqual(dict(world.market.snapshot().inventory)['native:food'], FOOD_DEPTH-10)
         self.assertEqual(trade.period, 0)
         with self.assertRaises(FrozenInstanceError):trade.gold = 100
         with self.assertRaises(FrozenInstanceError):world.market.snapshot().period = 3
@@ -183,20 +186,18 @@ class TestMarket(unittest.TestCase):
             with self.subTest(args=args),self.assertRaises((ValueError,KeyError)):action(*args)
             self.assert_unchanged(world, before)
 
-    def test_inventory_is_a_hard_limit_and_carry_is_per_owner(self):
+    def test_short_inventory_is_allowed_until_the_period_settles_and_carry_is_per_owner(self):
         world = self.world()
         world.market.buy('Qin','native:food',1)
         self.assertEqual(world.market.quote('native:food',1,'buy','Chu').carry_before,0)
         self.assertGreater(world.market.quote('native:food',1,'buy','Qin').carry_before,0)
         world.market.buy('Qin','native:food',FOOD_DEPTH-6)
-        before = world.runtime.save_mod_state(world)
-        with self.assertRaisesRegex(ValueError,'库存不足'):
-            world.market.buy('Chu','native:food',6)
-        self.assert_unchanged(world,before)
-        with self.assertRaisesRegex(ValueError,'库存不足'):
-            world.market.quote('native:food',6,'buy','Chu')
-        self.assertEqual(world.market.buy('Chu','native:food',5).quantity,5)
-        self.assertEqual(dict(world.market.snapshot().inventory)['native:food'],0)
+        # 当期库存不再构成拒单理由：结算前仍是开局库存，买卖双方账户即时成交。
+        self.assertEqual(dict(world.market.snapshot().inventory)['native:food'],FOOD_DEPTH)
+        self.assertEqual(world.market.buy('Chu','native:food',6).quantity,6)
+        self.assertEqual(world.market.quote('native:food',6,'buy','Chu').quantity,6)
+        world.market.settle()
+        self.assertEqual(dict(world.market.snapshot().inventory)['native:food'],-1)
 
     def test_period_close_drifts_the_reference_and_reprices(self):
         world = self.world()
@@ -235,7 +236,8 @@ class TestMarket(unittest.TestCase):
         # 大买：基准被推高，外部随后照着更高的基准补货，市场是长大了而不是被抽干。
         buying = self.world()
         buying.market.buy('Qin','native:food',FOOD_DEPTH)
-        self.assertEqual(dict(buying.market.snapshot().inventory)['native:food'],0)
+        # 下单不动市场库存；回合末结算后市场被买空（可到零/负）。
+        self.assertEqual(dict(buying.market.snapshot().inventory)['native:food'],FOOD_DEPTH)
         buying.market.settle()
         grown = buying.market.snapshot()
         self.assertEqual(dict(grown.reference)['native:food'],drift(FOOD_DEPTH,FOOD_DEPTH))
@@ -371,7 +373,7 @@ class TestMarket(unittest.TestCase):
         self.assertEqual(dict(row.reference)['native:food'],FOOD_DEPTH)
         rules = runtime.rules(world,'市场')
         for phrase in ('同一期内所有国家拿到同一报价','报价与先后手无关','单笔订单越大均价越高',
-                       '基准库存（每期按本期净流量偏移','库存不足整单拒绝','外部不回补'):
+                       '基准库存（每期按本期净流量偏移','允许透支','结算后库存可以为负','外部不回补'):
             self.assertIn(phrase,rules)
 
     def test_resource_exchange_validates_all_legs_and_concrete_subclass_rules(self):

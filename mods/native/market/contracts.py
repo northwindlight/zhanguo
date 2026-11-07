@@ -13,8 +13,14 @@ def number(value, *, positive=False):
     return value
 
 
+def signed(value):
+    """Finite number that may be negative (market inventory may go short)."""
+    Resource.finite_number(value)
+    return value
+
+
 def integer(value, minimum=0):
-    if type(value) is not int or value < minimum:
+    if type(value) is not int or minimum is not None and value < minimum:
         raise ValueError('Invalid integer')
     return value
 

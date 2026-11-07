@@ -1,7 +1,7 @@
 """Default price curve: a finite buffer that is priced by how full it is."""
 import math
 
-from mods.native.market.contracts import PricingEngine, PricePath, PriceSettlement, integer, number
+from mods.native.market.contracts import PricingEngine, PricePath, PriceSettlement, integer, number, signed
 
 # exp(700) ≈ 1.01e304：离 float 的 1.8e308 还剩一个量级的安全边际。
 _MAX_LOG = 700.0
@@ -68,7 +68,10 @@ class InventoryPricing(PricingEngine):
 
     def level(self, listing, inventory, reference, policy):
         scale = number(reference, positive=True)
-        gap = (scale - number(inventory)) / scale
+        # The buffer may run short (negative inventory): the market settles its
+        # book at the turn boundary and prices the shortage rather than refusing
+        # the order at submission time.
+        gap = (scale - signed(inventory)) / scale
         # Absolute numerical guardrails, unrelated to the opening base price.
         log_price = math.log(listing.base_price) + number(policy.elasticity) * gap
         price = (policy.low if log_price <= math.log(policy.low) else

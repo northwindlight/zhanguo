@@ -49,8 +49,11 @@ class TestRuleMarket(unittest.TestCase):
             self.assertTrue(r['ok'],r)
             for key in ('gold','exact_total','carry_after'):
                 self.assertEqual(q[key],r['data'][key])
-        with self.assertRaises(ValueError):
-            p.call_api('economy:queries','trade_quote',{'resource':WOOD,'quantity':100000,'side':'buy'})
+        for args in ({'resource':WOOD,'quantity':0,'side':'buy'},
+                     {'resource':WOOD,'quantity':-1,'side':'buy'},
+                     {'resource':WOOD,'quantity':1,'side':'invalid'}):
+            with self.subTest(args=args),self.assertRaises(ValueError):
+                p.call_api('economy:queries','trade_quote',args)
         tool=p.query('query',{'panel':'trade_quote','resource':'wood','quantity':2,'side':'buy'})
         self.assertEqual(tool['quantity'],2)
 

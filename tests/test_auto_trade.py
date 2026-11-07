@@ -55,8 +55,11 @@ class TestAutoTrading(unittest.TestCase):
         w=self.world();m=w.market;m.buy('Chu','native:wood',1915)
         m.set_auto_trade('Qin','native:wood',buy_below=50)
         result=m.run_auto_trades('Qin')['orders'][0]
-        self.assertEqual(result['quantity'],5);self.assertEqual(result['status'],'partial')
-        self.assertEqual(m.inventory['native:wood'],0)
+        # 买入不再受当期市场库存限制：不足的部分在回合末结算时记成负库存。
+        self.assertEqual(result['quantity'],50);self.assertEqual(result['status'],'filled')
+        self.assertEqual(m.inventory['native:wood'],1920)
+        m.settle()
+        self.assertEqual(m.inventory['native:wood'],-45)
 
     def test_average_price_limit_includes_spread_depth_and_prior_own_volume(self):
         w=self.world();m=w.market
@@ -70,12 +73,15 @@ class TestAutoTrading(unittest.TestCase):
         m.set_auto_trade('Qin','native:food',sell_above=9000,sell_limit=50,min_sell_price=limit-1e-12)
         self.assertEqual(m.run_auto_trades('Qin')['orders'][0]['quantity'],10)
 
-    def test_empty_market_price_block_paused_and_removed_rules_cannot_trade(self):
+    def test_blocked_price_orders_and_paused_or_removed_rules_do_not_trade(self):
         w=self.world();m=w.market;m.buy('Chu','native:wood',1920)
         m.set_auto_trade('Qin','native:wood',buy_below=50)
         m.set_auto_trade('Qin','native:food',sell_above=0,min_sell_price=1000)
         result=m.run_auto_trades('Qin')['orders']
-        self.assertTrue(all(r['quantity']==0 and r['status']=='blocked' for r in result))
+        # 卖单被最低均价挡住；买单不再因“市场没货”被挡，按透支成交。
+        self.assertEqual([(r['resource'],r['side'],r['status']) for r in result],
+                         [('native:food','sell','blocked'),('native:wood','buy','filled')])
+        self.assertEqual(result[1]['quantity'],50)
         before=w.resources.snapshot('Qin');m.settle()
         m.set_auto_trade('Qin','native:food',sell_above=0,enabled=False)
         m.remove_auto_trade('Qin','native:wood');self.assertFalse(m.run_auto_trades('Qin')['orders'])
