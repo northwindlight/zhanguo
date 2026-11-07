@@ -158,6 +158,43 @@ class TestParallelActionPeriod(unittest.TestCase):
         self.assertEqual(rows,order)
         self.assertNotEqual(recorder.done,order)
 
+    def normalized(self,h):
+        """去掉 id 与日志顺序后的世界关键状态：并发只允许这些结果保持不变。"""
+        w=h.world;sites={}
+        for inst in w.buildings.snapshot().instances:
+            sites.setdefault(inst.site,[]).append((inst.kind,inst.level,inst.remaining))
+        for site in sites:sites[site]=sorted(sites[site])
+        return {'resources':{n.id:[(r.id,round(r.amount,6)) for r in w.resources.snapshot(n.id)]
+                             for n in w.nations.snapshot()},
+                'units':sorted((u.owner,u.kind,u.x,u.y,u.hp,u.engaged) for u in w.units if u.alive),
+                'buildings':sites,
+                'territory':sorted((tuple(t.tile.position),t.owner,t.tile.core) for t in w.territory.snapshot()),
+                'market':(dict(w.market.snapshot().inventory),dict(w.market.snapshot().prices)),
+                'period':w.government.period()}
+
+    def play(self,workers,nations=3,size=24,cycles=2,setup=None):
+        cfg={'map_size':size,'seed':73,'planning_workers':workers,
+             'nations':[{'id':f'scenario:n{i}','name':f'N{i}','client':'rule'} for i in range(nations)]}
+        h=GameHost.new(cfg)
+        if setup is not None:setup(h)
+        for _ in range(cycles):h.cycle()
+        return h
+
+    def test_serial_and_parallel_outcomes_match_without_conflicts(self):
+        self.assertEqual(self.normalized(self.play(1)),self.normalized(self.play(2)))
+
+    def test_serial_and_parallel_outcomes_match_for_conflicting_pair(self):
+        def setup(h):
+            w=h.world;order=list(h.session.turn_order());a,b=order[:2]
+            sites={s.owner:s.position for s in w.buildings.snapshot().sites}
+            ua=w.military.seed(a,'native:infantry',*sites[a])[0]
+            ub=w.military.seed(b,'native:infantry',*sites[b])[0]
+            w.units.by_id(ua.id,a).update(x=10,y=10)
+            w.units.by_id(ub.id,b).update(x=10,y=11)
+            h.player(a).submit('relations',{'action':'declare_war','target':b,'confirm':True})
+        self.assertEqual(self.normalized(self.play(1,setup=setup)),
+                         self.normalized(self.play(2,setup=setup)))
+
     def test_planning_workers_must_be_a_positive_integer(self):
         with self.assertRaises(Exception):GameHost.new(config(0))
 

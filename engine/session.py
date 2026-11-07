@@ -504,8 +504,11 @@ class Session:
         def run(group):
             out={}
             for actor in group:
-                initial=self.player(actor)
-                if initial.action_state()['can_act']:self.before_actor(initial)
+                # 行动开始前工作（自动军令推进等）会直接改世界，必须与会话锁
+                # 保护的写入互斥，不能让两个并行组同时推进。
+                with self.lock:
+                    initial=self.player(actor)
+                    if initial.action_state()['can_act']:self.before_actor(initial)
                 out[actor]=self._play_actor(actor,emit=emit,head=head,
                     on_call=on_call,on_batch=None,on_human=None,
                     **({'on_stream':on_stream} if on_stream else {}))

@@ -253,19 +253,24 @@ class Military(RecruitmentQueue,MarchOrders):
         """本国本回合可能触及的格子：现有位置 + 移动/进攻可达 + 军令目标。
 
         用真实可达范围（不按玩家视野裁剪）判定是否可能干扰，并按周期缓存，
-        避免每对玩家重复遍历军队操作。"""
+        避免每对玩家重复遍历军队操作。缓存是“回合开始前”的一次性判定：同一
+        周期内后加军令不会刷新，因此调用方应在行动期开始前取结果。"""
         period=self._period()
         if self._envelope_period!=period:
             self._envelope_cache={};self._envelope_period=period
         if owner in self._envelope_cache:return self._envelope_cache[owner]
-        cells=set()
+        cells=set();reachable_cache={}
         for unit in self._units:
             if not unit.alive or unit.owner!=owner:continue
             cells.add((unit.x,unit.y))
+            speed=self._parameter(owner,'unit.speed.'+unit.kind,unit.definition['speed'])
             for attack in (False,True):
-                try:destinations=self.reachable(owner,unit.id,attack)
-                except ValueError:continue
-                for position,_ in destinations:cells.add(tuple(position))
+                # 同位置、同兵种、同速度（含同军令状态）的军队可达集合相同，复用结果。
+                key=(unit.x,unit.y,unit.kind,speed,attack)
+                if key not in reachable_cache:
+                    try:reachable_cache[key]=self.reachable(owner,unit.id,attack)
+                    except ValueError:reachable_cache[key]=()
+                for position,_ in reachable_cache[key]:cells.add(tuple(position))
         for order in self._march_orders.values():
             if order.owner!=owner:continue
             for node in order.nodes:cells.add(tuple(node.position))
