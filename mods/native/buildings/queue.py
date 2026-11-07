@@ -43,12 +43,12 @@ class ConstructionQueue:
             tuple(costs.items()),quote['penalty'],quote['discount'],quote['policy_pct'])
         if costs:self._resources('exchange',owner,costs,{})
         self._queued[order.id]=order;self._next_id+=1
-        started=self.advance_orders(owner,site_id=site_id)
+        # 开工在回合末统一执行（NativeSession 在结算结束后推进队列），提交只
+        # 预付材料并占位；条目在开工前仍可取消并全额退回。
         return {'id':order.id,'owner':owner,'site':site_id,'kind':kind,'level':order.level,
             'period':self.period,'costs':dict(order.costs),'paid':dict(order.costs),
             'position':list(self._sites[site_id].position),
-            'status':'queued' if order.id in self._queued else 'construction',
-            'started':started}
+            'status':'queued','started':()}
 
     def _queued_start_quote(self, order):
         quote=self._quote(order.owner,order.site,order.kind,policy_pct=order.policy_pct,starting=True)

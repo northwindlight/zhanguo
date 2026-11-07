@@ -34,12 +34,12 @@ class RecruitmentQueue:
         order=RecruitOrder(self._next_recruit_order,owner,site,kind,count,count,self._period(),tuple(per.items()))
         if quote['costs']:self._call('native:resource-exchange','exchange',owner,quote['costs'],{})
         self._recruit_queue[order.id]=order;self._next_recruit_order+=1
-        started=self.advance_recruit_orders(owner,site=site)
-        current=self._recruit_queue.get(order.id)
+        # 出兵与建筑开工一样放到回合末：提交只预付并占位，结算结束后由
+        # NativeSession 统一推进；取消可退回尚未生成的单位预付。
         return {'id':order.id,'owner':owner,'site':site,'kind':kind,'count':count,
-            'remaining':current.remaining if current else 0,'period':self._period(),
+            'remaining':count,'period':self._period(),
             'paid':quote['costs'],'position':list(quote['position']),
-            'status':'queued' if current else 'completed','started':started}
+            'status':'queued','started':()}
 
     def cancel_recruit_order(self, owner, identity):
         self._action(owner);integer(identity,1)

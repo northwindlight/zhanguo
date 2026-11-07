@@ -71,28 +71,29 @@ class NativeSession(NativeObserver,GridSession):
 
     def cycle(self,**callbacks):
         if self.victory_event is not None:raise ValueError('Game has ended with a victory event')
-        # Start prepaid work in the new action period, after the previous
-        # period's accounting has closed. Settlement keeps its stage order.
-        self._boundary=False;self._callbacks=callbacks.get('on_result')
-        try:
-            for actor in self.turn_order():
-                player=self.player(actor)
-                if not player.action_state()['can_act']:continue
-                started=False
-                for receipt in self.world.buildings.advance_orders(actor):
-                    place=self.world.buildings.site(receipt.site).position
-                    self._record_production_start(player,'build',{'kind':receipt.kind,'x':place[0],'y':place[1]},receipt)
-                    started=True
-                for row in self.world.military.advance_recruit_orders(actor):
-                    place=row['position']
-                    self._record_production_start(player,'military',{'action':'recruit','kind':row['kind'],'count':row['count'],'x':place[0],'y':place[1]},row['units'])
-                    started=True
-                if started and callbacks.get('on_batch'):callbacks['on_batch'](actor,None)
-        finally:self._callbacks=None
-        receipts=super().cycle(**callbacks)
+        self._boundary=False;self._batch_callback=callbacks.get('on_batch')
+        try:receipts=super().cycle(**callbacks)
+        finally:self._batch_callback=None
         # Knowledge is sampled after the unchanged domain stage sequence.
         self.world.intelligence.capture_maps();self.world.intelligence.publish_maps()
         return receipts
+
+    def before_settlement(self):
+        """行动期结束、统一结算开始前：推进预付的建设与征兵队列。
+
+        这两类都是"提交时预付、回合末开工"的操作；军令与手动移动/进攻仍是
+        行动期即时执行（dynamic-turn 的行动期由玩家自行调度），不在此列。"""
+        for actor in self.turn_order():
+            try:player=self.player(actor)
+            except (ValueError,KeyError):continue
+            if not player.action_state()['active']:continue
+            for receipt in self.world.buildings.advance_orders(actor):
+                place=self.world.buildings.site(receipt.site).position
+                self._record_production_start(player,'build',{'kind':receipt.kind,'x':place[0],'y':place[1]},receipt)
+            for row in self.world.military.advance_recruit_orders(actor):
+                place=row['position']
+                self._record_production_start(player,'military',{'action':'recruit','kind':row['kind'],'count':row['count'],'x':place[0],'y':place[1]},row['units'])
+            if self._batch_callback:self._batch_callback(actor,None)
 
     def before_actor(self, player):
         actor=player.actor

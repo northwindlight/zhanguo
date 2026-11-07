@@ -21,6 +21,8 @@ class TestMapPlanningReadModels(unittest.TestCase):
     def test_shared_resource_space_reserves_actual_and_pending_and_refunds_release_it(self):
         self.w.buildings._sites[self.site.id]=replace(self.site,capacity=4,resources=(('native:farmland',2),('native:wood',1)))
         first=self.w.buildings.enqueue(A,self.site.id,'native:farm')
+        # 提交只入队；这里跑一次回合末开工，验证施工中的占位口径。
+        self.w.buildings.advance_orders(A)
         second=self.w.buildings.enqueue(A,self.site.id,'native:militia-camp')
         space=self.space();farmland=next(r for r in space['resources'] if r['resource']=='native:farmland')
         self.assertEqual((space['occupied'],space['free'],space['construction'],space['pending']),(3,1,1,1))

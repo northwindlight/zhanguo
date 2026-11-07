@@ -15,7 +15,12 @@ class TestConstructionQueue(unittest.TestCase):
         self.site=next(s for s in self.w.buildings.snapshot().sites if s.owner==A)
 
     def stocks(self):return {s.id:s.amount for s in self.w.resources.snapshot(A)}
-    def enqueue(self,kind='castle'):return self.w.buildings.enqueue(A,self.site.id,'native:'+kind)
+    def enqueue(self,kind='castle'):
+        # 回合内提交只入队；测试在这里显式跑一次回合末开工，保持原有用例的
+        # “提交后立即看到施工”的观察口径。
+        order=self.w.buildings.enqueue(A,self.site.id,'native:'+kind)
+        self.w.buildings.advance_orders(A)
+        return order
     def cycle(self):self.h.cycle(on_human=lambda p:[HumanAPI(self.h).submit(A,'end_turn',{})])
     def reload(self):
         with TemporaryDirectory() as tmp:
@@ -24,7 +29,7 @@ class TestConstructionQueue(unittest.TestCase):
 
     def test_queue_prepays_once_and_survives_boundary_and_reload(self):
         before=self.stocks();first=self.enqueue();second=self.enqueue()
-        self.assertEqual((first['status'],second['status']),('construction','queued'))
+        self.assertEqual((first['status'],second['status']),('queued','queued'))
         self.assertEqual(before['native:gold']-self.stocks()['native:gold'],150)
         self.assertEqual(dict(self.w.buildings.reserved_costs(A)),{'native:gold':100,'native:wood':20})
         self.cycle();loaded=self.reload();before={s.id:s.amount for s in loaded.world.resources.snapshot(A)}
@@ -128,7 +133,13 @@ class TestRecruitmentQueue(unittest.TestCase):
         self.w.buildings.seed(self.site.id,'native:wood-power-plant')
 
     def stocks(self):return {s.id:s.amount for s in self.w.resources.snapshot(A)}
-    def enqueue(self,count=3,kind='infantry'):return self.w.military.enqueue_recruit(A,self.site.id,'native:'+kind,count)
+    def enqueue(self,count=3,kind='infantry'):
+        # 提交只入队并预付；这里显式跑一次回合末出兵，保持原有用例口径。
+        result=self.w.military.enqueue_recruit(A,self.site.id,'native:'+kind,count)
+        self.w.military.advance_recruit_orders(A)
+        current=next((r for r in self.w.military.recruit_orders(A) if r['id']==result['id']),None)
+        return {**result,'remaining':current['remaining'] if current else 0,
+                'status':'queued' if current else 'completed'}
     def cycle(self):self.h.cycle(on_human=lambda p:[self.api.submit(A,'end_turn',{})])
 
     def test_partial_recruitment_cancels_only_unspawned_costs(self):
@@ -145,6 +156,7 @@ class TestRecruitmentQueue(unittest.TestCase):
         point=dict(zip(('x','y'),self.site.position))
         receipt=self.api.submit(A,'queue_recruit',{'kind':'infantry','count':3,**point})
         self.assertTrue(receipt['ok']);identity=receipt['data']['id']
+        self.w.military.advance_recruit_orders(A)
         rows=self.api.state(A)['production_queue']['recruitment']
         self.assertEqual((rows[0]['completed'],rows[0]['remaining']),(1,2))
         queried=self.h.player(A).query('query',{'panel':'recruitment_queue'})
@@ -160,8 +172,8 @@ class TestRecruitmentQueue(unittest.TestCase):
         self.assertEqual(self.h.to_save(),h.to_save())
         results=[]
         def play(p):
-            self.assertEqual(h.world.military.recruit_orders(A)[0]['remaining'],1)
-            self.assertEqual(len(h.world.units.of(A)),2)
+            self.assertEqual(h.world.military.recruit_orders(A)[0]['remaining'],2)
+            self.assertEqual(len(h.world.units.of(A)),1)
             return [HumanAPI(h).submit(A,'end_turn',{})]
         h.cycle(on_human=play,on_result=lambda *r:results.append(r))
         automatic=[r for r in results if r[3].get('automatic')=='production_queue']
@@ -201,8 +213,8 @@ class TestRecruitmentQueue(unittest.TestCase):
         self.cycle();before=self.stocks()
         def play(p):
             self.assertEqual(self.stocks(),before)
-            self.assertEqual(len(self.w.units.of(A)),2)
-            self.assertEqual([u.kind for u in self.w.units.of(A)],['native:infantry']*2)
+            self.assertEqual(len(self.w.units.of(A)),1)
+            self.assertEqual([u.kind for u in self.w.units.of(A)],['native:infantry'])
             return [self.api.submit(A,'end_turn',{})]
         self.h.cycle(on_human=play)
         self.assertEqual([r['kind'] for r in self.w.military.recruit_orders(A)],['native:cavalry'])

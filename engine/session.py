@@ -384,6 +384,13 @@ class Session:
         """Distribution action-start work; truthy requests a presentation flush."""
         return False
 
+    def before_settlement(self):
+        """Turn-end hook: every actor has ended its action period and the world
+        is still in the action phase, but settlement has not started. Deferred
+        orders (movement, prepaid construction/recruitment) are applied here so
+        their effects only become visible after the turn is resolved."""
+        pass
+
     def cycle(self,*,on_result=None,emit=None,head=None,on_call=None,on_stream=None,on_batch=None,on_human=None):
         if self.victory_event is not None:raise ValueError('Game has ended with a victory event')
         def call(actor,step,receipts):
@@ -416,6 +423,7 @@ class Session:
                     if self.generations[actor]==generation:break
                     transitions+=1
                     if transitions>8:raise RuntimeError('Too many actor control transitions in one cycle')
+            self.before_settlement()
             self.world.resolve_turn();self.world.phase='行动'
             if self._scenario:
                 # Administrative/scheduled joins can atomically replace world.
