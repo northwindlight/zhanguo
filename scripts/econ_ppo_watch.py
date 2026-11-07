@@ -25,7 +25,7 @@ def digest(path):
 
 def write(path, data):
     tmp = path.with_suffix('.tmp')
-    tmp.write_text(json.dumps(dict(at=time.time(), **data), ensure_ascii=False, indent=2)+'\n')
+    tmp.write_text(json.dumps({**data,'at':time.time()}, ensure_ascii=False, indent=2)+'\n')
     tmp.replace(path)
 
 
