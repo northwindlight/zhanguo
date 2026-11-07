@@ -16,7 +16,7 @@ def tools(runtime):
         Tool('plan', plan, owner='native:government', api=('plan',),
              description='提交持久国策：写未来多回合的经济、军事、情报与外交战略，明确目标、优先级、资源约束和调整条件，依据事实而非编造。不是本回合流水账。到期或战略变化时修订，已有有效国策无需反复提交。'),
         Tool('end_turn', end_turn, owner='native:government', api=('end_turn',),
-             description='结束本国行动。AI 的 summary 只用一两句概括本回合实际执行的结果与关键待结算事项；详细行动已有回执，不重复国策、逐格清单或下回合战略。AI 必须先有有效国策；正式绑定的真人可省略 summary、无需国策。结束成功后，未回应的已收到外交提议提交自动拒绝、回合末生效，开放的联盟投票未表态则自动反对。'),
+             description='结束本国行动。AI 的 summary 只用一两句概括本回合实际执行的结果与关键待结算事项；详细行动已有回执，不重复国策、逐格清单或下回合战略。AI 必须先有有效国策；正式绑定的真人可省略 summary、无需国策。结束后，未回应的已收到外交提议与未表态的联盟投票在回合末按行动轮换次序统一自动处理（拒绝／反对），与谁先结束行动无关。'),
         Tool('government', government, read_only=True, fact=True, panel=True,
              owner='native:government', api=('snapshot',),
              description='查看本国有效国策、到期周期、结束状态与回合小结；无需参数。'),
@@ -55,16 +55,9 @@ def _end_turn(args, receipt, actor, ctx):
         return None  # 失败交给通用错误渲染，不能把提交的小结当作成功回执。
     data = receipt.get('data')
     text = data.get('text', args.get('summary', '')) if isinstance(data, dict) else args.get('summary', '')
-    result = ctx.text('tool.end_turn.summary', text=text)
-    rejected = data.get('auto_rejected', {}) if isinstance(data, dict) else {}
-    for kind in ('offers', 'votes'):
-        if rejected.get(kind):
-            result += '\n' + ctx.text(f'tool.end_turn.auto_{kind}', ids='、'.join('#' + str(i) for i in rejected[kind]))
-    automatic=data.get('auto_trades',{}) if isinstance(data,dict) else {}
-    for order in automatic.get('orders',[]):
-        result+='\n自动交易 '+ctx.label('content',order['resource'])+' '+('买入' if order['side']=='buy' else '卖出')+f' {order["quantity"]}/{order["requested"]}'
-        result+=f'；实际金币 {order["gold"]}' if order['quantity'] else '；'+order.get('reason','未成交')
-    return result
+    # 自动交易与外交拒签在回合末按既有轮换次序统一执行，不再随 end_turn 回执返回；
+    # 结果在下期的市场/外交面板里查看。
+    return ctx.text('tool.end_turn.summary', text=text)
 
 
 PANELS = {'government': _government}

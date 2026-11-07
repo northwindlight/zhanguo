@@ -43,7 +43,9 @@ class TestReviewRepairs(unittest.TestCase):
                     h = fixture.host(experimental); offer = fixture.offer(h, kind)
                     result = h.player(C).call_api('native:government', 'end_turn', summary='完成本期实际经营')
                     self.assertTrue(result['ok'], result)
-                    self.assertEqual(result['data']['auto_rejected']['offers'], [offer])
+                    # 回合末统一收尾（测试显式触发；生产代码在 before_settlement 按轮换次序执行）。
+                    rejected = h.session._settle_end_turn(h.player(C))
+                    self.assertEqual(rejected['offers'], [offer])
                     self.assertTrue(h.player(C).call_api('native:diplomacy', 'snapshot')['offers'])
                     h.cycle()
                     self.assertFalse(h.player(C).call_api('native:diplomacy', 'snapshot')['offers'])
@@ -71,8 +73,9 @@ class TestReviewRepairs(unittest.TestCase):
         self.assertTrue(p.call_api('native:diplomacy', 'snapshot')['offers'])
         h.cycle()
         self.assertFalse(p.call_api('native:diplomacy', 'snapshot')['offers'])
-        ends = [r for r in h.audit if r['actor'] == C and r['action'] == 'end_turn']
-        self.assertEqual(ends[-1]['receipt']['data']['auto_rejected']['offers'], [offer])
+        ends = [r for r in h.audit if r['actor'] == C and r['action'] == 'relations'
+                and (r.get('receipt') or {}).get('automatic') == 'diplomacy_finish']
+        self.assertEqual(ends[-1]['receipt']['data']['offers'], [offer])
 
     def test_memory_can_recover_sent_promises_after_replay_is_gone(self):
         h = diplomacy.TestDiplomacyFinish().host(); p = h.player(Q)

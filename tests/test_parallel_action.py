@@ -10,15 +10,21 @@ from host import GameHost
 
 class Recorder:
     def __init__(self):
-        self.lock=threading.Lock();self.active=0;self.peak=0;self.done=[]
+        self.lock=threading.Lock();self.active=0;self.peak=0;self.done=[];self.intervals={}
 
     def enter(self,actor):
         with self.lock:
             self.active+=1;self.peak=max(self.peak,self.active)
+            self.intervals[actor]=[time.monotonic(),None]
 
     def leave(self,actor):
         with self.lock:
             self.active-=1;self.done.append(actor)
+            if actor in self.intervals:self.intervals[actor][1]=time.monotonic()
+
+    def overlap(self,left,right):
+        a0,a1=self.intervals[left];b0,b1=self.intervals[right]
+        return a0<b1 and b0<a1
 
 
 class FakeRuleClient:
@@ -90,6 +96,67 @@ class TestParallelActionPeriod(unittest.TestCase):
         self.assertTrue(h.session._boundary)
         self.assertEqual(h.session.world.phase,'行动')
         self.assertEqual([row['actor'] for row in h.session.last_results],order)
+
+    def seed_units(self,h,positions):
+        """在各国自有格种子一支军队，再把它挪到指定格，构造干扰/不干扰局面。"""
+        w=h.world;sites={s.owner:s.position for s in w.buildings.snapshot().sites}
+        units={}
+        for actor,(x,y) in positions.items():
+            seeded=w.military.seed(actor,'native:infantry',*sites[actor])[0]
+            unit=w.units.by_id(seeded.id,actor)
+            unit.update(x=x,y=y)
+            units[actor]=unit
+        return units
+
+    def test_conflicting_pair_is_serialized_while_independent_actor_runs_parallel(self):
+        h,recorder=self.host(workers=2,delays=(0.2,0.2,0.2))
+        order=list(h.session.turn_order());a,b,c=order
+        # a、b 的军队重合 → 可达范围必然相交；c 远在角落。
+        self.seed_units(h,{a:(5,5),b:(5,5),c:(1,1)})
+        h.cycle()
+        self.assertFalse(recorder.overlap(a,b))
+        self.assertTrue(recorder.overlap(c,a) or recorder.overlap(c,b))
+        self.assertEqual([row['actor'] for row in h.session.last_results],order)
+
+    def test_far_apart_actors_are_all_concurrent(self):
+        h,recorder=self.host(workers=3,delays=(0.12,0.12,0.12))
+        order=list(h.session.turn_order())
+        self.seed_units(h,{order[0]:(1,1),order[1]:(8,8),order[2]:(9,1)})
+        h.cycle()
+        self.assertEqual(recorder.peak,3)
+
+    def test_action_conflicts_uses_cached_envelopes(self):
+        h,recorder=self.host(workers=2)
+        order=list(h.session.turn_order())
+        self.seed_units(h,{order[0]:(5,5),order[1]:(5,5),order[2]:(1,1)})
+        military=h.world.military;calls=[]
+        original=military.reachable
+        def counted(*args,**kwargs):
+            calls.append(args);return original(*args,**kwargs)
+        military.reachable=counted
+        pairs=h.session.action_conflicts(order);first=len(calls)
+        h.session.action_conflicts(order)
+        self.assertEqual(len(calls),first)
+        self.assertIn((order[0],order[1]),pairs)
+
+    def test_action_groups_respects_conflict_edges(self):
+        from engine.session import Session
+        groups=Session._action_groups(['a','b','c','d'],[('a','b'),('c','d')])
+        self.assertEqual(groups,[['a','b'],['c','d']])
+
+    def test_auto_trades_follow_rotation_order_not_completion_order(self):
+        # 完成顺序被故意做成与轮换顺序相反；自动交易仍按轮换次序入账。
+        h,recorder=self.host(workers=3,delays=(0.25,0.05,0.01))
+        order=list(h.session.turn_order())
+        for actor in order:
+            receipt=h.player(actor).call_api('economy:queries','auto_trade',
+                {'resource':'native:food','buy_below':2000,'buy_limit':10})
+            self.assertTrue(receipt['ok'],receipt)
+        h.cycle()
+        rows=[row['actor'] for row in h.audit
+              if (row.get('receipt') or {}).get('automatic')=='auto_trades']
+        self.assertEqual(rows,order)
+        self.assertNotEqual(recorder.done,order)
 
     def test_planning_workers_must_be_a_positive_integer(self):
         with self.assertRaises(Exception):GameHost.new(config(0))

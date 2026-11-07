@@ -18,24 +18,22 @@ class NativeSession(NativeObserver,GridSession):
             cfg['rule_seed']=random.Random(f'{self.grid()[1]}:{item["id"]}:rule').randrange(2**63)
         return cfg
 
-    def _finish(self,player,receipt):
-        if receipt['ok']:
-            automatic=self.runtime.object_call(self.world,'native:market','run_auto_trades',player.actor)
-            if automatic['orders']:
-                receipt={**receipt,'data':{**receipt['data'],'auto_trades':wire(automatic)}}
-            rejected=self.runtime.object_call(self.world,'native:diplomacy','finish',player.actor)
-            if rejected['offers'] or rejected['votes']:
-                receipt={**receipt,'data':{**receipt['data'],'auto_rejected':rejected}}
-        return receipt
+    def _settle_end_turn(self,player):
+        """回合末按行动轮换次序统一执行的收尾：自动交易与外交拒签。
 
-    def submit(self,player,action,arguments,next_submit):
-        receipt=super().submit(player,action,arguments,next_submit)
-        return self._finish(player,receipt) if action=='end_turn' else receipt
+        这些效果只与既有轮换次序有关，与谁先结束行动无关；因此不挂在
+        end_turn 提交上，而是在 before_settlement 里按 turn_order 执行。"""
+        automatic=self.runtime.object_call(self.world,'native:market','run_auto_trades',player.actor)
+        if automatic['orders']:
+            self._record_automatic(player,'auto_trade',{},automatic,'auto_trades')
+        rejected=self.runtime.object_call(self.world,'native:diplomacy','finish',player.actor)
+        if rejected['offers'] or rejected['votes']:
+            self._record_automatic(player,'relations',{},rejected,'diplomacy_finish')
+        return rejected
 
-    def api_call(self,player,capability,method,arguments,next_call):
-        receipt=super().api_call(player,capability,method,arguments,next_call)
-        return (self._finish(player,receipt)
-                if (capability,method)==('native:government','end_turn') else receipt)
+    def _record_automatic(self,player,action,arguments,data,source):
+        self.record(player,action,arguments,{'api':1,'actor':player.actor,'action':action,'period':self.clock(),
+            'ok':True,'status':'effective','code':None,'message':'','data':wire(data),'automatic':source})
 
     @property
     def arrival_distance(self):return 8 if self.grid()[0]>=32 else 3
@@ -78,15 +76,21 @@ class NativeSession(NativeObserver,GridSession):
         self.world.intelligence.capture_maps();self.world.intelligence.publish_maps()
         return receipts
 
+    def action_conflicts(self, actors):
+        """行动期互斥对由军队域判定：可达/占据/军令目标可能重叠的两国顺序处理。"""
+        return self.world.military.action_conflicts(actors)
+
     def before_settlement(self):
         """行动期结束、统一结算开始前：推进预付的建设与征兵队列。
 
         这两类都是"提交时预付、回合末开工"的操作；军令与手动移动/进攻仍是
-        行动期即时执行（dynamic-turn 的行动期由玩家自行调度），不在此列。"""
+        行动期即时执行（dynamic-turn 的行动期由玩家自行调度），不在此列。
+        自动交易与外交拒签也只在这里按既有轮换次序执行，与谁先结束行动无关。"""
         for actor in self.turn_order():
             try:player=self.player(actor)
             except (ValueError,KeyError):continue
             if not player.action_state()['active']:continue
+            if not player.action_state()['can_act']:self._settle_end_turn(player)
             for receipt in self.world.buildings.advance_orders(actor):
                 place=self.world.buildings.site(receipt.site).position
                 self._record_production_start(player,'build',{'kind':receipt.kind,'x':place[0],'y':place[1]},receipt)

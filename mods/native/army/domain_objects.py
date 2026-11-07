@@ -35,6 +35,7 @@ class Military(RecruitmentQueue,MarchOrders):
         self._recruit_queue={};self._next_recruit_order=1
         self._march_orders={}
         self._recruited={};self._facts=[];self._rng=None;self._seed=None;self._grid_short={};self._events=[]
+        self._envelope_cache={};self._envelope_period=None
         self._world,self._domain=None,None
 
     def bind_state(self, world, key):
@@ -247,6 +248,44 @@ class Military(RecruitmentQueue,MarchOrders):
                          'can_attack_current_tile':u.can_attack(self._period(),u.x,u.y),
                          'destinations':self.reachable(owner,u.id,attack,visible_only=True)})
         return tuple(rows)
+
+    def _action_envelope(self, owner):
+        """本国本回合可能触及的格子：现有位置 + 移动/进攻可达 + 军令目标。
+
+        用真实可达范围（不按玩家视野裁剪）判定是否可能干扰，并按周期缓存，
+        避免每对玩家重复遍历军队操作。"""
+        period=self._period()
+        if self._envelope_period!=period:
+            self._envelope_cache={};self._envelope_period=period
+        if owner in self._envelope_cache:return self._envelope_cache[owner]
+        cells=set()
+        for unit in self._units:
+            if not unit.alive or unit.owner!=owner:continue
+            cells.add((unit.x,unit.y))
+            for attack in (False,True):
+                try:destinations=self.reachable(owner,unit.id,attack)
+                except ValueError:continue
+                for position,_ in destinations:cells.add(tuple(position))
+        for order in self._march_orders.values():
+            if order.owner!=owner:continue
+            for node in order.nodes:cells.add(tuple(node.position))
+        self._envelope_cache[owner]=cells
+        return cells
+
+    def action_conflicts(self, actors):
+        """行动期必须顺序处理的“可能互相干扰”国家对。
+
+        两国任一军队本回合可能到达/占据/进攻到同一格，或军令目标重叠，即视为
+        可能干扰；有重叠的国家按行动顺序串行处理，没有重叠的国家可以并行，
+        因此不需要额外的观察时序隔离。结果按周期缓存军队可达范围。"""
+        actors=list(actors)
+        envelopes={actor:self._action_envelope(actor) for actor in actors}
+        pairs=[]
+        for index,left in enumerate(actors):
+            for right in actors[index+1:]:
+                if envelopes[left] & envelopes[right]:pairs.append((left,right))
+        return tuple(pairs)
+
     def _batch(self, owner, ids, x, y, attack):
         self._action(owner);self._call('native:territory','check',x,y)
         units,items=self._selection(owner,ids);period=self._period()

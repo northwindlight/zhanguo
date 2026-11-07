@@ -1,4 +1,4 @@
-"""Account-owned standing orders, executed once at the end of its action turn.
+"""Account-owned standing orders, executed once at the turn end in rotation order.
 
 Orders use the same curve, currency carry and atomic trade as manual orders.
 There is no new world-settlement stage or privileged source of goods/cash.

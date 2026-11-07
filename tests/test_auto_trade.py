@@ -133,9 +133,11 @@ class TestAutoTrading(unittest.TestCase):
                 self.assertTrue(other.call_api('economy:queries','auto_trade',resource='wood',sell_above=190,sell_limit=10)['ok'])
                 self.assertNotEqual(other.query('query',{'panel':'market'})['automatic']['rules'],h.player(A).query('query',{'panel':'market'})['automatic']['rules'])
                 receipt=api.submit(A,'end_turn',{})
-                self.assertEqual(receipt['data']['auto_trades']['orders'][0]['quantity'],10)
-                self.assertEqual(h.world.resources.balance(A,'native:food'),30)
+                self.assertTrue(receipt['ok'])
+                # 自动交易不再挂在 end_turn 回执上：回合末按轮换次序统一执行。
                 with self.assertRaises(ValueError):api.submit(A,'auto_trade',{'resource':'food','enabled':False})
+                h.cycle()
+                self.assertEqual(h.world.resources.balance(A,'native:food'),30)
                 self.assertEqual(h.runtime.stage_order,stages)
 
     def test_manual_quote_buttons_are_exact_readonly_and_own_stock_limited(self):
@@ -166,7 +168,9 @@ class TestAutoTrading(unittest.TestCase):
         last=h.world.market.auto_trades(B)['last']
         self.assertEqual(last['period'],0)
         self.assertTrue(any(o['side']=='sell' and o['quantity']>0 for o in last['orders']))
-        self.assertTrue(any('auto_trades' in (row.get('receipt') or {}).get('data',{}) for row in h.audit if row['actor']==B and row['action']=='end_turn'))
+        self.assertTrue(any(row['actor']==B and row['action']=='auto_trade'
+                            and (row.get('receipt') or {}).get('automatic')=='auto_trades'
+                            for row in h.audit))
         with TemporaryDirectory() as directory:
             path=Path(directory)/'game.json';h.save(path);clone=GameHost.load(path,h.cfg)
             self.assertEqual(clone.world.market.to_save(),h.world.market.to_save())

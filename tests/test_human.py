@@ -115,7 +115,10 @@ class TestHumanLifecycle(unittest.TestCase):
         offers=api.state(A)['pending_end']['offers']
         self.assertEqual(len(offers),1)
         receipt=api.submit(A,'end_turn',{})
-        self.assertTrue(receipt['ok']);self.assertEqual(receipt['data']['auto_rejected']['offers'],[offers[0]['id']])
+        self.assertTrue(receipt['ok'])
+        # 拒签在回合末统一执行，不在 end_turn 回执里；测试显式触发收尾。
+        rejected=h.session._settle_end_turn(h.player(A))
+        self.assertEqual(rejected['offers'],[offers[0]['id']])
 
     def test_request_identity_pause_save_and_no_automatic_human_end(self):
         with TemporaryDirectory() as d:

@@ -77,7 +77,7 @@ class MarketMod(GameMod):
             RuleSection('自动交易',
                 '通过 economy(action=auto_trade,resource=...,...) 或 economy:queries.auto_trade 设置本国某资源的常设交易条件。'
                 'buy_below 为补货目标，sell_above 为出售保留量，null关闭该方向，买入目标不得高于出售保留量。'
-                '每国成功结束行动后、统一世界结算之前执行一次，先卖盈余再买短缺；不增加或重排原有结算阶段。'
+                '回合末按既有轮换次序统一执行一次，先卖盈余再买短缺（与谁先结束行动无关）；不增加或重排原有结算阶段。'
                 'buy_limit/sell_limit 限制每期数量，默认50；reserve_gold 保留金币；'
                 'max_buy_price/min_sell_price 限制含价差和滑点的整单均价，null不限。'
                 '商品、资金或均价不满足时只成交满足条件的整数数量，不借贷、不凭空补货。'

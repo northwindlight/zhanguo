@@ -461,15 +461,38 @@ class Session:
             if transitions>8:raise RuntimeError('Too many actor control transitions in one cycle')
         return receipts
 
+    def action_conflicts(self,actors):
+        """行动期必须顺序处理的“可能互相干扰”国家对；默认无已知冲突。
+
+        能互相干扰的国家按行动顺序串行，其余国家并行，因此不需要额外的
+        观察时序隔离。发行版在自己的 Session 里覆盖本方法。"""
+        return ()
+
+    @staticmethod
+    def _action_groups(actors,pairs):
+        parent={actor:actor for actor in actors}
+        def find(x):
+            while parent[x]!=x:
+                parent[x]=parent[parent[x]];x=parent[x]
+            return x
+        for left,right in pairs:
+            if left not in parent or right not in parent:continue
+            a,b=find(left),find(right)
+            if a!=b:parent[b]=a
+        groups={}
+        for actor in actors:groups.setdefault(find(actor),[]).append(actor)
+        return list(groups.values())
+
     def _cycle_parallel(self,emit,head,on_call,on_stream):
-        """并发等待、串行入账：各国客户端同时跑，世界写入仍由会话锁逐条生效。
+        """并发等待、串行入账；可能互相干扰的国家按行动顺序成组串行。
+
         回执按 turn_order 归并；结算仍只执行一次。"""
         from concurrent.futures import ThreadPoolExecutor
         actors=list(self.turn_order())
-        # 行动开始前的分发工作（如自动军令推进）先串行做完。
-        for actor in actors:
-            initial=self.player(actor)
-            if initial.action_state()['can_act']:self.before_actor(initial)
+        if not actors:return []
+        # 先按当前态势（含军令目标）判定冲突分组，再在各自组内按行动顺序
+        # 执行“行动开始前分发工作 + 行动”，使组内语义与串行完全一致。
+        groups=self._action_groups(actors,self.action_conflicts(actors))
         lock=self._callback_lock
         def guard(fn):
             if fn is None:return None
@@ -478,14 +501,23 @@ class Session:
             return invoke
         emit,head,on_call,on_stream=guard(emit),guard(head),guard(on_call),guard(on_stream)
         results={}
-        if not actors:return []
-        with ThreadPoolExecutor(max_workers=min(len(actors),self.planning_workers)) as pool:
-            futures={actor:pool.submit(self._play_actor,actor,emit=emit,head=head,
-                on_call=on_call,on_batch=None,on_human=None,
-                **({'on_stream':on_stream} if on_stream else {})) for actor in actors}
-            for actor in actors:results[actor]=futures[actor].result()
+        def run(group):
+            out={}
+            for actor in group:
+                initial=self.player(actor)
+                if initial.action_state()['can_act']:self.before_actor(initial)
+                out[actor]=self._play_actor(actor,emit=emit,head=head,
+                    on_call=on_call,on_batch=None,on_human=None,
+                    **({'on_stream':on_stream} if on_stream else {}))
+            return out
+        if len(groups)==1 and len(groups[0])>1:
+            # 全体互相干扰：按行动顺序在主线程跑完，避免无谓线程切换。
+            results.update(run(groups[0]))
+        else:
+            with ThreadPoolExecutor(max_workers=min(len(groups),self.planning_workers)) as pool:
+                for output in pool.map(run,groups):results.update(output)
         receipts=[]
-        for actor in actors:receipts.extend(results[actor])
+        for actor in actors:receipts.extend(results.get(actor,()))
         return receipts
 
     def to_save(self):

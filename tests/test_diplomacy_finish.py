@@ -33,6 +33,13 @@ class TestDiplomacyFinish(unittest.TestCase):
 
     def end(self,h,actor):return self.submit(h,actor,'end_turn',summary='完成本期实际经营')
 
+    def finish(self,h,actor):
+        """测试用：显式跑该国的回合末收尾（生产代码在 cycle 的 before_settlement 统一执行）。"""
+        return h.session._settle_end_turn(h.player(actor))
+
+    def rejected(self,h,actor):
+        r=self.finish(h,actor);return {'offers':r['offers'],'votes':r['votes']}
+
     def offer(self,h,kind='defense',tos=None):
         if kind=='found':self.submit(h,Q,'bloc_found',bloc='scenario:union',name='合纵',tos=tos or [C,Z])
         elif kind=='peace':
@@ -48,13 +55,11 @@ class TestDiplomacyFinish(unittest.TestCase):
                 with self.subTest(experimental=experimental,kind=kind):
                     h=self.host(experimental);offer=self.offer(h,kind)
                     before=h.world.resources.balance(C,'native:gold')
-                    result=self.end(h,C)
-                    self.assertEqual(result['data']['auto_rejected'],{'offers':[offer],'votes':[]})
+                    self.end(h,C)
+                    self.assertEqual(self.finish(h,C),{'offers':[offer],'votes':[]})
                     self.assertTrue(h.player(C).call_api('native:diplomacy','snapshot')['offers'])
                     self.assertTrue(any(c['action'].startswith('reject_') for c in h.player(C).call_api('native:diplomacy','snapshot')['pending']))
                     self.assertEqual(h.world.resources.balance(C,'native:gold'),before)
-                    rendered=h.ui.console.action(h.clock(),C,'end_turn',{},result,{C:'楚'})
-                    self.assertIn('免费自动拒绝',rendered)
                     h.cycle()
                     self.assertFalse(h.player(C).call_api('native:diplomacy','snapshot')['offers'])
                     self.assertTrue(any('自动拒绝' in e['text'] for e in h.player(Q).events()['items']))
@@ -71,7 +76,7 @@ class TestDiplomacyFinish(unittest.TestCase):
                     h=self.host();offer=self.offer(h,kind,tos=[C])
                     action=('accept_' if accept else 'reject_')+('peace' if kind=='peace' else 'proposal')
                     self.submit(h,C,action,offer=offer)
-                    self.assertNotIn('auto_rejected',self.end(h,C)['data'])
+                    self.end(h,C);self.assertEqual(self.rejected(h,C),{'offers':[],'votes':[]})
                     h.cycle()
                     if kind=='peace':self.assertEqual(h.world.diplomacy.war_between(Q,C),not accept)
                     elif kind=='found':self.assertEqual(h.world.diplomacy.alliance(Q) is not None,accept)
@@ -81,17 +86,17 @@ class TestDiplomacyFinish(unittest.TestCase):
         h=self.host();offer=self.offer(h,'found')
         self.submit(h,C,'accept_proposal',offer=offer);self.end(h,C);h.cycle()
         self.assertEqual(h.player(C).call_api('native:diplomacy','snapshot')['offers'][0]['accepted'],[C])
-        self.assertNotIn('auto_rejected',self.end(h,C)['data'])
+        self.end(h,C);self.assertEqual(self.rejected(h,C),{'offers':[],'votes':[]})
         self.assertEqual(h.player(C).call_api('native:diplomacy','snapshot')['offers'][0]['id'],offer)
-        self.assertEqual(self.end(h,Z)['data']['auto_rejected']['offers'],[offer])
+        self.end(h,Z);self.assertEqual(self.rejected(h,Z)['offers'],[offer])
 
     def test_outgoing_and_newly_published_offers_wait_for_recipient_next_turn(self):
         h=self.host();self.end(h,C)
         self.submit(h,Q,'propose_defense',target=C)
-        self.assertNotIn('auto_rejected',self.end(h,Q)['data'])
+        self.end(h,Q);self.assertEqual(self.rejected(h,Q),{'offers':[],'votes':[]})
         h.cycle();offer=h.player(C).call_api('native:diplomacy','snapshot')['offers'][0]['id']
-        self.assertNotIn('auto_rejected',self.end(h,Q)['data'])
-        self.assertEqual(self.end(h,C)['data']['auto_rejected']['offers'],[offer])
+        self.end(h,Q);self.assertEqual(self.rejected(h,Q),{'offers':[],'votes':[]})
+        self.end(h,C);self.assertEqual(self.rejected(h,C)['offers'],[offer])
 
     def test_failed_end_turn_does_not_reject_and_second_end_is_idempotent(self):
         h=self.host();offer=self.offer(h)
@@ -220,8 +225,8 @@ class TestDiplomacyFinish(unittest.TestCase):
                 self.submit(h,Q,'vote',vote=vote,accept=True);self.end(h,Q)
                 if abstain:self.submit(h,Z,'vote',vote=vote,accept=None)
                 result=self.end(h,Z)
-                if abstain:self.assertNotIn('auto_rejected',result['data'])
-                else:self.assertEqual(result['data']['auto_rejected']['votes'],[vote])
+                if abstain:self.assertEqual(self.rejected(h,Z),{'offers':[],'votes':[]})
+                else:self.assertEqual(self.rejected(h,Z)['votes'],[vote])
                 h.cycle()
                 self.assertEqual(bool(h.player(Q).call_api('native:diplomacy','snapshot')['pacts']),abstain)
                 events=[e for e in h.player(Q).query('news') if (e.get('details') or {}).get('type')=='alliance_vote']
@@ -235,18 +240,19 @@ class TestDiplomacyFinish(unittest.TestCase):
         h=self.host();self.bloc(h)
         self.submit(h,C,'propose_defense',target=Q);h.cycle()
         offer=h.player(Q).call_api('native:diplomacy','snapshot')['offers'][0]['id']
-        self.assertNotIn('auto_rejected',self.end(h,Z)['data'])
-        self.assertEqual(self.end(h,Q)['data']['auto_rejected']['offers'],[offer])
+        self.end(h,Z);self.end(h,Q)
+        self.assertEqual(self.rejected(h,Z),{'offers':[],'votes':[]})
+        self.assertEqual(self.rejected(h,Q)['offers'],[offer])
 
     def test_alliance_response_waiting_for_internal_vote_is_not_auto_rejected(self):
         h=self.host();self.bloc(h)
         self.submit(h,C,'propose_defense',target=Q);h.cycle()
         offer=h.player(Q).call_api('native:diplomacy','snapshot')['offers'][0]['id']
         self.submit(h,Z,'accept_proposal',offer=offer)
-        self.assertNotIn('auto_rejected',self.end(h,Q)['data']);self.end(h,Z);h.cycle()
+        self.end(h,Q);self.assertEqual(self.rejected(h,Q),{'offers':[],'votes':[]});self.end(h,Z);h.cycle()
         vote=h.player(Q).call_api('native:diplomacy','snapshot')['votes'][0]['id']
         for actor in (Q,Z):self.submit(h,actor,'vote',vote=vote,accept=True)
-        self.assertNotIn('auto_rejected',self.end(h,Q)['data']);self.end(h,Z);h.cycle()
+        self.end(h,Q);self.assertEqual(self.rejected(h,Q),{'offers':[],'votes':[]});self.end(h,Z);h.cycle()
         self.assertFalse(h.player(Q).call_api('native:diplomacy','snapshot')['offers'])
         self.assertTrue(h.player(Q).call_api('native:diplomacy','snapshot')['pacts'])
 
