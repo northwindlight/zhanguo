@@ -37,6 +37,12 @@ experimental_journal.md
 # 文档站构建产物（docs/site/build.py 生成，CI 里现建）
 docs/site/_build/
 
+# 桌面样板/世界 smoke 运行产物：mods/ui/desktop/README.md 的 --smoke-output/--log-file
+# 默认落在仓库根，是验收产物而不是仓库内容；归档到 archive/previews/<批次>/。
+/windows-*.png
+/windows-*.log
+/windows-*.json
+
 # 通用
 .DS_Store
 *.swp
