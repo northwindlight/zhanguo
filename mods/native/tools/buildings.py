@@ -58,7 +58,7 @@ def tools(runtime):
     return demolition+(
         Tool('queue_build',queue_build,owner='native:buildings',api=('enqueue',),parameters=parameters,
              adapter=site_arguments,content_parameters=('kind',),
-             description='将建筑加入本国地块正式队列，立即按当时造价预付全部材料，空闲则马上动工，否则后续回合依次开工且不再扣款。预占建筑及资源位，每格每期仍只动工一次。未开工取消全退，已开工拆除50%，完工0%。查询construction_queue，取消用cancel_build_order。'),
+             description='将建筑加入本国地块正式队列，立即按当时造价预付全部材料并锁价，回合末统一开工（每地块同时只开一项，未开工的排到以后各期末且不再扣款）。预占建筑及资源位，每格每期仍只动工一次。未开工取消全退，已开工拆除50%，完工0%。查询construction_queue，取消用cancel_build_order。直接动工用build。'),
         Tool('cancel_build_order',cancel_build_order,owner='native:buildings',api=('cancel_order',),
              description='取消construction_queue中的未开工建筑id，预付材料全额退回。已开工条目拒绝此操作，须用demolish按50%拆除；城堡从最高一级取消。'),
         Tool('construction_queue',construction_queue,owner='native:buildings',api=('orders',),read_only=True,panel=True,

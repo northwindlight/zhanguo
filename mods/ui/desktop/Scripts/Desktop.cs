@@ -528,9 +528,16 @@ public partial class Desktop : Control
             if(parent is ScrollContainer scroll)scroll.EnsureControlVisible(button);
         await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
         var at=button.GetGlobalRect().GetCenter();Viewport viewport=button.GetViewport();
+        // 嵌入子窗口（确认框等）的按钮要先让宿主窗口获得前台焦点，否则注入的按下事件
+        // 只会到达控件的 GuiInput，不会触发 BaseButton 的按下/单击。
+        if(viewport is Window subwindow&&subwindow!=GetWindow()&&subwindow.IsEmbedded())FocusWindowForPointer();
         while(viewport is Window window&&window!=GetWindow()&&window.IsEmbedded())
         {at+=window.Position;viewport=window.GetParent().GetViewport();}
         await PointerClickAt(at,viewport);
+    }
+    private void FocusWindowForPointer()
+    {
+        GetWindow().GrabFocus();DisplayServer.WindowMoveToForeground(GetWindow().GetWindowId());
     }
     private async Task WaitFor(Func<bool> ready,string description,double timeout=30)
     {
@@ -549,7 +556,7 @@ public partial class Desktop : Control
     private async Task PointerClickAt(Vector2 p,Viewport? target=null)
     {
         var viewport=target??GetViewport();
-        viewport.PushInput(new InputEventMouseButton { ButtonIndex=MouseButton.Left,Pressed=true,Position=p,GlobalPosition=p },true);
+        viewport.PushInput(new InputEventMouseButton { ButtonIndex=MouseButton.Left,ButtonMask=MouseButtonMask.Left,Pressed=true,Position=p,GlobalPosition=p },true);
         await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
         viewport.PushInput(new InputEventMouseButton { ButtonIndex=MouseButton.Left,Pressed=false,Position=p,GlobalPosition=p },true);
         await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);

@@ -9,7 +9,7 @@ public partial class Desktop
     private void RenderProductionQueue()
     {
         HumanText("全国生产",true);
-        HumanText("入队即预付；每格每期一次建设，征兵按设施额度分批。等待不会重复扣款。",color:"b6c6aa");
+        HumanText("入队即预付；回合末统一开工／出兵，每格每期一次建设，征兵按设施额度分批。等待不会重复扣款。",color:"b6c6aa");
         var prepaid=HumanFacts["econ"]?["prepaid_stocks"] as JsonArray??new JsonArray();
         HumanText("尚未消耗的预付款："+string.Join(" · ",prepaid.Select(r=>HumanLabel(S(r![0]))+" "+Quantity(r[1]))),color:"e1ca8e");
         HumanText("建设",true);

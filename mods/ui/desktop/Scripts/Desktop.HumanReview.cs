@@ -113,6 +113,8 @@ public partial class Desktop
         try
         {
             ConfirmHuman("窗口输入验收","返回应取消，不执行操作。",()=>throw new Exception("取消却执行确认"));
+            await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+            FocusWindowForPointer();
             await PointerClick(_humanConfirm.GetCancelButton());
             if(_humanConfirm.Visible)throw new Exception("真实指针没有关闭确认窗口");
             bool confirmed=false;ConfirmHuman("窗口输入验收","确认按钮应执行一次。",()=>confirmed=true);
@@ -203,7 +205,7 @@ public partial class Desktop
             if(!Yes(_rtsData!["ordered"])||_rtsCards.Values.Any(b=>_rtsAvailability[b]))throw new Exception("返回 A 后丢失本期施工状态");
             await Screenshot(stem+"-quota.png");
             await ReviewMarketDemolition(stem,capital,otherCell);
-            await PointerClick(_humanNav["end"]);
+            await HumanIdle();await PointerClick(_humanNav["end"]);
             await WaitFor(()=>S(_playingBeat?["phase"])=="production","本国生产没有演出",HumanRoundTimeout);
             if(!_settlementCard.Visible||_humanDrawer.IsOpen)throw new Exception("生产汇总被操作面板遮住");
             await Screenshot(stem+"-production.png");
@@ -220,9 +222,29 @@ public partial class Desktop
             if(!_rtsCards["native:militia"].Disabled)throw new Exception("输入2支却仍采用旧的1支征召条件");
             await TypeNumber((SpinBox)_humanContent.FindChild("RtsRecruitCount",true,false)!,"1");
             await WaitFor(()=>!_rtsCountPending&&_rtsData!=null,"征召数量改回后没有刷新");await RtsReady();
-            await Screenshot(stem+"-recruit.png");await PointerClick(_rtsCards["native:militia"]);await HumanIdle();
+            await Screenshot(stem+"-recruit.png");
+            // 生产队列的征兵同样只预付：提交后行动期不出兵，取消未生成部分全退；再切回直接征兵继续原流程。
+            _humanCell=capital;OpenHumanPage("build");await RtsReady();
+            await PointerClick((CheckButton)_humanContent.FindChild("ProductionQueueMode",true,false)!);await RtsReady();
+            OpenHumanPage("recruit");await RtsReady();await HumanIdle();
+            int queueArmies=OwnArmies.Count();int queueCalls=_humanHistory.Count;
+            await PointerClick(_rtsCards["native:militia"]);await HumanIdle();await RtsReady();
+            if(_humanHistory.Count!=queueCalls+1)throw new Exception("队列征兵点击未提交");
+            if(OwnArmies.Count()!=queueArmies)throw new Exception("队列征兵在行动期直接出兵");
+            if(!_humanReceipt.Text.Contains("待生成"))throw new Exception("队列征兵回执没有说明待生成："+_humanReceipt.Text);
+            var recruitRow=(_humanState!["production_queue"]!["recruitment"] as JsonArray)!.Single()!.DeepClone();
+            int recruitId=I(recruitRow["id"]);double recruitGold=OwnStock("gold"),recruitWood=OwnStock("wood");
+            OpenHumanPage("production");await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+            var cancelRecruit=(Button)_humanContent.FindChild("CancelProduction_Recruit_"+recruitId,true,false)!;
+            await PointerClick(cancelRecruit);await PointerClick(_humanConfirm.GetOkButton());await HumanIdle();
+            if(OwnStock("gold")!=recruitGold+F(recruitRow["refunds"]!["native:gold"])||OwnStock("wood")!=recruitWood+F(recruitRow["refunds"]!["native:wood"]))throw new Exception("取消未生成征兵没有全额退回预付款");
+            if(OwnArmies.Count()!=queueArmies)throw new Exception("取消队列征兵后新增了军队");
+            _humanCell=capital;OpenHumanPage("build");await RtsReady();
+            await PointerClick((CheckButton)_humanContent.FindChild("ProductionQueueMode",true,false)!);await RtsReady();
+            OpenHumanPage("recruit");await RtsReady();
+            await PointerClick(_rtsCards["native:militia"]);await HumanIdle();
             if(!OwnArmies.Any())throw new Exception("真人征兵没有产生真实军队："+_humanReceipt.Text);
-            await PointerClick(_humanNav["end"]);await WaitFor(()=>HumanCanWrite&&_period==2,"新兵没有进入下一期",HumanRoundTimeout);
+            await HumanIdle();await PointerClick(_humanNav["end"]);await WaitFor(()=>HumanCanWrite&&_period==2,"新兵没有进入下一期",HumanRoundTimeout);
             await ReviewHumanBankLoan(stem);
             _humanCell=capital;OpenHumanPage("tile");
             await CheckGarrisonFirst();await Screenshot(stem+"-garrison.png");
@@ -266,7 +288,7 @@ public partial class Desktop
             await ToSignal(GetTree().CreateTimer(.7),SceneTreeTimer.SignalName.Timeout);
             using var image2=GetViewport().GetTexture().GetImage();using var crop2=image2.GetRegion(rect);
             if(!pixels1.SequenceEqual(crop2.GetData()))throw new Exception("历史地块仍在播放动态");
-            await PointerClick(_humanNav["end"]);
+            await HumanIdle();await PointerClick(_humanNav["end"]);
             await WaitFor(()=>S(_playingBeat?["phase"])=="battle","野人战斗未进入演出",HumanRoundTimeout);
             await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
             var combatWild=SquadView.Units(_map.Frame!).Where(u=>S(u["owner"])=="野人"&&I(u["x"])==destination.X&&I(u["y"])==destination.Y).ToArray();
@@ -276,7 +298,7 @@ public partial class Desktop
             var ledgerBounds=new Footprint(ledgerRect.Position.X,ledgerRect.Position.Y,ledgerRect.Size.X,ledgerRect.Size.Y);
             if(_map.SquadLabelBounds.Any(b=>(b with { Height=b.Height-35 }).Overlaps(ledgerBounds)))throw new Exception("战斗血条被国家面板挡住");
             await Screenshot(stem+"-wild-battle.png");await WaitFor(()=>HumanCanWrite&&_period==3,"战斗结算未结束",HumanRoundTimeout);
-            _humanOperation="declare_war";await PointerClick(_humanNav["diplomacy"]);await PointerClick(_humanSubmit!);
+            await HumanIdle();_humanOperation="declare_war";await PointerClick(_humanNav["diplomacy"]);await PointerClick(_humanSubmit!);
             await WaitFor(()=>_humanConfirm.Visible,"宣战未显示二次确认");
             if(!_humanConfirm.DialogText.Contains("攻方")||!_humanConfirm.DialogText.Contains("守方"))throw new Exception("宣战缺少结构化警告");
             await Screenshot(stem+"-war-warning.png");await PointerClick(_humanConfirm.GetCancelButton());await HumanIdle();
@@ -314,6 +336,8 @@ public partial class Desktop
                 layouts.Add(new JsonObject { ["width"]=size.X,["height"]=size.Y,["within_viewport"]=true,["rts_hover"]=true });
             }
             HideRtsTooltip();
+            // 布局验收后再结束一回合，核对队列在回合末统一开工。
+            await ReviewQueueStartsAtTurnEnd(stem,capital);
             // Actual menu queues a save, then exposes explicit discard.
             await PointerClick(_save);await WaitFor(()=>_humanPaused,"真人 Esc 菜单没有暂停");
             await PointerClick(_menuSave);await WaitFor(()=>_hostState=="save-queued","真人回合中保存未排队");
@@ -330,7 +354,7 @@ public partial class Desktop
                 ["garrison_visible_without_scroll"]=true,["wild_garrison_continuity"]=true,["wild_guard_id"]=wildId,["wild_formation_figures"]=wildFigures,
                 ["resource_breakdown_hover"]=true,["outliner_tabs"]=true,["outliner_filters"]=true,["cross_site_selection"]=true,["mouse_orders"]=true,["shift_waypoints"]=true,["selection_halos"]=true,["numbers_without_enter"]=true,["market_reference_visible"]=true,["power_visible"]=true,["power_ignores_unfinished"]=true,["power_previous_actual"]=true,
                 ["save_queued"]=true,["exit_choice"]=true,["rts_layouts"]=true,["save"]=_savePath,["config"]=configPath,["layouts"]=layouts,
-                ["production_queue"]=true,["pending_full_refund"]=true,["march_order_badges"]=true,["rule_fixture_seed"]=20261026,
+                ["production_queue"]=true,["pending_full_refund"]=true,["queue_turn_end_start"]=true,["queue_recruit_prepay_only"]=true,["march_order_badges"]=true,["rule_fixture_seed"]=20261026,
                 ["simple_terrain_map"]=true,["terrain_preserves_fog"]=true,["terrain_price_steps"]=true,["free_space_filter"]=true,["compact_land_icons"]=true,["right_return_preferences"]=true,["guide_api_and_return"]=true,
                 ["right_return_army_priority"]=true,
                 ["right_return_last_button"]=true,

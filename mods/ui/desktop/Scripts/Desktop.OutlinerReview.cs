@@ -66,7 +66,7 @@ public partial class Desktop
     private async Task ReviewHumanOutliner(string stem,Vector2I capital,Vector2I destination)
     {
         // Create a second real squad at another site; normal opening remains zero-army.
-        _humanCell=capital;OpenHumanPage("recruit");await RtsReady();
+        _humanCell=capital;OpenHumanPage("recruit");await RtsReady();await HumanIdle();
         await PointerClick(_rtsCards["native:militia"]);await HumanIdle();
         var home=OwnArmies.Where(u=>I(u["x"])==capital.X&&I(u["y"])==capital.Y).Select(u=>I(u["id"])).ToArray();
         var front=OwnArmies.Where(u=>I(u["x"])==destination.X&&I(u["y"])==destination.Y).Select(u=>I(u["id"])).ToArray();

@@ -65,7 +65,8 @@ public partial class Desktop
         if(!expected.SetEquals(_outlinerRows.Keys))throw new Exception("耕地＋空位筛选与正式预占不符");
         await Screenshot(stem+"-free-farmland.png");
         OutlinerPick("OutlinerResource","");await PointerClick((CheckButton)_outlinerFilters.FindChild("OutlinerFreeSpace",true,false)!);
-        if(OutlinerSpace(at) is not JsonObject space||I(space["construction"])<1||I(space["pending"])<1||!_outlinerRows[at].TooltipText.Contains("待建 1"))throw new Exception("预付建筑没有进入空间／状态显示");
+        // 队列模式只预付不入建：空间显示应有两条待建、零项施工中。
+        if(OutlinerSpace(at) is not JsonObject space||I(space["construction"])!=0||I(space["pending"])!=2||!_outlinerRows[at].TooltipText.Contains("待建 2"))throw new Exception("预付建筑没有进入空间／状态显示");
         _outlinerFilters.Hide();_humanCell=at;OpenHumanPage("build");await RtsReady();
         var selected=_selectedArmies.ToArray();_selectedArmies.Clear();ArmySelectionChanged();
         bool preference=_rightClickReturn;_rightClickReturn=true;int calls=_humanHistory.Count;

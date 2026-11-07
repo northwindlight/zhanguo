@@ -179,7 +179,7 @@ def tools(runtime):
              description='全国本国军队路线、节点、等待回血/交战原因和公开路径；未知通路只有不确定标记，不返回隐藏地形。只读，不推进。'),
         Action('queue_recruit',queue_recruit,owner='native:army',api=('enqueue_recruit',),
                parameters=parameters,adapter=site_arguments,content_parameters=('kind',),schema_for_actor=schema_for_actor,
-               description='加入正式征兵队列，预付全部费用，按兵营或军屯原有每期额度分批生成，新兵当期不能行动。必须已有落成设施；民兵待生成数预占编制。停电则等待。取消只全额退回尚未生成部分费用，不退已生成军队。用recruitment_queue查看进度。'),
+               description='加入正式征兵队列，预付全部费用，回合末统一出兵并按兵营或军屯原有每期额度分批生成，新兵当期不能行动。必须已有落成设施；民兵待生成数预占编制。停电则等待。取消只全额退回尚未生成部分费用，不退已生成军队。用recruitment_queue查看进度。'),
         Action('cancel_recruit_order',cancel_recruit_order,owner='native:army',api=('cancel_recruit_order',),
                parameters={'type':'object','properties':{'id':{'type':'integer','minimum':1}},'required':['id'],'additionalProperties':False},
                description='按recruitment_queue中的id取消待生成部分，全额退回该部分预付材料。已生成军队不受影响也不退款。'),
