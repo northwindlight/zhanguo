@@ -15,6 +15,7 @@ import zipfile
 
 CLI = '/home/northwind/.local/bin/colab'
 PYTHON = '/home/northwind/zhanguo/.venv/bin/python'
+COLAB_PYTHON = '/home/northwind/.local/share/pipx/venvs/google-colab-cli/bin/python'
 REMOTE = '/content/zhanguo-ppo-cycle'
 
 
@@ -118,9 +119,21 @@ def queue_evaluation(root, out, live):
         return
 
 
+def refresh(args, reset=False):
+    helper=Path(__file__).with_name('econ_colab_session.py')
+    cmd=[COLAB_PYTHON, str(helper), '--session', args.session,
+         '--endpoint-file', str(args.out/'endpoint.txt')]
+    if reset:cmd.append('--reset-kernel')
+    result=subprocess.run(cmd, capture_output=True, text=True, timeout=35)
+    if result.returncode==2:return False
+    if result.returncode:raise RuntimeError('Could not refresh owned Colab assignment')
+    return True
+
+
 def recover(args, live):
     # A genuinely reclaimed runtime is replaced through the normal allocator.
     # No SSH/anti-idle or paid upgrade is used.
+    if not refresh(args, reset=True):raise RuntimeError('Owned runtime reclaimed')
     command([CLI, 'exec', '-s', args.session, '-f', str(args.out/'probe.py'), '--timeout', '25'], 35)
     # If the existing runtime responds, restart only its detached launcher.
     command([CLI, 'exec', '-s', args.session, '-f', str(args.out/'bootstrap.py'), '--timeout', '35'], 45)
@@ -146,9 +159,11 @@ def main():
                            for f in (args.out/'evaluations').glob('*/summary.json'))
             stop = accepted or (args.out/'STOP').exists()
             request.write_text(remote_code(known, stop=stop))
+            if not refresh(args):raise RuntimeError('Owned runtime reclaimed')
             result = command([CLI, 'exec', '-s', args.session, '-f', str(request), '--timeout', '35'], 45)
             manifest = json.loads(next(line[7:] for line in result.splitlines() if line.startswith('BACKUP ')))
             partial = args.out/'backup.partial.zip'
+            if not refresh(args):raise RuntimeError('Owned runtime reclaimed during backup')
             command([CLI, 'download', '-s', args.session, '/content/econ-ppo-backup.zip', str(partial)], 180)
             install_backup(partial, live, manifest)
             partial.unlink()
@@ -178,7 +193,11 @@ def main():
                     recover(args, live)
                 except Exception:
                     try:
+                        if refresh(args):
+                            raise RuntimeError('Existing runtime still assigned; defer allocation')
+                        args.out.joinpath('endpoint.txt').unlink(missing_ok=True)
                         command([CLI, 'new', '-s', args.session, '--gpu', 'T4'], 50)
+                        if not refresh(args):raise RuntimeError('New assignment unavailable')
                         command([CLI, 'upload', '-s', args.session, str(args.out/'runtime.tar.gz'),
                                  '/content/econ-ppo-runtime.tar.gz'], 180)
                         restore = args.out/'restore.zip'
