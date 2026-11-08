@@ -44,6 +44,8 @@ def main():
     settings=json.loads((run/'run.json').read_text())['settings']
     completed=sorted(p for p in run.glob('round-*') if (p/'candidate.json').exists() and (p/'candidate.pt').exists())
     number=int(completed[-1].name.split('-')[-1])+1 if completed else 1
+    expected=manifest.get('resume',{}).get('next_round',number)
+    if number!=expected:raise ValueError('Mounted input would repeat or skip a PPO round')
     args=[sys.executable,'-u','-m','rl.economy.ppo_cycle','--checkpoint',str(root/'initial.pt'),
           '--out',str(run),'--device','cuda','--workers','2','--max-rounds',str(number)]
     for name in ('worlds','turns','seed_base','epochs','effective_batch','micro_batch','lr'):

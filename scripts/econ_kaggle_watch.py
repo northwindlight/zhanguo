@@ -18,6 +18,7 @@ sys.path.insert(0,str(ROOT))
 from scripts.econ_ppo_watch import digest,install_backup,queue_evaluation,write
 
 CLI='/home/northwind/.local/bin/kaggle'
+KAGGLE_PYTHON='/home/northwind/.local/share/pipx/venvs/kaggle/bin/python'
 
 
 def command(args,timeout):
@@ -40,12 +41,28 @@ def status(kernel,allow_missing=False):
 def prepare_input(out,live):
     folder=out/'kaggle-input'
     recovery=folder/'recovery.tmp'
+    completed=sorted(p for p in live.glob('round-*') if (p/'candidate.pt').exists() and (p/'candidate.json').exists())
+    latest=completed[-1] if completed else None
+    resume=None
+    if latest is not None:
+        record=json.loads((latest/'candidate.json').read_text())
+        if digest(latest/'candidate.pt')!=record['sha256']:raise ValueError('Latest candidate checksum mismatch')
+        resume=dict(last_completed_round=record['round'],next_round=record['round']+1,
+                    last_candidate_sha256=record['sha256'])
     with tarfile.open(recovery,'w:gz',compresslevel=1) as archive:
         for path in sorted(live.rglob('*')):
             if path.is_file() and path.suffix in ('.pt','.json','.jsonl','.gz'):
+                relative=path.relative_to(live)
+                if latest is not None:
+                    # A complete round resumes from its candidate, not its old
+                    # on-policy rows. Preserve any later incomplete worlds.
+                    if len(relative.parts)==1 and path.name not in ('run.json','anchor.pt','state.json'):continue
+                    if len(relative.parts)>1 and relative.parts[0]<=latest.name:
+                        if path.parent!=latest or path.name not in ('candidate.pt','candidate.json'):continue
                 archive.add(path,arcname=str(Path('rl/runs/ppo-cycle')/path.relative_to(live)))
     recovery.replace(folder/'recovery.bin')
     manifest={p.name:dict(bytes=p.stat().st_size,sha256=digest(p)) for p in folder.glob('*.bin')}
+    if resume is not None:manifest['resume']=resume
     (folder/'bundle-manifest.json').write_text(json.dumps(manifest,indent=2))
     return folder
 
@@ -70,6 +87,7 @@ def main():
                          phase='running' if current=='RUNNING' else 'queued' if current=='QUEUED' else 'collecting_results')
             write(state_path,state)
             print(json.dumps(dict(event='kaggle_status',version=state['version'],status=current)),flush=True)
+            queue_evaluation(ROOT,args.out,live)
             if current in ('RUNNING','QUEUED'):
                 failures=0;time.sleep(args.interval);continue
             if current not in ('COMPLETE','ERROR','CANCELLED'):
@@ -105,10 +123,24 @@ def main():
                 state.update(phase='accepted' if accepted else 'stopped');write(state_path,state);return
             if not state.get('dataset_updated'):
                 folder=prepare_input(args.out,live)
-                command(['datasets','version','-p',str(folder),'-m',f"Resume after PPO round {state['round']}",'-q'],300)
-                state.update(dataset_updated=True,phase='dataset_processing');write(state_path,state)
-            data_status=command(['datasets','status',args.dataset],45).strip().lower()
-            if data_status!='ready':time.sleep(args.interval);continue
+                upload=subprocess.run([KAGGLE_PYTHON,str(ROOT/'scripts/econ_kaggle_upload.py'),'--folder',str(folder),
+                                       '--message',f"Resume after PPO round {state['round']}"],
+                                      capture_output=True,text=True,timeout=300)
+                if upload.returncode:raise RuntimeError('Recovery bundle upload failed')
+                version=json.loads(next(line[16:] for line in upload.stdout.splitlines() if line.startswith('DATASET_VERSION ')))['version']
+                state.update(dataset_updated=True,dataset_version=version,phase='dataset_processing')
+                write(state_path,state)
+            data_status=json.loads(command(['datasets','status',args.dataset,'--format','json'],45))
+            if data_status['status']!='ready' or data_status['current_version_number']<state['dataset_version']:
+                time.sleep(args.interval);continue
+            if not state.get('dataset_verified'):
+                verification=args.out/'dataset-verification'/str(state['dataset_version'])
+                verification.mkdir(parents=True,exist_ok=True)
+                command(['datasets','download',f"{args.dataset}/{state['dataset_version']}",
+                         '-f','bundle-manifest.json','-p',str(verification),'-o','-q'],90)
+                if (verification/'bundle-manifest.json').read_bytes()!=(args.out/'kaggle-input/bundle-manifest.json').read_bytes():
+                    raise ValueError('Published dataset does not match the requested resume bundle')
+                state.update(dataset_verified=True);write(state_path,state)
             # Reconcile a previously uncertain push before submitting again.
             if state.get('push_pending'):
                 next_version=state['version']+1
@@ -116,6 +148,10 @@ def main():
                     state=dict(version=next_version,phase='running');write(state_path,state);continue
             kernel_folder=args.out/'kaggle-kernel'
             shutil.copyfile(ROOT/'scripts/econ_kaggle_job.py',kernel_folder/'train.py')
+            metadata_path=kernel_folder/'kernel-metadata.json'
+            metadata=json.loads(metadata_path.read_text())
+            metadata['dataset_sources']=[f"{args.dataset}/{state['dataset_version']}"]
+            metadata_path.write_text(json.dumps(metadata,indent=2))
             state.update(push_pending=True,phase='submitting');write(state_path,state)
             response=command(['kernels','push','-p',str(kernel_folder),'--accelerator','NvidiaTeslaT4','-t','28800'],120)
             match=re.search(r'Kernel version (\d+)',response)

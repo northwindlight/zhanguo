@@ -89,6 +89,12 @@ print('BACKUP '+json.dumps(data))
 '''
 
 
+def evaluation_matches(report,policy_sha256):
+    entries=report.get('screen',{}).get('evaluations',[])
+    return (report.get('phase')=='complete' and bool(entries)
+            and entries[-1].get('policy_sha256')==policy_sha256)
+
+
 def queue_evaluation(root, out, live):
     active = subprocess.run(['systemctl', '--user', 'is-active', '--quiet',
                              'zhanguo-ppo-evaluation-20261107'], capture_output=True).returncode == 0
@@ -101,9 +107,21 @@ def queue_evaluation(root, out, live):
         checkpoint = folder/'candidate.pt'
         if not checkpoint.exists() or digest(checkpoint) != record['sha256']:
             continue
-        marker = out/'evaluations'/folder.name/'summary.json'
-        if marker.exists() and json.loads(marker.read_text()).get('phase') == 'complete':
+        destination=out/'evaluations'/folder.name
+        marker = destination/'summary.json'
+        if marker.exists() and evaluation_matches(json.loads(marker.read_text()),record['policy_sha256']):
             continue
+        if marker.exists():
+            destination=out/'evaluations'/f"{folder.name}-{record['policy_sha256'][:12]}"
+            marker=destination/'summary.json'
+            if marker.exists() and evaluation_matches(json.loads(marker.read_text()),record['policy_sha256']):continue
+        # Evaluation keeps an immutable checkpoint even if an external job
+        # later exports a different candidate under the same round number.
+        snapshots=out/'models';snapshots.mkdir(exist_ok=True)
+        snapshot=snapshots/f"{record['policy_sha256']}.pt"
+        if snapshot.exists():
+            if digest(snapshot)!=record['sha256']:raise ValueError('Immutable checkpoint checksum mismatch')
+        else:shutil.copyfile(checkpoint,snapshot)
         # Reuse baseline/BC15 games with their full cache identities intact.
         cache = out/'evaluation-cache'
         cache.mkdir(exist_ok=True)
@@ -114,8 +132,8 @@ def queue_evaluation(root, out, live):
                  '--working-directory='+str(root), '-p', 'MemoryMax=4G', '-p', 'CPUQuota=100%',
                  '-p', 'StandardOutput=append:'+str(out/'evaluation.log'),
                  '-p', 'StandardError=append:'+str(out/'evaluation.log'),
-                 PYTHON, '-u', str(root/'scripts/econ_ppo_evaluate.py'), '--checkpoint', str(checkpoint),
-                 '--out', str(out/'evaluations'/folder.name), '--cache', str(cache)], 15)
+                 PYTHON, '-u', str(root/'scripts/econ_ppo_evaluate.py'), '--checkpoint', str(snapshot),
+                 '--out', str(destination), '--cache', str(cache)], 15)
         return
 
 

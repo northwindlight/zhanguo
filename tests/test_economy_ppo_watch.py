@@ -13,6 +13,13 @@ from scripts import econ_ppo_watch as watch
 
 
 class PPOWatchChecks(unittest.TestCase):
+    def test_complete_summary_for_another_policy_does_not_suppress_evaluation(self):
+        summary=dict(phase='complete',screen=dict(evaluations=[dict(policy_sha256='old')]))
+        self.assertTrue(watch.evaluation_matches(summary,'old'))
+        self.assertFalse(watch.evaluation_matches(summary,'new'))
+        summary['phase']='evaluating'
+        self.assertFalse(watch.evaluation_matches(summary,'old'))
+
     def test_snapshot_roundtrip_and_incremental_backup(self):
         with TemporaryDirectory() as directory:
             root=Path(directory);remote=root/'remote';run=remote/'rl/runs/ppo-cycle'
