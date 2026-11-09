@@ -19,6 +19,7 @@ from scripts.econ_ppo_watch import digest,install_backup,queue_evaluation,write
 
 CLI='/home/northwind/.local/bin/kaggle'
 KAGGLE_PYTHON='/home/northwind/.local/share/pipx/venvs/kaggle/bin/python'
+REVIEW_PYTHON='/home/northwind/zhanguo/.venv/bin/python'
 
 
 def command(args,timeout):
@@ -88,6 +89,18 @@ def main():
             write(state_path,state)
             print(json.dumps(dict(event='kaggle_status',version=state['version'],status=current)),flush=True)
             queue_evaluation(ROOT,args.out,live)
+            review_policy=args.out/'model-review-policy.json'
+            review_result=args.out/'model-review-result.json'
+            if review_policy.exists():
+                policy=json.loads(review_policy.read_text())
+                ready=(live/f"round-{policy['after_round']:06d}/candidate.json").exists()
+                reviewed=json.loads(review_result.read_text()) if review_result.exists() else {}
+                complete=(reviewed.get('complete') and reviewed.get('checkpoint_round')==policy['after_round']
+                          and reviewed.get('reference_policy_sha256')==policy['reference_policy_sha256'])
+                if ready and not complete:
+                    checked=subprocess.run([REVIEW_PYTHON,str(ROOT/'scripts/econ_model_review.py'),
+                                            '--out',str(args.out)],capture_output=True,text=True,timeout=60)
+                    if checked.returncode:raise RuntimeError('Model checkpoint review failed')
             if current in ('RUNNING','QUEUED'):
                 failures=0;time.sleep(args.interval);continue
             if current not in ('COMPLETE','ERROR','CANCELLED'):
