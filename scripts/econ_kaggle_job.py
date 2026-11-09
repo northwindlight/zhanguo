@@ -50,6 +50,8 @@ def main():
           '--out',str(run),'--device','cuda','--workers','2','--max-rounds',str(number)]
     for name in ('worlds','turns','seed_base','epochs','effective_batch','micro_batch','lr'):
         args.extend(['--'+name.replace('_','-'),str(settings[name])])
+    if settings.get('invalid_action_penalty',0.):
+        args.extend(['--invalid-action-penalty',str(settings['invalid_action_penalty'])])
     with Path('/kaggle/working/training.log').open('w',buffering=1) as log:
         process=subprocess.Popen(args,env=env,stdout=log,stderr=subprocess.STDOUT)
         while process.poll() is None:

@@ -24,6 +24,7 @@ from .online import ppo_update, rollout, validate_device, with_critic
 from .overnight import storage_guard, write_json
 from .provenance import provenance, require_compatible
 from .scenarios import config
+from .reward_shaping import objective
 from .trajectories import load as load_trajectory, model_digest, save as save_trajectory, verify_log_probabilities
 
 
@@ -31,11 +32,12 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def save_model(path, model, base, seen, **extra):
+def save_model(path, model, base, seen, *,invalid_action_penalty=0.,**extra):
     saved={k:v for k,v in base.items() if k not in ('model','optimizer','rng','metrics','config')}
     saved.update(**provenance(),model={k:v.detach().cpu() for k,v in model.state_dict().items()},
         config=model.config,fingerprint=model.fingerprint,seen_seeds=sorted(seen),
         selection_seeds=[8101,8102],experimental=True,accepted=False,
+        training_objective=objective(invalid_action_penalty),
         reward=dict(name='paper_S_consumption_increment',scale=1000.,gamma=1.,gae_lambda=1.),**extra)
     temporary=path.with_suffix('.tmp');torch.save(saved,temporary);temporary.replace(path)
 
@@ -117,6 +119,8 @@ def run(args):
     initial,base=load_policy(args.checkpoint);require_compatible(base)
     settings=dict(initial_sha256=sha(args.checkpoint),worlds=args.worlds,turns=args.turns,seed_base=args.seed_base,
                   epochs=args.epochs,effective_batch=args.effective_batch,micro_batch=args.micro_batch,lr=args.lr)
+    penalty=objective(args.invalid_action_penalty)['invalid_action_penalty']
+    if penalty:settings['invalid_action_penalty']=penalty
     config_path=args.out/'run.json'
     if config_path.exists():
         if json.loads(config_path.read_text())['settings']!=settings:raise ValueError('Resume configuration changed; use a new experiment directory')
@@ -146,7 +150,7 @@ def run(args):
         else:
             torch.manual_seed(410000+number)
             model,metadata=load_policy(source);model=with_critic(model)
-            save_model(behavior_path,model,metadata,seen,round=number,stage='behavior')
+            save_model(behavior_path,model,metadata,seen,round=number,stage='behavior',invalid_action_penalty=penalty)
         behavior=model_digest(model)
         cases,rejected=validated_cases(cases,folder,behavior,seen)
         write_json(folder/'manifest.json',dict(cases=cases,behavior_policy_sha256=behavior,settings=settings,
@@ -188,14 +192,16 @@ def run(args):
                 if record['updates']%20==0:
                     write_json(args.out/'state.json',dict(phase='training',round=number,at=time.time(),accepted=False,**record))
             def progress(record):
-                save_model(args.out/'progress.pt',model,metadata,seen,round=number,stage='partial',progress=record)
+                save_model(args.out/'progress.pt',model,metadata,seen,round=number,stage='partial',progress=record,
+                           invalid_action_penalty=penalty)
             training=ppo_update(model,streams,anchor,epochs=args.epochs,lr=args.lr,batch_size=args.micro_batch,
                        update_batch_size=args.effective_batch,kl_mode='adaptive',diagnostic_callback=observe,
-                       checkpoint_callback=progress)
+                       checkpoint_callback=progress,invalid_action_penalty=penalty)
         if training['coverage']!=1. or training['epochs_completed']!=args.epochs:
             raise RuntimeError('Incomplete PPO update cannot advance the experiment')
         training['behavior_logp_max_error']=error
-        save_model(folder/'candidate.pt',model,metadata,seen,round=number,stage='exploratory_ppo',ppo_round=training)
+        save_model(folder/'candidate.pt',model,metadata,seen,round=number,stage='exploratory_ppo',ppo_round=training,
+                   invalid_action_penalty=penalty)
         write_json(folder/'candidate.json',dict(round=number,sha256=sha(folder/'candidate.pt'),
                    policy_sha256=model_digest(model),metrics=training,accepted=False))
         shutil.copyfile(folder/'candidate.pt',args.out/'train-current.tmp')
@@ -216,6 +222,8 @@ def main():
     p.add_argument('--turns',type=int,default=150);p.add_argument('--seed-base',type=int,default=800000)
     p.add_argument('--epochs',type=int,default=1);p.add_argument('--effective-batch',type=int,default=128)
     p.add_argument('--micro-batch',type=int,default=8);p.add_argument('--lr',type=float,default=3e-5)
+    p.add_argument('--invalid-action-penalty',type=float,default=0.,
+                   help='Update-time penalty per failed project in delta-S/1000 units; disabled by default')
     p.add_argument('--storage-mib',type=int,default=1024);p.add_argument('--max-rounds',type=int)
     a=p.parse_args()
     if min(a.threads,a.worlds,a.workers,a.turns,a.epochs,a.effective_batch,a.micro_batch)<1:p.error('positive sizes required')

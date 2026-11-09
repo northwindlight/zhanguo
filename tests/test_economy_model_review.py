@@ -32,6 +32,8 @@ class ModelCheckpointReviewChecks(unittest.TestCase):
             plan=json.loads((root/'model-change-preparation/comparison-plan.json').read_text())
             self.assertTrue(plan['continue_exploratory_training'])
             self.assertFalse(plan['production_change']);self.assertFalse(result['accepted'])
+            self.assertEqual(plan['reward_shaping_candidate']['default'],0.)
+            self.assertFalse(plan['reward_shaping_candidate']['automatic_activation'])
 
     def test_intermediate_best_counts_even_if_round_twenty_regresses(self):
         with TemporaryDirectory() as directory:

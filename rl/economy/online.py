@@ -26,6 +26,7 @@ from .projects import InvestmentPlanner,sample
 from .scenarios import config,source_hash,snapshot
 from .provenance import provenance,contracts
 from .train import metrics
+from .reward_shaping import shape_trajectories
 
 
 class Deadline(Exception):pass
@@ -148,8 +149,8 @@ class OnlineClient(BaseClient):
                 if success:
                     self.economic_actions[kind]+=1;self.success_by_period[period][kind]+=1
                 else:
-                    # Failure is a reliability diagnostic only; it must not
-                    # shape the paper's S reward.
+                    # Persist raw S rewards. Optional failure penalties are
+                    # applied to copies at PPO update time, never to the world.
                     self.project_failures+=1
                     # Exact reuse of deterministic logits on an unchanged
                     # observation. Still draw every stochastic action, retain
@@ -309,14 +310,18 @@ def _legacy_ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr
 
 
 def ppo_update(model,trajectories,anchor,*,kl_mode='adaptive',update_batch_size=128,
-        kl_coef=.1,kl_window_batches=8,**kwargs):
+        kl_coef=.1,kl_window_batches=8,invalid_action_penalty=0.,**kwargs):
     """Accumulate an effective batch and adapt KL over windows, without micro-batch stops.
 
     ``batch_size`` remains the memory-sized micro batch. ``legacy`` exists only
     for reproducing earlier experiments; the normal path consumes every row in
     each epoch unless an explicit update budget or deadline is reached.
     """
-    if kl_mode=='legacy':return _legacy_ppo_update(model,trajectories,anchor,**kwargs)
+    trajectories,reward_shaping=shape_trajectories(trajectories,invalid_action_penalty)
+    if kl_mode=='legacy':
+        result=_legacy_ppo_update(model,trajectories,anchor,**kwargs)
+        result['reward_shaping']=reward_shaping
+        return result
     if kl_mode!='adaptive':raise ValueError('Unknown KL mode')
     defaults={name:p.default for name,p in inspect.signature(_legacy_ppo_update).parameters.items()
         if p.default is not inspect.Parameter.empty}
@@ -407,4 +412,5 @@ def ppo_update(model,trajectories,anchor,*,kl_mode='adaptive',update_batch_size=
         updates=stats['n'],examples_used=stats['examples'],unique_examples_used=len(seen),coverage=len(seen)/len(steps),
         epochs_completed=completed,kl_stopped=False,update_limit_reached=limited,kl_mode='adaptive',
         effective_batch_size=update_batch_size,micro_batch_size=options['batch_size'],kl_beta=beta,kl_windows=windows,
-        return_mean=float(returns.mean()),return_std=float(returns.std(unbiased=False)),steps=len(steps))
+        return_mean=float(returns.mean()),return_std=float(returns.std(unbiased=False)),steps=len(steps),
+        reward_shaping=reward_shaping)
