@@ -17,11 +17,13 @@ import time
 
 import numpy as np
 import torch
+from host import GameHost
 
 from .model import load_policy
 from .online import ppo_update, rollout, validate_device, with_critic
 from .overnight import storage_guard, write_json
 from .provenance import provenance, require_compatible
+from .scenarios import config
 from .trajectories import load as load_trajectory, model_digest, save as save_trajectory, verify_log_probabilities
 
 
@@ -59,6 +61,28 @@ def complete_world(folder, case, behavior):
         raise ValueError('World report/configuration mismatch')
     if sha(path)!=metadata['sha256']:raise ValueError('World checksum mismatch')
     return True
+
+
+def initialize_world(case):
+    # Validate only the untouched starting world, before any policy decision.
+    GameHost.new(config(case['seed'],size=case['size'],swap=case['swap']))
+
+
+def validated_cases(cases,folder,behavior,seen):
+    result=[];rejected=[];chosen=set()
+    for original in cases:
+        for attempt in range(32):
+            case=dict(original,seed=original['seed']+attempt*1_000_000)
+            if case['seed'] in seen or case['seed'] in chosen:continue
+            if not complete_world(folder,case,behavior):
+                try:initialize_world(case)
+                except ValueError as error:
+                    if str(error)!='Start overlaps existing territory':raise
+                    rejected.append(dict(seed=case['seed'],reason=str(error),replacement_attempt=attempt+1))
+                    continue
+            result.append(case);chosen.add(case['seed']);break
+        else:raise RuntimeError(f"No initializable world for seed {original['seed']}")
+    return result,rejected
 
 
 def collect_world(behavior_path, folder, case, device_name):
@@ -110,6 +134,7 @@ def run(args):
         _,latest=load_policy(source);seen.update(latest.get('seen_seeds',[]))
         require_compatible(latest)
     context=mp.get_context('spawn')
+    (args.out/'failure.json').unlink(missing_ok=True)
     while args.max_rounds is None or number<=args.max_rounds:
         if (args.out/'STOP').exists():break
         prune(args.out);storage_guard(args.out,budget=args.storage_mib*1024**2)
@@ -123,7 +148,10 @@ def run(args):
             model,metadata=load_policy(source);model=with_critic(model)
             save_model(behavior_path,model,metadata,seen,round=number,stage='behavior')
         behavior=model_digest(model)
-        write_json(folder/'manifest.json',dict(cases=cases,behavior_policy_sha256=behavior,settings=settings))
+        cases,rejected=validated_cases(cases,folder,behavior,seen)
+        write_json(folder/'manifest.json',dict(cases=cases,behavior_policy_sha256=behavior,settings=settings,
+                                             rejected_initializations=rejected))
+        if rejected:print(json.dumps(dict(event='invalid_starting_worlds',rejected=rejected,cases=cases)),flush=True)
         running={};attempts={c['seed']:0 for c in cases}
         while True:
             done=[c for c in cases if complete_world(folder,c,behavior)]

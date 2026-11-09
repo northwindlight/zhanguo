@@ -111,11 +111,11 @@ def main():
                 # environment records and training logs remain available.
                 bundles=sorted((args.out/'kaggle-output').glob('version-*/ppo-round-backup.zip'))
                 for path in bundles[:-2]:path.unlink()
-            if not state['training_complete']:
+            if not state['training_complete'] and state.get('retry_failed_round')!=state['round']:
                 state.update(phase='training_failed');write(state_path,state)
                 # Preserve failed-round evidence and completed worlds. Refuse
                 # blind retries of a deterministic optimizer/contract failure.
-                raise RuntimeError('Kaggle training failed; recovery artifacts saved')
+                raise SystemExit('Kaggle training failed; recovery artifacts saved; inspect training.log')
             queue_evaluation(ROOT,args.out,live)
             accepted=any(json.loads(f.read_text()).get('accepted') is True
                          for f in (args.out/'evaluations').glob('*/summary.json'))

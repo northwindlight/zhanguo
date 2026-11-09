@@ -14,6 +14,21 @@ if torch is not None:
 
 @unittest.skipIf(torch is None,'Optional training dependencies')
 class ContinuousPPOChecks(unittest.TestCase):
+    def test_invalid_start_is_replaced_and_complete_world_is_not_replayed(self):
+        cases=cycle.world_manifest(14,2,150,800000);first=cases[0]['seed'];second=cases[1]['seed']
+        with TemporaryDirectory() as directory:
+            def complete(folder,case,behavior):return case['seed']==first
+            def initialize(case):
+                if case['seed']==second:raise ValueError('Start overlaps existing territory')
+            with patch.object(cycle,'complete_world',side_effect=complete),patch.object(cycle,'initialize_world',side_effect=initialize) as check:
+                result,rejected=cycle.validated_cases(cases,Path(directory),'behavior',set())
+            self.assertEqual([c['seed'] for c in result],[first,second+1_000_000])
+            self.assertEqual(len(rejected),1)
+            self.assertEqual(check.call_count,2)
+            self.assertTrue(all(c['turns']==150 for c in result))
+            with patch.object(cycle,'complete_world',return_value=False),patch.object(cycle,'initialize_world',side_effect=ValueError('other bug')):
+                with self.assertRaisesRegex(ValueError,'other bug'):cycle.validated_cases(cases,Path(directory),'behavior',set())
+
     def test_fresh_worlds_and_diverse_environments(self):
         a=cycle.world_manifest(1,8,150,800000)
         b=cycle.world_manifest(2,8,150,800000)
