@@ -19,6 +19,14 @@ def game(student=False,values=(100.,100.),tails=(10.,10.)):
 
 @unittest.skipIf(torch is None,'Optional training dependencies')
 class AcceptanceChecks(unittest.TestCase):
+    def test_suite_exposes_complete_target_gate_for_promotion(self):
+        good=compare(game(),game(True,(150,150),(15,15)))
+        self.assertTrue(summary([good]*6)['surpass'])
+        self.assertFalse(summary([good]*5)['surpass'])
+        self.assertFalse(summary([good]*6,1.6)['surpass'])
+        bad=compare(game(),game(True,(200,200),(15,1)))
+        self.assertFalse(summary([good]*5+[bad])['surpass'])
+
     def test_exploratory_ppo_changes_training_only(self):
         from rl.economy.acceptance import training_stage
         self.assertEqual(training_stage(False,False),'dagger')

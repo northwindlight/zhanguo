@@ -78,6 +78,7 @@ def compare(teacher,student,target=TARGET_RATIO):
 def summary(results,target=TARGET_RATIO):
     return dict(cases=len(results),expected_cases=6,target_ratio=target,
         near=len(results)==6 and all(r['near']for r in results),
+        surpass=len(results)==6 and all(r['near'] and r['total_ratio']>=target for r in results),
         worst_ratio=min((r['worst_ratio']for r in results),default=0.),
         results=results)
 
