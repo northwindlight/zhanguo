@@ -6,11 +6,38 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from scripts.econ_kaggle_watch import prepare_input,status
+from scripts.econ_kaggle_watch import gpu_submission_available,prepare_input,status
 from scripts.econ_ppo_watch import digest,write
 
 
 class KaggleRecoveryChecks(unittest.TestCase):
+    def test_colab_owner_prevents_duplicate_kaggle_training_after_quota_refresh(self):
+        with TemporaryDirectory() as directory:
+            out=Path(directory);(out/'COLAB_OWNER').touch();state=dict(round=17,version=20)
+            with patch('scripts.econ_kaggle_watch.subprocess.run') as run:
+                self.assertFalse(gpu_submission_available(out,state))
+            run.assert_not_called()
+            self.assertEqual(state['phase'],'delegated_to_colab')
+
+    def test_exhausted_gpu_quota_is_waiting_not_training_even_with_unused_tpu(self):
+        quota=dict(gpu=dict(time_used=30.45,time_reserved=0.,total_time_allowed=30.),
+                   tpu=dict(time_used=0.,time_reserved=0.,total_time_allowed=20.),
+                   refresh='2026-11-14T00:00:00')
+        with TemporaryDirectory() as directory:
+            out=Path(directory);state=dict(round=17,version=20,phase='submitting',push_pending=True)
+            with patch('scripts.econ_kaggle_watch.subprocess.run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(quota))):
+                self.assertFalse(gpu_submission_available(out,state))
+            saved=json.loads((out/'kaggle-watch-state.json').read_text())
+            self.assertEqual(saved['phase'],'waiting_gpu_quota')
+            self.assertEqual(saved['next_round'],18)
+            self.assertEqual(saved['version'],20)
+            quota['gpu']['time_used']=0.;quota['gpu']['time_reserved']=30.
+            with patch('scripts.econ_kaggle_watch.subprocess.run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(quota))):
+                self.assertFalse(gpu_submission_available(out,state))
+            quota['gpu']['time_reserved']=0.
+            with patch('scripts.econ_kaggle_watch.subprocess.run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(quota))):
+                self.assertTrue(gpu_submission_available(out,state))
+
     def test_recovery_bundle_preserves_behavior_worlds_and_resume_settings(self):
         with TemporaryDirectory() as directory:
             root=Path(directory);live=root/'live';folder=live/'round-000001';folder.mkdir(parents=True)

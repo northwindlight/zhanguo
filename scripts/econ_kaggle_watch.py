@@ -39,6 +39,26 @@ def status(kernel,allow_missing=False):
     return match.group(1)
 
 
+def gpu_submission_available(out,state):
+    if (out/'COLAB_OWNER').exists():
+        state.update(phase='delegated_to_colab',next_round=state['round']+1)
+        write(out/'kaggle-watch-state.json',state)
+        return False
+    query=subprocess.run([KAGGLE_PYTHON,str(ROOT/'scripts/econ_kaggle_quota.py')],
+                         capture_output=True,text=True,timeout=45)
+    if query.returncode:raise RuntimeError('Kaggle accelerator quota query failed')
+    quota=json.loads(query.stdout);gpu=quota['gpu']
+    values=[gpu[name] for name in ('total_time_allowed','time_used','time_reserved')]
+    if any(value is None for value in values):raise ValueError('Incomplete Kaggle GPU quota')
+    remaining=max(0.,values[0]-values[1]-values[2])
+    write(out/'accelerator-quota.json',quota)
+    if remaining>0:return True
+    state.update(phase='waiting_gpu_quota',next_round=state['round']+1,
+                 gpu_quota=gpu,quota_refresh=quota['refresh'])
+    write(out/'kaggle-watch-state.json',state)
+    return False
+
+
 def prepare_input(out,live):
     folder=out/'kaggle-input'
     recovery=folder/'recovery.tmp'
@@ -159,6 +179,10 @@ def main():
                 next_version=state['version']+1
                 if status(f'{args.kernel}/{next_version}',allow_missing=True) in ('RUNNING','QUEUED','COMPLETE','ERROR','CANCELLED'):
                     state=dict(version=next_version,phase='running');write(state_path,state);continue
+            if not gpu_submission_available(args.out,state):
+                print(json.dumps(dict(event=state['phase'],round=state['round'],
+                                      next_round=state['next_round'],refresh=state.get('quota_refresh'))),flush=True)
+                failures=0;time.sleep(args.interval);continue
             kernel_folder=args.out/'kaggle-kernel'
             shutil.copyfile(ROOT/'scripts/econ_kaggle_job.py',kernel_folder/'train.py')
             metadata_path=kernel_folder/'kernel-metadata.json'
