@@ -41,6 +41,20 @@ class PPOWatchChecks(unittest.TestCase):
             self.assertEqual(second['changed'],[])
             watch.install_backup(archive,live,second)
 
+    def test_ecs_snapshot_uses_explicit_paths_and_rejects_missing_run_before_copy(self):
+        from scripts.econ_ecs_watch import snapshot
+        from types import SimpleNamespace
+        with TemporaryDirectory() as directory:
+            root=Path(directory);archive=root/'backup.zip';output=io.StringIO()
+            with contextlib.redirect_stdout(output):
+                exec(watch.remote_code({},remote=str(root),backup_path=str(archive)),{})
+            manifest=json.loads(output.getvalue().split('BACKUP ')[1])
+            self.assertEqual(manifest['files'],{})
+            args=SimpleNamespace(remote=str(root),out=root,host='owned-host')
+            with patch('scripts.econ_ecs_watch.subprocess.run',return_value=SimpleNamespace(returncode=0,stdout=output.getvalue())) as run:
+                with self.assertRaisesRegex(RuntimeError,'preserve local artifacts'):snapshot(args,{},False)
+            self.assertEqual(run.call_count,1)
+
     def test_backup_rejects_traversal_and_corruption(self):
         with TemporaryDirectory() as directory:
             root=Path(directory);archive=root/'bad.zip';data=b'bad'

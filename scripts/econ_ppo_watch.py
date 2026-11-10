@@ -62,10 +62,11 @@ def install_backup(partial, live, manifest):
             tmp.replace(dest)
 
 
-def remote_code(known, stop=False):
+def remote_code(known, stop=False, *,remote=None,backup_path='/content/econ-ppo-backup.zip'):
+    if remote is None:remote=REMOTE
     return f'''import hashlib,json,time,zipfile
 from pathlib import Path
-root=Path({REMOTE!r});run=root/'rl/runs/ppo-cycle'
+root=Path({remote!r});run=root/'rl/runs/ppo-cycle'
 if {stop!r} and run.exists():(run/'STOP').touch()
 known={known!r}
 files={{}};changed=[];payload={{}}
@@ -76,7 +77,7 @@ if run.exists():
   name=str(p.relative_to(run));data=p.read_bytes()
   files[name]=dict(sha256=hashlib.sha256(data).hexdigest(),bytes=len(data))
   if known.get(name)!=files[name]:changed.append(name);payload[name]=data
-backup=Path('/content/econ-ppo-backup.zip')
+backup=Path({backup_path!r})
 with zipfile.ZipFile(backup,'w',compression=zipfile.ZIP_STORED) as z:
  for name in changed:z.writestr(name,payload[name])
 pid=int((root/'manager.pid').read_text()) if (root/'manager.pid').exists() else 0

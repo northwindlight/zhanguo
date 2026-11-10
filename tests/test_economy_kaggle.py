@@ -11,6 +11,14 @@ from scripts.econ_ppo_watch import digest,write
 
 
 class KaggleRecoveryChecks(unittest.TestCase):
+    def test_ecs_owner_prevents_duplicate_gpu_training(self):
+        with TemporaryDirectory() as directory:
+            out=Path(directory);(out/'ECS_OWNER').touch();state=dict(round=17,version=20)
+            with patch('scripts.econ_kaggle_watch.subprocess.run') as run:
+                self.assertFalse(gpu_submission_available(out,state))
+            run.assert_not_called()
+            self.assertEqual(state['phase'],'delegated_to_ecs')
+
     def test_colab_owner_prevents_duplicate_kaggle_training_after_quota_refresh(self):
         with TemporaryDirectory() as directory:
             out=Path(directory);(out/'COLAB_OWNER').touch();state=dict(round=17,version=20)

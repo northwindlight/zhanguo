@@ -40,6 +40,10 @@ def status(kernel,allow_missing=False):
 
 
 def gpu_submission_available(out,state):
+    if (out/'ECS_OWNER').exists():
+        state.update(phase='delegated_to_ecs',next_round=state['round']+1)
+        write(out/'kaggle-watch-state.json',state)
+        return False
     if (out/'COLAB_OWNER').exists():
         state.update(phase='delegated_to_colab',next_round=state['round']+1)
         write(out/'kaggle-watch-state.json',state)
