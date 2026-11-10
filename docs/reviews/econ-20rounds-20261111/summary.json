@@ -1,0 +1,84 @@
+{
+  "metadata": {
+    "frozen_at": "2026-11-10T20:04:42.467079+00:00",
+    "through_round": 20,
+    "git_commit": "c154ede43a9d71b9cde665d8c5153b180dda7c1d",
+    "scope": "Completed continuous PPO chain only; historical duplicates separately identified"
+  },
+  "aggregate_training": {
+    "decisions": 1053116,
+    "failures": 876803,
+    "build": 56735,
+    "recruit": 26919,
+    "finish": 92659,
+    "S": 4386655.81378931
+  },
+  "round_count": 20,
+  "world_count": 160,
+  "evaluation_seat_count": 160,
+  "total_updates": 8237,
+  "contracts": [
+    [
+      "fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9",
+      "e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a"
+    ]
+  ],
+  "training_seed_count": 160,
+  "budget_hits": [],
+  "checks": {
+    "weight_file_sha": true,
+    "matched_policy_evaluations": true,
+    "source_S_recalculated": true,
+    "continuous_policy_ancestry": true,
+    "decision_partition": true,
+    "coverage_and_update_logs": true,
+    "unique_training_seeds": true
+  },
+  "excluded_historical": [
+    {
+      "policy_sha256": "3f60ae20e777290c2dc5cae46f17bd5c00806542ee38a948537d50d45c9a8b11",
+      "checkpoint": "/home/northwind/zhanguo-rl-economy/archive/previews/econ-handoff-20261107/models/ppo-r3.pt",
+      "screen": "archive/previews/ppo-continue-20261107/evaluations/round-000001/screen.json",
+      "S_ratios": [
+        0.8906933679866443,
+        0.823089159305275
+      ],
+      "note": "Historical or BC baseline; excluded from continuous-chain totals"
+    },
+    {
+      "policy_sha256": "d794d048aaccae58c8cc96355c40f67ed48723667c692d93b7bed889ed11dbe5",
+      "checkpoint": "/home/northwind/zhanguo-rl-economy/archive/previews/econ14-20261107/live/epoch-15.pt",
+      "screen": "archive/previews/ppo-continue-20261107/evaluations/round-000001/screen.json",
+      "S_ratios": [
+        0.996979103418835,
+        0.9085838746993691
+      ],
+      "note": "Historical or BC baseline; excluded from continuous-chain totals"
+    },
+    {
+      "policy_sha256": "e70409ba9ae5fdaba288a14da81c284fde746872591d3e0252660d511cc06a72",
+      "checkpoint": "/home/northwind/zhanguo-rl-economy/archive/previews/ppo-continue-20261107/live/round-000003/candidate.pt",
+      "screen": "archive/previews/ppo-continue-20261107/evaluations/round-000003/screen.json",
+      "S_ratios": [
+        1.0174579366586287,
+        0.9157097994513265
+      ],
+      "note": "Historical or BC baseline; excluded from continuous-chain totals"
+    },
+    {
+      "policy_sha256": "366c5f6b8e03414281c4f0ac355849e39455ea054655596b60e7548b708eaae7",
+      "checkpoint": "/home/northwind/zhanguo-rl-economy/archive/previews/ppo-continue-20261107/live/round-000005/candidate.pt",
+      "screen": "archive/previews/ppo-continue-20261107/evaluations/round-000005/screen.json",
+      "S_ratios": [
+        1.0336821076801723,
+        0.7139167135739498
+      ],
+      "note": "Historical or BC baseline; excluded from continuous-chain totals"
+    }
+  ],
+  "caveats": [
+    "Raw older trajectories were pruned by retention; complete reports/updates/weights are retained",
+    "Loss and action fractions use different on-policy worlds each round, not a fixed validation distribution",
+    "Two selection worlds are repeatedly consulted; no untouched generalization estimate or confidence interval"
+  ]
+}

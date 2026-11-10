@@ -1,0 +1,108 @@
+{
+  "checked_at": "2026-11-10T20:06:09.536668+00:00",
+  "ecs": {
+    "service": {
+      "MainPID": "1792313",
+      "ExecMainStartTimestamp": "Tue 2026-11-10 22:54:54 CST",
+      "MemoryCurrent": "2983751680",
+      "MemorySwapCurrent": "478339072",
+      "CPUUsageNSec": "26529112011000",
+      "ActiveState": "active"
+    },
+    "disk": {
+      "total": 41892380672,
+      "used": 32336699392,
+      "free": 7619092480
+    },
+    "state": {
+      "phase": "training",
+      "round": 21,
+      "at": 1794341091.3356192,
+      "accepted": false,
+      "updates": 160,
+      "examples_used": 20480,
+      "logical_batch_size": 128,
+      "micro_batch_size": 8,
+      "kl_mode": "adaptive",
+      "kl_stop": false,
+      "kl_beta": 0.0001,
+      "gradient_norm": 4.317079544067383,
+      "policy": -0.06252400483936071,
+      "value": 0.07565851003164425,
+      "execution": 0.06883982580620795,
+      "entropy": 2.2809073254466057,
+      "anchor": 0.048928179719951004,
+      "kl": 0.00553523376584053,
+      "loss": -0.01764471677597612,
+      "clip_fraction": 0.078125
+    },
+    "migration": {
+      "phase": "cpu_fallback_started",
+      "next_round": 19,
+      "device": "cpu",
+      "pid": 1792313,
+      "torch": "2.14.0+cpu",
+      "verified_worlds": [
+        {
+          "seed": 800152,
+          "steps": 3742,
+          "cpu_logp_max_error": 3.0994415283203125e-06
+        },
+        {
+          "seed": 800153,
+          "steps": 4345,
+          "cpu_logp_max_error": 4.291534423828125e-06
+        },
+        {
+          "seed": 800154,
+          "steps": 3836,
+          "cpu_logp_max_error": 6.198883056640625e-06
+        },
+        {
+          "seed": 800155,
+          "steps": 3132,
+          "cpu_logp_max_error": 2.86102294921875e-06
+        },
+        {
+          "seed": 800156,
+          "steps": 4168,
+          "cpu_logp_max_error": 4.76837158203125e-06
+        }
+      ],
+      "settings": {
+        "initial_sha256": "ed3923574682baa1d94d337708070b33b2464526d438084af0d4d283221ef647",
+        "worlds": 8,
+        "turns": 150,
+        "seed_base": 800000,
+        "epochs": 1,
+        "effective_batch": 128,
+        "micro_batch": 8,
+        "lr": 3e-05
+      },
+      "at": 1794322494.593984
+    },
+    "training_directory_bytes": 302654976
+  },
+  "kaggle_quota": {
+    "gpu": {
+      "time_used": 30.454452777777778,
+      "time_reserved": 0.0,
+      "total_time_allowed": 30.0
+    },
+    "tpu": {
+      "time_used": 0.0,
+      "time_reserved": 0.0,
+      "total_time_allowed": 20.0
+    },
+    "refresh": "2026-11-14T00:00:00"
+  },
+  "colab_no_active_sessions": true,
+  "local_disk": {
+    "total": 251405139968,
+    "used": 195947814912,
+    "free": 45207789568
+  },
+  "live_bytes": 454197342,
+  "kaggle_output_bytes": 226061855,
+  "private_input_bytes": 53740241
+}

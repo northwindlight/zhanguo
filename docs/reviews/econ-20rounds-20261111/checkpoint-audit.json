@@ -1,0 +1,342 @@
+[
+  {
+    "round": 1,
+    "policy_sha256": "1eb381514583c5e02b87a27746e8f3c9a59978f2c4e26f7a5a900ab1ee8fc421",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 22,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 2,
+    "policy_sha256": "f762f80790848767dcb6288123492a41836dde57a95438b9e22ed1e039f20803",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 30,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 3,
+    "policy_sha256": "2f804e266bea9042afd80bb75101f95ba5a35f796178119c63830e92335d2a79",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 38,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 4,
+    "policy_sha256": "b09c9497b04816add490590136da34c318fc207a96282eeaaa31aca5022a5531",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 46,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 5,
+    "policy_sha256": "1e1356b0353d83c5352d8176691707e9f55a3cd210f129c8c3e76f7fef419e5b",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 54,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 6,
+    "policy_sha256": "1433716472f93d76df5f1a4669faaae1ce823beec8e5a1e2f0ac0d2661bc5d04",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 62,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 7,
+    "policy_sha256": "78b515b648b8e9cb8b205e671a769cd34cfcf387238af3c7793f16bba9242b42",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 70,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 8,
+    "policy_sha256": "4f18e34eb15c3cf5f1c345e33528de5af8012881ec04e868ae4698338273b598",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 78,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 9,
+    "policy_sha256": "2005891c154b4db9cfbd5a78221ef6d57f77779e21a32c396f9294c87f089a3a",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 86,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 10,
+    "policy_sha256": "973c538c00a910a132008e1782b4e4108d7236b442ed8395ee30c77cbdd1283e",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 94,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 11,
+    "policy_sha256": "086ce9829e7dc5eea9c78f3bfab7d90eb95f3900895e612943ff53fc3f26f389",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 102,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 12,
+    "policy_sha256": "e360c2e2fe17d3c93b2399d5427e3d157cfd020eb9b583c0f0069146f4877d05",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 110,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 13,
+    "policy_sha256": "a3892845c39b373783a893d485acf4de72adbce0ea227c3f94bf5352f71a6807",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 118,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 14,
+    "policy_sha256": "8d39202914a42aaf7aec6dc420a891e5b4b50bb33e05559e8b0cd1989992e5ea",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 126,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 15,
+    "policy_sha256": "6b0e2390162baa165522d85bc6a64fb73cc5ab425ee2b1fee40d4348a3e1d060",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 134,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 16,
+    "policy_sha256": "abcbd0e00b0ac6921e22d6b98b986e1596803cf4647e30e63552f26a009abcc2",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 142,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 17,
+    "policy_sha256": "439812c7511b44cacfea1a63f6e9f353b14201aab6980bdc3eac0101263ea534",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 150,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 18,
+    "policy_sha256": "2e7da66af9d61e892dfcd2a8f3a3d7ace96dace191549760140d8c8c1b3dfc94",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 158,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 19,
+    "policy_sha256": "ed07efb3a02deab5e684cfd82a482b5536bc8200372a984a4992e0ac5ef8446b",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 166,
+    "zero_invalid_penalty": true
+  },
+  {
+    "round": 20,
+    "policy_sha256": "2908df2180ac096f2b21cfbc6d1104033a13bff2921d2d2730995d2ea859bc40",
+    "parameters": 1037607,
+    "config": {
+      "width": 160,
+      "depth": 2,
+      "heads": 4,
+      "action_mode": "projects",
+      "critic": true,
+      "family_aux": true,
+      "family_weight": 1.0,
+      "family_loss_weight": 0.5
+    },
+    "ancestry_seed_count": 174,
+    "zero_invalid_penalty": true
+  }
+]
