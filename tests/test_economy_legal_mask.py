@@ -14,6 +14,7 @@ import torch
 from rl.economy.adapter import WIDTH
 from rl.economy.model import Policy
 from rl.economy.online import advantage_report, decision_advantages
+from rl.economy.reward_shaping import shape_trajectories
 
 
 def batch(legal, candidates=4):
@@ -103,6 +104,57 @@ class DecisionAdvantageChecks(unittest.TestCase):
         self.assertEqual(report['executed_rate'], .25)
         self.assertLess(report['between_period_share'], .5)
         self.assertAlmostEqual(report['nonzero_reward_share'], .25)
+
+    def test_report_exposes_reward_attribution_and_next_period_signal(self):
+        stream = [dict(reward=0., value=1., period=0, action=0, action_kind='finish',
+                       executed=None, row=dict(legal=[True] * 4)),
+                  dict(reward=.4, value=1.1, period=0, action=1, action_kind='recruit',
+                       executed=True, row=dict(legal=[True] * 4)),
+                  dict(reward=.2, value=.9, period=1, action=0, action_kind='finish',
+                       executed=None, row=dict(legal=[True] * 4))]
+        report = advantage_report([stream], decision_advantages([stream]))
+        self.assertAlmostEqual(report['reward_total'], .6)
+        self.assertAlmostEqual(report['reward_on_project_share'], .4 / .6)
+        self.assertAlmostEqual(report['reward_on_finish_share'], .2 / .6)
+        self.assertIsNotNone(report['next_period_reward_correlation'])
+
+
+class ProjectCreditChecks(unittest.TestCase):
+    @staticmethod
+    def stream():
+        # Historical contract: the whole period dS rides on the trailing finish.
+        return [dict(reward=0., period=0, action_kind='build', executed=True),
+                dict(reward=0., period=0, action_kind='recruit', executed=True),
+                dict(reward=.4, period=0, action_kind='finish', executed=None)]
+
+    def test_project_credit_moves_the_turn_reward_onto_successful_decisions(self):
+        streams = [[dict(step) for step in self.stream()]]
+        shaped, metrics = shape_trajectories(streams, credit_mode='project')
+        self.assertAlmostEqual(shaped[0][0]['reward'], .2)
+        self.assertAlmostEqual(shaped[0][1]['reward'], .2)
+        self.assertAlmostEqual(shaped[0][2]['reward'], 0.)
+        self.assertAlmostEqual(sum(step['reward'] for step in shaped[0]), .4)
+        self.assertEqual(metrics['credit_mode'], 'project')
+        self.assertAlmostEqual(metrics['project_reward'], .4)
+        self.assertAlmostEqual(metrics['finish_reward'], 0.)
+        # The stored trajectory is never mutated.
+        self.assertAlmostEqual(sum(step['reward'] for step in streams[0]), .4)
+
+    def test_turn_credit_stays_the_identity_contract(self):
+        streams = [[dict(step) for step in self.stream()]]
+        same, metrics = shape_trajectories(streams)
+        self.assertIs(same, streams)
+        self.assertEqual(metrics['credit_mode'], 'turn')
+
+    def test_penalty_stays_on_failed_steps_under_project_credit(self):
+        stream = [dict(reward=0., period=0, action_kind='build', executed=False),
+                  dict(reward=0., period=0, action_kind='build', executed=True),
+                  dict(reward=.3, period=0, action_kind='finish', executed=None)]
+        shaped, metrics = shape_trajectories([stream], .05, credit_mode='project')
+        self.assertAlmostEqual(shaped[0][0]['reward'], -.05)
+        self.assertAlmostEqual(shaped[0][1]['reward'], .3)
+        self.assertAlmostEqual(shaped[0][2]['reward'], 0.)
+        self.assertEqual(metrics['invalid_actions'], 1)
 
 
 if __name__ == '__main__':

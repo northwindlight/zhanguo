@@ -32,12 +32,12 @@ def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def save_model(path, model, base, seen, *,invalid_action_penalty=0.,**extra):
+def save_model(path, model, base, seen, *,invalid_action_penalty=0.,credit_mode='turn',**extra):
     saved={k:v for k,v in base.items() if k not in ('model','optimizer','rng','metrics','config')}
     saved.update(**provenance(),model={k:v.detach().cpu() for k,v in model.state_dict().items()},
         config=model.config,fingerprint=model.fingerprint,seen_seeds=sorted(seen),
         selection_seeds=[8101,8102],experimental=True,accepted=False,
-        training_objective=objective(invalid_action_penalty),
+        training_objective=objective(invalid_action_penalty,credit_mode),
         reward=dict(name='paper_S_consumption_increment',scale=1000.,gamma=1.,gae_lambda=1.),**extra)
     temporary=path.with_suffix('.tmp');torch.save(saved,temporary);temporary.replace(path)
 
@@ -132,7 +132,7 @@ def run(args):
     settings=dict(initial_sha256=sha(args.checkpoint),worlds=args.worlds,turns=args.turns,seed_base=args.seed_base,
                   epochs=args.epochs,effective_batch=args.effective_batch,micro_batch=args.micro_batch,lr=args.lr,
                   legal_mask=bool(args.legal_mask),exec_prior_weight=float(args.exec_prior_weight),
-                  advantage_mode=args.advantage_mode,gamma=float(args.gamma))
+                  advantage_mode=args.advantage_mode,gamma=float(args.gamma),credit_mode=args.credit_mode)
     penalty=objective(args.invalid_action_penalty)['invalid_action_penalty']
     if penalty:settings['invalid_action_penalty']=penalty
     config_path=args.out/'run.json'
@@ -164,7 +164,8 @@ def run(args):
         else:
             torch.manual_seed(410000+number)
             model,metadata=load_policy(source);configure(model,args);model=with_critic(model)
-            save_model(behavior_path,model,metadata,seen,round=number,stage='behavior',invalid_action_penalty=penalty)
+            save_model(behavior_path,model,metadata,seen,round=number,stage='behavior',invalid_action_penalty=penalty,
+                       credit_mode=args.credit_mode)
         behavior=model_digest(model)
         cases,rejected=validated_cases(cases,folder,behavior,seen)
         write_json(folder/'manifest.json',dict(cases=cases,behavior_policy_sha256=behavior,settings=settings,
@@ -207,16 +208,16 @@ def run(args):
                     write_json(args.out/'state.json',dict(phase='training',round=number,at=time.time(),accepted=False,**record))
             def progress(record):
                 save_model(args.out/'progress.pt',model,metadata,seen,round=number,stage='partial',progress=record,
-                           invalid_action_penalty=penalty)
+                           invalid_action_penalty=penalty,credit_mode=args.credit_mode)
             training=ppo_update(model,streams,anchor,epochs=args.epochs,lr=args.lr,batch_size=args.micro_batch,
                        update_batch_size=args.effective_batch,kl_mode='adaptive',diagnostic_callback=observe,
-                       checkpoint_callback=progress,invalid_action_penalty=penalty,
+                       checkpoint_callback=progress,invalid_action_penalty=penalty,credit_mode=args.credit_mode,
                        advantage_mode=args.advantage_mode,gamma=float(args.gamma))
         if training['coverage']!=1. or training['epochs_completed']!=args.epochs:
             raise RuntimeError('Incomplete PPO update cannot advance the experiment')
         training['behavior_logp_max_error']=error
         save_model(folder/'candidate.pt',model,metadata,seen,round=number,stage='exploratory_ppo',ppo_round=training,
-                   invalid_action_penalty=penalty)
+                   invalid_action_penalty=penalty,credit_mode=args.credit_mode)
         write_json(folder/'candidate.json',dict(round=number,sha256=sha(folder/'candidate.pt'),
                    policy_sha256=model_digest(model),metrics=training,accepted=False))
         shutil.copyfile(folder/'candidate.pt',args.out/'train-current.tmp')
@@ -246,6 +247,9 @@ def main():
     p.add_argument('--advantage-mode',choices=('mc','td'),default='mc',
                    help='mc = historical constant-per-period advantage; td = per-decision r+V(s_next)-V(s)')
     p.add_argument('--gamma',type=float,default=1.,help='Discount used by td advantage')
+    p.add_argument('--credit-mode',choices=('turn','project'),default='turn',
+                   help='turn = historical contract (period delta-S on the trailing decision); '
+                        'project = split it across that period\'s successful build/recruit decisions')
     p.add_argument('--storage-mib',type=int,default=1024);p.add_argument('--max-rounds',type=int)
     a=p.parse_args()
     if min(a.threads,a.worlds,a.workers,a.turns,a.epochs,a.effective_batch,a.micro_batch)<1:p.error('positive sizes required')

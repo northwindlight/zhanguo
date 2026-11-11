@@ -269,6 +269,17 @@ def decision_advantages(trajectories,gamma=1.):
     return result
 
 
+def _pearson(left,right):
+    count=len(left)
+    if count<2 or count!=len(right):return None
+    mean_left=sum(left)/count;mean_right=sum(right)/count
+    covariance=sum((a-mean_left)*(b-mean_right) for a,b in zip(left,right))
+    var_left=sum((a-mean_left)**2 for a in left)**.5
+    var_right=sum((b-mean_right)**2 for b in right)**.5
+    if not var_left or not var_right:return None
+    return covariance/(var_left*var_right)
+
+
 def advantage_report(trajectories,values):
     """Describe where the gradient signal actually lives (cheap, pure python).
 
@@ -308,6 +319,22 @@ def advantage_report(trajectories,values):
         if not sd:return None
         return sum((flag-m)*(value-mean) for flag,value in zip(membership,values))/(n*sd*(variance**.5))
     legal=[int(bool(step['row']['legal'][step['action']])) for step in steps]
+    total_reward=sum(float(step.get('reward',0.)) for step in steps)
+    project_reward=sum(float(step.get('reward',0.)) for step in steps
+        if step.get('action_kind') in ('build','recruit') and step.get('executed') is True)
+    finish_reward=total_reward-project_reward
+    per_stream={}
+    for stream,trajectory in enumerate(trajectories):
+        bucket=per_stream.setdefault(stream,{})
+        for step in trajectory:
+            bucket[step.get('period')]=bucket.get(step.get('period'),0.)+float(step.get('reward',0.))
+    next_reward=[]
+    for stream,trajectory in enumerate(trajectories):
+        ordered=sorted(per_stream[stream])
+        delay={period:(per_stream[stream][ordered[position+1]]
+                       if position+1<len(ordered) else 0.)
+               for position,period in enumerate(ordered)}
+        for step in trajectory:next_reward.append(delay[step.get('period')])
     return dict(steps=total,streams=len(trajectories),periods=len(groups),
                 mean=mean,std=variance**.5,
                 between_period_share=share(groups),between_stream_share=share(stream_means),
@@ -319,7 +346,11 @@ def advantage_report(trajectories,values):
                 success_correlation=correlation(success),
                 sampled_legal_rate=sum(legal)/total,
                 executed_rate=(sum(1 for step in steps if step.get('executed') is True)/total),
-                nonzero_reward_share=(sum(1 for step in steps if step.get('reward'))/total))
+                nonzero_reward_share=(sum(1 for step in steps if step.get('reward'))/total),
+                reward_total=total_reward,
+                reward_on_project_share=(project_reward/total_reward if total_reward else None),
+                reward_on_finish_share=(finish_reward/total_reward if total_reward else None),
+                next_period_reward_correlation=_pearson(values,next_reward))
 
 
 def _legacy_ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr=3e-5,checkpoint_callback=None,
@@ -383,14 +414,15 @@ def _legacy_ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr
 
 
 def ppo_update(model,trajectories,anchor,*,kl_mode='adaptive',update_batch_size=128,
-        kl_coef=.1,kl_window_batches=8,invalid_action_penalty=0.,advantage_mode='mc',gamma=1.,**kwargs):
+        kl_coef=.1,kl_window_batches=8,invalid_action_penalty=0.,credit_mode='turn',
+        advantage_mode='mc',gamma=1.,**kwargs):
     """Accumulate an effective batch and adapt KL over windows, without micro-batch stops.
 
     ``batch_size`` remains the memory-sized micro batch. ``legacy`` exists only
     for reproducing earlier experiments; the normal path consumes every row in
     each epoch unless an explicit update budget or deadline is reached.
     """
-    trajectories,reward_shaping=shape_trajectories(trajectories,invalid_action_penalty)
+    trajectories,reward_shaping=shape_trajectories(trajectories,invalid_action_penalty,credit_mode=credit_mode)
     if kl_mode=='legacy':
         result=_legacy_ppo_update(model,trajectories,anchor,**kwargs)
         result['reward_shaping']=reward_shaping
