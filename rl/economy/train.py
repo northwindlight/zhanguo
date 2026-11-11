@@ -122,6 +122,8 @@ def main():
     p.add_argument('--head-pool',choices=('context0','mean','attn'),default='context0',
                    help='value/族头读 context 的方式：只取全局行、均值、或注意力池化')
     p.add_argument('--allow-mixed-teachers',action='store_true',help='Explicitly combine compatible feature schemas from recorded teacher source revisions')
+    p.add_argument('--save-every',type=int,default=0,
+                   help='每 N 个 epoch 另存 epoch-NN.pt（0=不另存，只留 last/best）；用于按长局而不是 loss 选 BC 起点')
     a=p.parse_args()
     if a.resume and a.init:raise ValueError('Choose resume or initialization, not both')
     if min(a.opening_weight,a.mobilization_weight)<1:raise ValueError('Curriculum weights must be >= 1')
@@ -205,6 +207,8 @@ def main():
             optimizer=optimizer.state_dict(),rng=torch.get_rng_state(),metrics=result)
         for name in ('last', 'best') if improved else ('last',):
             temp=a.out/f'{name}.tmp';torch.save(checkpoint,temp);temp.replace(a.out/f'{name}.pt')
+        if a.save_every>0 and (epoch+1)%a.save_every==0:
+            temp=a.out/f'epoch-{epoch+1:02d}.tmp';torch.save(checkpoint,temp);temp.replace(a.out/f'epoch-{epoch+1:02d}.pt')
         with (a.out/'metrics.jsonl').open('a') as stream:stream.write(json.dumps(result)+'\n')
         print(json.dumps(result),flush=True)
 
