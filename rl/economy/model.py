@@ -55,7 +55,7 @@ def collate(examples):
 class Policy(nn.Module):
     def __init__(self,width=160,depth=2,heads=4,action_mode='atomic',critic=False,
                  family_aux=False,family_weight=1.,family_loss_weight=.5,
-                 cand_ffn=False,head_pool='context0',exec_prior_weight=.5,legal_mask=False):
+                 cand_ffn=False,head_pool='context0',exec_prior_weight=0.,legal_mask=False):
         super().__init__()
         if action_mode not in ('atomic','projects'):raise ValueError(action_mode)
         if head_pool not in ('context0','mean','attn'):raise ValueError(head_pool)
@@ -133,9 +133,10 @@ class Policy(nn.Module):
                 -1,index)
         executable=self.exec_head(h).squeeze(-1) if self.action_mode=='projects' else None
         if executable is not None:
-            # feat/rl transformer: a learned soft prior, weight is now configurable
-            # (0.5 keeps the historical behaviour bit-for-bit).
-            weight=float(self.config.get('exec_prior_weight',.5))
+            # The formal executable flag is now a candidate token (adapter
+            # EXECUTABLE_COLUMN) the model can read and override, so the fixed soft
+            # prior defaults to 0. A non-zero weight keeps the historical bias.
+            weight=float(self.config.get('exec_prior_weight',0.))
             if weight:
                 logits=logits+weight*(executable.sigmoid()+1e-3).log()
         mask=batch['candidate_mask'] if self.action_mode=='projects' else batch['legal']

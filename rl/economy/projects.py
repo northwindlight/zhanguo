@@ -1,8 +1,9 @@
 """Investment-level BC: learned projects, deterministic v13plus cash/material service.
 
 All owned-site/catalog projects remain selectable, even if not executable. Only
-padding is masked by the network. Formal eligibility is a feature/auxiliary
-training target, never a policy override. No teacher choice runs in the learner.
+padding is masked by the network. Formal eligibility is exposed to the policy as a
+dedicated candidate token (``EXECUTABLE_COLUMN``) and stays an auxiliary training
+target; it is not a hard action mask. No teacher choice runs in the learner.
 """
 from collections import Counter
 from contextlib import contextmanager
@@ -14,7 +15,7 @@ from ruleai.v11plus import apimap
 from ruleai.v13.economy import operating_targets, reserve_cash, SUPPLY
 from ruleai.v13plus.economy import Planner
 from ruleai.v13.entry import RuleClient as BaseClient
-from .adapter import observation, label, RESOURCES, scale
+from .adapter import observation, label, RESOURCES, scale, EXECUTABLE_COLUMN
 from .model import Policy, collate, device_of, prepare
 from .query_cache import memo_read_queries
 
@@ -86,8 +87,8 @@ class InvestmentPlanner(Planner):
             funding=self.funding(*package) if package else None
             encoded['legal'][i]=funding is not None
             features=encoded['candidates'][i]
-            # Formal funding is an auxiliary supervision target (legal), not an
-            # observation feature; the candidate keeps its public availability.
+            # Funding is written into the candidate token after the loop
+            # (EXECUTABLE_COLUMN); the public availability stays in its own slot.
             if package:
                 recipe,reserve=package
                 features[59:66]=[scale(recipe.get(r,0)) for r in RESOURCES]
@@ -97,6 +98,9 @@ class InvestmentPlanner(Planner):
         encoded['context'][0,85:87]=[
             scale(sum(self.catalog[b['kind']][k] for b in self.buildings()))
             for k in ('energy_output','energy_use')]
+        # The formal executable flag is a token the policy can see and may override;
+        # it is deliberately not an action mask (only padding is masked).
+        encoded['candidates'][:,EXECUTABLE_COLUMN]=encoded['legal'].astype('float32')
         encoded['packages']=packages
         return encoded
 

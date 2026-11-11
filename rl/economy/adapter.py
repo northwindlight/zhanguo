@@ -1,8 +1,9 @@
 """Actor-bound observations and parameterized economic actions.
 
 No World access and no teacher scores/phase/selected action in observations.
-Unaffordable buildings remain visible as context; only execution is masked.
-Trade quantities have support on every integer in the actual executable range.
+Unaffordable projects remain visible and selectable; the formal executable flag is
+exposed as a dedicated candidate token column (``EXECUTABLE_COLUMN``) instead of a
+hard action mask. Only padding is masked by the network.
 """
 from collections import Counter
 import hashlib
@@ -14,7 +15,7 @@ import numpy as np
 from ruleai.v13.market import MarketModel
 from ruleai.v13.profiles import PROFILES
 
-VERSION = 'economy-bc-2'
+VERSION = 'economy-bc-3'
 ACTIONS = ('finish', 'build', 'recruit', 'buy', 'sell')
 RESOURCES = tuple('native:'+r for r in ('gold','food','wood','ore','oil','equipment','supply'))
 BUILDINGS = tuple('native:'+r for r in ('castle','lumber-camp','farm','mine','oil-well',
@@ -26,6 +27,11 @@ WIDTH = 96
 # Columns: group 0:5, action 5:10, resource 10:17, kind 17:36,
 # position 36:38, scalar attributes 38:59, costs 59:66, inputs 66:73,
 # outputs 73:80, profile 80:85. Each token group defines its scalar attributes.
+# Candidate token 85 is the formal executable marker (1 = fundable/executable,
+# 0 = not): the model sees it and may still choose a non-executable project, so it
+# has to learn from the token instead of being forced by a hard mask. Context rows
+# reuse 85:87 for energy totals, candidate rows are the only users of column 85.
+EXECUTABLE_COLUMN = 85
 FINGERPRINT = hashlib.sha256(json.dumps([VERSION,ACTIONS,RESOURCES,BUILDINGS,UNITS,
     PROFILES_ORDER,WIDTH],ensure_ascii=True).encode()).hexdigest()
 PROJECT_FINGERPRINT = hashlib.sha256((FINGERPRINT+':funded-projects-1').encode()).hexdigest()
