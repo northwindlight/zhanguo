@@ -55,13 +55,14 @@ def collate(examples):
 class Policy(nn.Module):
     def __init__(self,width=160,depth=2,heads=4,action_mode='atomic',critic=False,
                  family_aux=False,family_weight=1.,family_loss_weight=.5,
-                 cand_ffn=False,head_pool='context0'):
+                 cand_ffn=False,head_pool='context0',exec_prior_weight=.5,legal_mask=False):
         super().__init__()
         if action_mode not in ('atomic','projects'):raise ValueError(action_mode)
         if head_pool not in ('context0','mean','attn'):raise ValueError(head_pool)
         self.action_mode=action_mode
         self.fingerprint=PROJECT_FINGERPRINT if action_mode=='projects' else FINGERPRINT
-        self.config=dict(width=width,depth=depth,heads=heads,action_mode=action_mode,critic=critic)
+        self.config=dict(width=width,depth=depth,heads=heads,action_mode=action_mode,critic=critic,
+                         exec_prior_weight=float(exec_prior_weight),legal_mask=bool(legal_mask))
         if family_aux and action_mode!='projects':
             # 族头只有 finish/build/recruit 三类；atomic 模式还有 buy/sell 候选，
             # 用它去 gather 会越界，直接拒绝而不是留一个必然崩溃的组合。
@@ -132,9 +133,20 @@ class Policy(nn.Module):
                 -1,index)
         executable=self.exec_head(h).squeeze(-1) if self.action_mode=='projects' else None
         if executable is not None:
-            # feat/rl transformer: a learned soft prior, no formal legality mask.
-            logits=logits+.5*(executable.sigmoid()+1e-3).log()
+            # feat/rl transformer: a learned soft prior, weight is now configurable
+            # (0.5 keeps the historical behaviour bit-for-bit).
+            weight=float(self.config.get('exec_prior_weight',.5))
+            if weight:
+                logits=logits+weight*(executable.sigmoid()+1e-3).log()
         mask=batch['candidate_mask'] if self.action_mode=='projects' else batch['legal']
+        if self.config.get('legal_mask'):
+            # Extra executability mask: projects mode used to mask padding only, so a
+            # sampled/greedy action could be a project that cannot be financed. That
+            # made ~74% of PPO samples no-ops and let greedy deployment collapse a whole
+            # turn on the first illegal argmax. The formal legality flag is already an
+            # input and an auxiliary target, so masking it is an action-space
+            # restriction, not leakage of hidden information.
+            mask=mask&batch['legal']
         logits=logits.masked_fill(~mask,-1e9)
         log_quantity=self.quantity(h).squeeze(-1).sigmoid()*batch['limits'].log1p()
         if return_value:

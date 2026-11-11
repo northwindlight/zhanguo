@@ -112,13 +112,27 @@ def prune(root, keep=2):
             path.unlink();path.with_suffix('.json').unlink(missing_ok=True)
 
 
+def configure(model,args):
+    """Apply experimental switches to a loaded checkpoint.
+
+    They live in ``model.config`` so they are saved with every checkpoint and will
+    round-trip through ``load_policy``; old checkpoints simply get the historical
+    defaults (soft prior 0.5, no legality mask).
+    """
+    model.config['exec_prior_weight']=float(args.exec_prior_weight)
+    model.config['legal_mask']=bool(args.legal_mask)
+    return model
+
+
 def run(args):
     device=validate_device(args.device);torch.set_num_threads(args.threads)
     args.out.mkdir(parents=True,exist_ok=True)
     lock=(args.out/'run.lock').open('a');fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-    initial,base=load_policy(args.checkpoint);require_compatible(base)
+    initial,base=load_policy(args.checkpoint);require_compatible(base);configure(initial,args)
     settings=dict(initial_sha256=sha(args.checkpoint),worlds=args.worlds,turns=args.turns,seed_base=args.seed_base,
-                  epochs=args.epochs,effective_batch=args.effective_batch,micro_batch=args.micro_batch,lr=args.lr)
+                  epochs=args.epochs,effective_batch=args.effective_batch,micro_batch=args.micro_batch,lr=args.lr,
+                  legal_mask=bool(args.legal_mask),exec_prior_weight=float(args.exec_prior_weight),
+                  advantage_mode=args.advantage_mode,gamma=float(args.gamma))
     penalty=objective(args.invalid_action_penalty)['invalid_action_penalty']
     if penalty:settings['invalid_action_penalty']=penalty
     config_path=args.out/'run.json'
@@ -146,10 +160,10 @@ def run(args):
         cases=world_manifest(number,args.worlds,args.turns,args.seed_base)
         if {c['seed'] for c in cases}&seen:raise ValueError('Training seed reused')
         behavior_path=folder/'behavior.pt'
-        if behavior_path.exists():model,metadata=load_policy(behavior_path);require_compatible(metadata)
+        if behavior_path.exists():model,metadata=load_policy(behavior_path);require_compatible(metadata);configure(model,args)
         else:
             torch.manual_seed(410000+number)
-            model,metadata=load_policy(source);model=with_critic(model)
+            model,metadata=load_policy(source);configure(model,args);model=with_critic(model)
             save_model(behavior_path,model,metadata,seen,round=number,stage='behavior',invalid_action_penalty=penalty)
         behavior=model_digest(model)
         cases,rejected=validated_cases(cases,folder,behavior,seen)
@@ -181,7 +195,7 @@ def run(args):
         for case in cases:
             streams.extend(load_trajectory(world_path(folder,case),dict(case,behavior_policy_sha256=behavior,complete=True)))
         seen.update(c['seed'] for c in cases)
-        model.to(device);anchor,_=load_policy(args.out/'anchor.pt');anchor.to(device)
+        model.to(device);anchor,_=load_policy(args.out/'anchor.pt');configure(anchor,args);anchor.to(device)
         error=verify_log_probabilities(model,streams)
         random.seed(610000+number);torch.manual_seed(610000+number)
         write_json(args.out/'state.json',dict(phase='training',round=number,worlds=len(cases),
@@ -196,7 +210,8 @@ def run(args):
                            invalid_action_penalty=penalty)
             training=ppo_update(model,streams,anchor,epochs=args.epochs,lr=args.lr,batch_size=args.micro_batch,
                        update_batch_size=args.effective_batch,kl_mode='adaptive',diagnostic_callback=observe,
-                       checkpoint_callback=progress,invalid_action_penalty=penalty)
+                       checkpoint_callback=progress,invalid_action_penalty=penalty,
+                       advantage_mode=args.advantage_mode,gamma=float(args.gamma))
         if training['coverage']!=1. or training['epochs_completed']!=args.epochs:
             raise RuntimeError('Incomplete PPO update cannot advance the experiment')
         training['behavior_logp_max_error']=error
@@ -224,9 +239,18 @@ def main():
     p.add_argument('--micro-batch',type=int,default=8);p.add_argument('--lr',type=float,default=3e-5)
     p.add_argument('--invalid-action-penalty',type=float,default=0.,
                    help='Update-time penalty per failed project in delta-S/1000 units; disabled by default')
+    p.add_argument('--legal-mask',action='store_true',
+                   help='Extra executability mask: restrict sampled/greedy actions to financeable projects')
+    p.add_argument('--exec-prior-weight',type=float,default=.5,
+                   help='Weight of the learned executability soft prior (0.5 = historical behaviour)')
+    p.add_argument('--advantage-mode',choices=('mc','td'),default='mc',
+                   help='mc = historical constant-per-period advantage; td = per-decision r+V(s_next)-V(s)')
+    p.add_argument('--gamma',type=float,default=1.,help='Discount used by td advantage')
     p.add_argument('--storage-mib',type=int,default=1024);p.add_argument('--max-rounds',type=int)
     a=p.parse_args()
     if min(a.threads,a.worlds,a.workers,a.turns,a.epochs,a.effective_batch,a.micro_batch)<1:p.error('positive sizes required')
+    if a.exec_prior_weight<0:p.error('exec prior weight must be nonnegative')
+    if not 0.<a.gamma<=1.:p.error('gamma must be in (0,1]')
     try:run(a)
     except BaseException as error:
         a.out.mkdir(parents=True,exist_ok=True)

@@ -249,6 +249,79 @@ def monte_carlo(trajectories):
     return result
 
 
+def decision_advantages(trajectories,gamma=1.):
+    """Per-decision TD(0) advantage: r_t + gamma*V(s_{t+1}) - V(s_t).
+
+    The historical Monte-Carlo advantage is constant inside one (country, period):
+    the whole period's dS is written on its last decision (below) and the return is
+    then carried backwards unchanged. This variant keeps the long-horizon value
+    target -- the critic is still trained on gamma=1 full-horizon returns -- but
+    gives every decision its own signal: how much the state reached *after* the
+    decision is worth relative to the state it was made in. Steps of one country
+    stream are chronological, including across periods.
+    """
+    result=[]
+    for trajectory in trajectories:
+        count=len(trajectory)
+        for index,step in enumerate(trajectory):
+            following=float(trajectory[index+1]['value']) if index+1<count else 0.
+            result.append(float(step['reward'])+gamma*following-float(step['value']))
+    return result
+
+
+def advantage_report(trajectories,values):
+    """Describe where the gradient signal actually lives (cheap, pure python).
+
+    Reported so that a round can answer "did the update see decision-level signal?"
+    without rerunning an analysis after the fact.
+    """
+    steps=[step for trajectory in trajectories for step in trajectory]
+    if len(steps)!=len(values):raise ValueError('Advantage report alignment mismatch')
+    total=len(values)
+    if not total:raise ValueError('Empty advantage report')
+    mean=sum(values)/total
+    variance=sum((value-mean)**2 for value in values)/total
+    groups={};stream_of=[];stream_means={}
+    index=0
+    for stream,trajectory in enumerate(trajectories):
+        for step in trajectory:
+            key=(stream,step.get('period'))
+            groups.setdefault(key,[]).append(values[index])
+            stream_means.setdefault(stream,[]).append(values[index])
+            stream_of.append(stream)
+            index+=1
+    def share(means):
+        weighted=sum(len(bucket)*(sum(bucket)/len(bucket)-mean)**2 for bucket in means.values())/total
+        return weighted/variance if variance>0 else 0.
+    success=[value for value,step in zip(values,steps)
+             if step.get('action_kind') in ('build','recruit') and step.get('executed') is True]
+    failed=[value for value,step in zip(values,steps)
+            if step.get('action_kind') in ('build','recruit') and step.get('executed') is False]
+    labelled=success+failed
+    def correlation(group):
+        if len(group)<2 or not variance:return None
+        # Point-biserial: group membership vs the full advantage vector.
+        membership=[1. if step.get('action_kind') in ('build','recruit') and step.get('executed') is True else 0.
+                    for step in steps]
+        n=len(membership);m=sum(membership)/n
+        sd=sum((flag-m)**2 for flag in membership)**.5
+        if not sd:return None
+        return sum((flag-m)*(value-mean) for flag,value in zip(membership,values))/(n*sd*(variance**.5))
+    legal=[int(bool(step['row']['legal'][step['action']])) for step in steps]
+    return dict(steps=total,streams=len(trajectories),periods=len(groups),
+                mean=mean,std=variance**.5,
+                between_period_share=share(groups),between_stream_share=share(stream_means),
+                success_steps=len(success),failed_steps=len(failed),
+                success_mean=sum(success)/len(success) if success else None,
+                failed_mean=sum(failed)/len(failed) if failed else None,
+                success_minus_failed=(sum(success)/len(success)-sum(failed)/len(failed))
+                    if success and failed else None,
+                success_correlation=correlation(success),
+                sampled_legal_rate=sum(legal)/total,
+                executed_rate=(sum(1 for step in steps if step.get('executed') is True)/total),
+                nonzero_reward_share=(sum(1 for step in steps if step.get('reward'))/total))
+
+
 def _legacy_ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr=3e-5,checkpoint_callback=None,
         policy_coef=1.,value_coef=.5,execution_coef=.1,anchor_coef=.05,entropy_coef=.001,
         clip_ratio=.2,target_kl=.03,anchor_periods=12,batch_size=8,max_grad_norm=.5,weight_decay=.01,
@@ -310,7 +383,7 @@ def _legacy_ppo_update(model,trajectories,anchor,*,epochs=2,deadline=math.inf,lr
 
 
 def ppo_update(model,trajectories,anchor,*,kl_mode='adaptive',update_batch_size=128,
-        kl_coef=.1,kl_window_batches=8,invalid_action_penalty=0.,**kwargs):
+        kl_coef=.1,kl_window_batches=8,invalid_action_penalty=0.,advantage_mode='mc',gamma=1.,**kwargs):
     """Accumulate an effective batch and adapt KL over windows, without micro-batch stops.
 
     ``batch_size`` remains the memory-sized micro batch. ``legacy`` exists only
@@ -336,10 +409,17 @@ def ppo_update(model,trajectories,anchor,*,kl_mode='adaptive',update_batch_size=
     device=device_of(model);anchor.to(device)
     returns=torch.tensor([s['return']for s in steps],device=device)
     old_values=torch.tensor([s['value']for s in steps],device=device)
-    advantage=returns-old_values;advantage=(advantage-advantage.mean())/advantage.std(unbiased=False).clamp_min(1e-6)
+    if advantage_mode=='mc':
+        raw_advantage=returns-old_values
+    elif advantage_mode=='td':
+        raw_advantage=torch.tensor(decision_advantages(trajectories,gamma),device=device)
+    else:
+        raise ValueError('Unknown advantage mode')
+    signal=advantage_report(trajectories,raw_advantage.detach().cpu().tolist())
+    advantage=(raw_advantage-raw_advantage.mean())/raw_advantage.std(unbiased=False).clamp_min(1e-6)
     value_scale=returns.std(unbiased=False).clamp_min(1.)
     optimizer=torch.optim.AdamW(model.parameters(),lr=options['lr'],weight_decay=options['weight_decay'])
-    order=list(range(len(steps)));stats=Counter();seen=set();windows=[];window=[]
+    order=list(range(len(steps)));stats=Counter();seen=set();windows=[];window=[];policy_values=[]
     beta=float(kl_coef);completed=0;limited=False
     model.train();anchor.eval()
     for epoch in range(options['epochs']):
@@ -386,6 +466,7 @@ def ppo_update(model,trajectories,anchor,*,kl_mode='adaptive',update_batch_size=
             norm=torch.nn.utils.clip_grad_norm_(model.parameters(),options['max_grad_norm'],error_if_nonfinite=True)
             optimizer.step();stats['n']+=1;stats['examples']+=size;seen.update(ids)
             for key,value in measured.items():stats[key]+=value
+            policy_values.append(float(measured['policy']))
             window.append((measured['kl']*size,size))
             if len(window)>=kl_window_batches or start+size==len(order):
                 estimate=sum(k for k,n in window)/sum(n for k,n in window)
@@ -408,9 +489,19 @@ def ppo_update(model,trajectories,anchor,*,kl_mode='adaptive',update_batch_size=
         if start+size>=len(order):completed+=1
         if limited:break
     model.eval()
+    if policy_values:
+        policy_mean=sum(policy_values)/len(policy_values)
+        policy_std=(sum((value-policy_mean)**2 for value in policy_values)/len(policy_values))**.5
+        policy_negative=sum(1 for value in policy_values if value<0)/len(policy_values)
+        policy_snr=(abs(policy_mean)/(policy_std/len(policy_values)**.5)) if policy_std>0 else None
+    else:
+        policy_mean=policy_std=policy_negative=0.;policy_snr=None
     return dict(**{k:v/max(1,stats['n'])for k,v in stats.items()if k not in ('n','examples')},
         updates=stats['n'],examples_used=stats['examples'],unique_examples_used=len(seen),coverage=len(seen)/len(steps),
         epochs_completed=completed,kl_stopped=False,update_limit_reached=limited,kl_mode='adaptive',
         effective_batch_size=update_batch_size,micro_batch_size=options['batch_size'],kl_beta=beta,kl_windows=windows,
         return_mean=float(returns.mean()),return_std=float(returns.std(unbiased=False)),steps=len(steps),
+        advantage_mode=advantage_mode,gamma=gamma,signal=signal,
+        policy_update_mean=policy_mean,policy_update_std=policy_std,policy_negative_share=policy_negative,
+        policy_update_snr=policy_snr,
         reward_shaping=reward_shaping)
