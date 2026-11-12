@@ -72,6 +72,18 @@ public partial class Desktop
         await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
     }
     private async Task HumanIdle()=>await WaitFor(()=>HumanCanWrite&&!HasTimeline&&_humanCommands.Count==0,"真人操作或本批演出没有结束",120);
+    private async Task HoverRtsExpanded(Button button)
+    {
+        // 合成悬停偶尔丢一次（窗口/滚动时序）；重试一次，避免长验收误报。
+        for(int attempt=0;attempt<2;attempt++)
+        {
+            FocusWindowForPointer();
+            await HoverRts(button);
+            try{await WaitFor(()=>_rtsExpanded,attempt==0?"长悬停未展开":"长悬停未展开（重试）",15);return;}
+            catch(TimeoutException){HideRtsTooltip();}
+        }
+        throw new Exception("长悬停未展开（重试后仍失败）");
+    }
     private async Task CheckGarrisonFirst()
     {
         await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
@@ -240,7 +252,10 @@ public partial class Desktop
             int recruitId=I(recruitRow["id"]);double recruitGold=OwnStock("gold"),recruitWood=OwnStock("wood");
             OpenHumanPage("production");await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
             var cancelRecruit=(Button)_humanContent.FindChild("CancelProduction_Recruit_"+recruitId,true,false)!;
-            await PointerClick(cancelRecruit);await PointerClick(_humanConfirm.GetOkButton());await HumanIdle();
+            await PointerClick(cancelRecruit);await WaitFor(()=>_humanConfirm.Visible,"取消征兵没有弹出确认");
+            await PointerClick(_humanConfirm.GetOkButton());
+            await WaitFor(()=>!((_humanState!["production_queue"]!["recruitment"] as JsonArray)!.Any(r=>I(r!["id"])==recruitId)),"取消征兵没有生效");
+            await HumanIdle();
             if(OwnStock("gold")!=recruitGold+F(recruitRow["refunds"]!["native:gold"])||OwnStock("wood")!=recruitWood+F(recruitRow["refunds"]!["native:wood"]))throw new Exception("取消未生成征兵没有全额退回预付款");
             if(OwnArmies.Count()!=queueArmies)throw new Exception("取消征兵后新增了军队");
             _humanCell=capital;OpenHumanPage("recruit");await RtsReady();await HumanIdle();
@@ -320,13 +335,13 @@ public partial class Desktop
                 await Screenshot(stem+$"-{size.X}.png");
                 foreach(string kind in new[]{"barracks","equipment-factory","castle"})
                 {
-                    await HoverRts(_rtsCards["native:"+kind]);await WaitFor(()=>_rtsExpanded,"长悬停未展开");
+                    await HoverRtsExpanded(_rtsCards["native:"+kind]);
                     await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
                     if(!new Rect2(Vector2.Zero,Size).Encloses(_rtsTooltip!.GetGlobalRect()))throw new Exception("建筑悬浮信息超出窗口："+kind+" "+size);
                 }
                 await Screenshot(stem+$"-{size.X}-hover.png");
                 HideRtsTooltip();OpenHumanPage("recruit");await RtsReady();ValidateHumanLayout();
-                await HoverRts(_rtsCards["native:cavalry"]);await WaitFor(()=>_rtsExpanded,"兵种长悬停未展开");
+                await HoverRtsExpanded(_rtsCards["native:cavalry"]);
                 await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
                 if(!new Rect2(Vector2.Zero,Size).Encloses(_rtsTooltip!.GetGlobalRect()))throw new Exception("征兵悬浮信息超出窗口："+size);
                 HideRtsTooltip();_marketAutomatic=false;OpenHumanPage("market");await MarketReady();await ToSignal(GetTree().CreateTimer(.2),SceneTreeTimer.SignalName.Timeout);ValidateHumanLayout();await Screenshot(stem+$"-market-{size.X}.png");

@@ -27,6 +27,34 @@ class Recorder:
         return a0<b1 and b0<a1
 
 
+class FakeHumanClient:
+    """真人席位替身：先“思考”一会儿，再自己结束行动（不驱动 GUI 回调）。"""
+    kind='human'
+    def __init__(self,actor,recorder,delay=0.15):
+        self.actor=actor;self.recorder=recorder;self.delay=delay
+    def play(self,player,*,request=None):
+        self.recorder.enter(self.actor)
+        try:
+            time.sleep(self.delay)
+            return [player.submit('end_turn',{'summary':'真人并行测试'})]
+        finally:self.recorder.leave(self.actor)
+
+
+class FakeLlmClient:
+    """LLM 客户端的离线替身：网络等待用 sleep 模拟；不产生流式回调。"""
+    kind='llm'
+    def __init__(self,actor,recorder,delay=0.0):
+        self.actor=actor;self.recorder=recorder;self.delay=delay
+    def play(self,player,emit=None,head=None,on_call=None,on_stream=None):
+        self.recorder.enter(self.actor)
+        try:
+            time.sleep(self.delay)
+            player.call_api('native:government','plan',{'text':'LLM 并行测试'})
+            receipt=player.submit('end_turn',{'summary':'LLM 并行测试'})
+            return [receipt]
+        finally:self.recorder.leave(self.actor)
+
+
 class FakeRuleClient:
     """规则客户端的离线替身：只做规划与结束行动，用 sleep 模拟等待。"""
     kind='rule'
@@ -57,6 +85,12 @@ class TestParallelActionPeriod(unittest.TestCase):
         h=GameHost.new(config(workers));recorder=Recorder()
         for actor,delay in zip(h.session.turn_order(),delays):
             h.session.clients[actor]=FakeRuleClient(actor,recorder,delay)
+        return h,recorder
+
+    def host_llm(self,workers=None,delays=(0.12,0.12,0.12)):
+        h=GameHost.new(config(workers));recorder=Recorder()
+        for actor,delay in zip(h.session.turn_order(),delays):
+            h.session.clients[actor]=FakeLlmClient(actor,recorder,delay)
         return h,recorder
 
     def test_default_stays_serial(self):
@@ -195,8 +229,66 @@ class TestParallelActionPeriod(unittest.TestCase):
         self.assertEqual(self.normalized(self.play(1,setup=setup)),
                          self.normalized(self.play(2,setup=setup)))
 
-    def test_planning_workers_must_be_a_positive_integer(self):
-        with self.assertRaises(Exception):GameHost.new(config(0))
+    def host_human(self,workers=None,human_delay=0.15,llm_delays=(0.30,0.30)):
+        h=GameHost.new(config(workers));recorder=Recorder()
+        order=list(h.session.turn_order())
+        h.session.clients[order[0]]=FakeHumanClient(order[0],recorder,human_delay)
+        for actor,delay in zip(order[1:],llm_delays):h.session.clients[actor]=FakeLlmClient(actor,recorder,delay)
+        return h,recorder,order
+
+    def test_human_acts_while_llm_seats_run_in_background(self):
+        h,recorder,order=self.host_human()
+        batches=[]
+        started=time.monotonic();h.cycle(on_human=lambda player: [],on_batch=lambda actor,call: batches.append((actor,call)))
+        elapsed=time.monotonic()-started
+        # 真人在等 AI 思考的同一段时间里完成自己的回合：墙钟明显短于三次等待之和。
+        self.assertGreaterEqual(recorder.peak,2)
+        self.assertLess(elapsed,0.60)
+        self.assertEqual([row['actor'] for row in h.session.last_results],order)
+        # AI 侧不向主线程推送演出；只有真人自己的批次。
+        self.assertEqual([actor for actor,_ in batches],[order[0]])
+        self.assertTrue(h.session._boundary);self.assertEqual(h.session.world.phase,'行动')
+        self.assertTrue(h.session.audit)
+
+    def test_explicit_one_keeps_human_turn_serial(self):
+        h,recorder,order=self.host_human(workers=1)
+        started=time.monotonic();h.cycle(on_human=lambda player: [])
+        elapsed=time.monotonic()-started
+        self.assertEqual(recorder.peak,1)
+        self.assertGreaterEqual(elapsed,0.60)
+        self.assertEqual([row['actor'] for row in h.session.last_results],order)
+
+    def test_human_with_rule_seats_stays_serial(self):
+        h,recorder=self.host()
+        order=list(h.session.turn_order())
+        h.session.clients[order[0]]=FakeHumanClient(order[0],recorder,0.0)
+        h.cycle(on_human=lambda player: [])
+        self.assertEqual(recorder.peak,1)
+
+    def test_auto_without_human_keeps_llm_games_serial(self):
+        # 纯 AI 局默认串行：同一存档续跑必须得到相同结果；并发只做显式 opt-in。
+        h,recorder=self.host_llm(delays=(0.20,0.20,0.20))
+        order=list(h.session.turn_order())
+        started=time.monotonic();h.cycle();elapsed=time.monotonic()-started
+        self.assertEqual(recorder.peak,1)
+        self.assertGreaterEqual(elapsed,0.60)
+        self.assertEqual([row['actor'] for row in h.session.last_results],order)
+
+    def test_explicit_one_disables_auto_parallel_for_llm(self):
+        h,recorder=self.host_llm(workers=1)
+        started=time.monotonic();h.cycle();elapsed=time.monotonic()-started
+        self.assertEqual(recorder.peak,1)
+        self.assertGreaterEqual(elapsed,0.30)
+
+    def test_auto_means_human_concurrency_only_and_negative_is_rejected(self):
+        # 0/缺省：纯 AI 局串行；真人 + LLM 局在真人行动期间并发。
+        h,_=self.host(workers=0);h.cycle()
+        self.assertEqual(h.session.planning_workers,0)
+        self.assertFalse(h.session._parallel_action(None,None))
+        llm,_=self.host_llm(workers=0);self.assertFalse(llm.session._parallel_action(None,None))
+        human,_,_=self.host_human(workers=0);self.assertFalse(human.session._human_parallel(None,None))
+        self.assertTrue(human.session._human_parallel(lambda player:[],None))
+        with self.assertRaises(Exception):GameHost.new(config(-1))
 
 
 if __name__=='__main__':unittest.main()

@@ -43,9 +43,11 @@ class Session:
         self.presentation=presentation
         self.clients={};self.roster={};self.lock=threading.RLock();self.last_results=[]
         # 并发行动期：>1 时并行等待各国客户端；写入仍由会话锁串行入账。
-        # 默认 1 保持既有串行行为；真人或演出背压存在时强制退回串行。
-        workers=self.cfg.get('planning_workers',1)
-        self.planning_workers=workers if type(workers) is int and workers>1 else 1
+        # 0（缺省）= 自动：只有存在 LLM 客户端且无真人/演出背压时才并发；
+        # 1 = 强制串行；>1 = 显式并发上限。真人或演出背压始终退回串行。
+        workers=self.cfg.get('planning_workers',0)
+        self.planning_workers=workers if type(workers) is int and workers>=0 else 0
+        self._auto_parallel_cap=4
         self._callback_lock=threading.Lock()
         self.scenario_text='';self._boundary=True
         self.victory_event=None
@@ -297,7 +299,7 @@ class Session:
 
     def _dirty(self):self._boundary=False
     def _fault(self,action,exc,detail):
-        self.faults.append({'period':self.clock(),'action':action,'type':type(exc).__name__,
+        with self.lock:self.faults.append({'period':self.clock(),'action':action,'type':type(exc).__name__,
                             'message':str(exc),'detail':detail})
     def raw_player(self,actor):return self.runtime.player(self.world,actor,lock=self.lock,on_write=self._dirty,on_fault=self._fault,memory_query=lambda query,limit:self.search_memory(actor,query,limit))
     def search_memory(self,actor,query,limit=3):
@@ -316,7 +318,8 @@ class Session:
             self.raw_player(actor)
             return BoundPlayer(self,actor,self.generations[actor])
     def invalidate(self,actor,context):
-        self._dirty();self.generations[actor]+=1;self.contexts[actor]=wire(context)
+        with self.lock:
+            self._dirty();self.generations[actor]+=1;self.contexts[actor]=wire(context)
 
     def api_call(self,player,capability,method,arguments,next_call):
         """Write API calls pass through services that declare api(), not submit().
@@ -364,21 +367,23 @@ class Session:
         return kind if isinstance(kind,str) and kind else None
 
     def record(self,player,action,arguments,receipt,error=None):
-        row={'id':self._audit_next,'actor':player.actor,'generation':player.generation,
-             'model':self.actor_model(player.actor),
-             'action':self._audit_value(action),'arguments':self._audit_value(arguments),'receipt':wire(receipt)}
-        if error:row['error']={'type':type(error).__name__,'message':str(error)}
-        self.audit.append(row);self._audit_next+=1
-        try:
-            for service in self.services[player.actor].values():
-                handler=getattr(service,'record',None)
-                if handler:handler(player,deepcopy(row))
-            if self._callbacks and receipt is not None:
-                self._callbacks(player.actor,action,arguments,wire(receipt))
-        except Exception as exc:
-            self._dirty()
-            row.setdefault('error',{'type':type(exc).__name__,'message':str(exc)})
-            raise
+        # 并发行动期会从多个工作线程记录；审计编号与回调必须串行。
+        with self.lock:
+            row={'id':self._audit_next,'actor':player.actor,'generation':player.generation,
+                 'model':self.actor_model(player.actor),
+                 'action':self._audit_value(action),'arguments':self._audit_value(arguments),'receipt':wire(receipt)}
+            if error:row['error']={'type':type(error).__name__,'message':str(error)}
+            self.audit.append(row);self._audit_next+=1
+            try:
+                for service in self.services[player.actor].values():
+                    handler=getattr(service,'record',None)
+                    if handler:handler(player,deepcopy(row))
+                if self._callbacks and receipt is not None:
+                    self._callbacks(player.actor,action,arguments,wire(receipt))
+            except Exception as exc:
+                self._dirty()
+                row.setdefault('error',{'type':type(exc).__name__,'message':str(exc)})
+                raise
 
     def record_dialogue(self,player,messages):
         for service in self.services[player.actor].values():
@@ -401,7 +406,9 @@ class Session:
         self.scheduled();receipts=[];self._boundary=False
         self._callbacks=on_result;self._emit=emit
         try:
-            if self._parallel_action(on_batch,on_human):
+            if self._human_parallel(on_human,on_batch):
+                receipts.extend(self._cycle_human_parallel(emit,head,on_call,on_stream,on_batch,on_human))
+            elif self._parallel_action(on_batch,on_human):
                 receipts.extend(self._cycle_parallel(emit,head,on_call,on_stream))
             else:
                 for actor in self.turn_order():
@@ -429,11 +436,78 @@ class Session:
         finally:self._callbacks=None;self._emit=None
 
     def _parallel_action(self,on_batch,on_human):
-        """是否启用并发行动期。真人输入与演出背压由主线程驱动，工作线程里等待
-        会死锁，因此这两类存在时一律退回串行；默认 planning_workers=1 不变。"""
-        if self.planning_workers<=1:return False
+        """无真人时是否并发行动期；只有显式 planning_workers>1 才启用。
+
+        自动并发留给"真人席位 + LLM 席位"的交互局（见 _human_parallel）；
+        纯 AI 局保持串行，保证同一存档续跑得到相同结果（并行会改变各国看到
+        世界的先后，决策与结果不可复现）。演出背压 on_batch 存在时一律串行。
+        """
         if on_batch is not None or on_human is not None:return False
-        return all(client.kind!='human' for client in self.clients.values())
+        if any(getattr(client,'kind',None)=='human' for client in self.clients.values()):return False
+        return self.planning_workers>1
+
+    def _worker_limit(self):
+        return self.planning_workers if self.planning_workers>1 else self._auto_parallel_cap
+
+    def _human_parallel(self,on_human,on_batch):
+        """真人行动期间是否让 AI 席位在后台同时推进。
+
+        只有一个真人席位时成立；多真人仍是串行。AI 后台线程不接收演出/流式
+        回调（这些回调驱动 GUI），只做真实动作与审计，因此不会阻塞真人输入。
+        planning_workers：0/缺省=有 LLM 席位时自动；1=关闭；>1=强制。"""
+        if on_human is None:return False
+        humans=[a for a in self.actors() if getattr(self.clients.get(a),'kind',None)=='human']
+        if len(humans)!=1:return False
+        if self.planning_workers==1:return False
+        if self.planning_workers>1:return True
+        return any(getattr(c,'kind',None)=='llm' for c in self.clients.values())
+
+    def _cycle_human_parallel(self,emit,head,on_call,on_stream,on_batch,on_human):
+        """真人动作在调用线程推进，AI 组在后台线程推进；写入仍由会话锁串行。
+
+        AI 侧不调用 emit/head/on_call/on_stream/on_batch：桌面演出由主线程独占。
+        回执按 turn_order 归并；结算仍只执行一次。"""
+        from concurrent.futures import ThreadPoolExecutor
+        actors=list(self.turn_order())
+        human_actor=next(a for a in actors if getattr(self.clients[a],'kind',None)=='human')
+        ai=[a for a in actors if a!=human_actor]
+        original=self._callbacks
+        def presentation(actor,action,arguments,receipt):
+            if original is not None and actor==human_actor:
+                original(actor,action,arguments,receipt)
+        self._callbacks=presentation
+        results={};failures=[]
+        groups=self._action_groups(ai,self.action_conflicts(ai)) if ai else []
+        pool=ThreadPoolExecutor(max_workers=max(1,min(len(groups),self._worker_limit()))) if groups else None
+        def run_group(group):
+            out={}
+            for actor in group:
+                with self.lock:
+                    initial=self.player(actor)
+                    if initial.action_state()['can_act']:self.before_actor(initial)
+                out[actor]=self._play_actor(actor,emit=None,head=None,on_call=None,
+                    on_batch=None,on_human=None,on_stream=None)
+            return out
+        futures=[]
+        try:
+            if pool:futures=[pool.submit(run_group,group) for group in groups]
+            human_player=self.player(human_actor)
+            with self.lock:
+                if human_player.action_state()['can_act']:self.before_actor(human_player)
+            results[human_actor]=self._play_actor(human_actor,emit=emit,head=head,on_call=on_call,
+                on_batch=on_batch,on_human=on_human,on_stream=on_stream)
+            for future in futures:
+                try:results.update(future.result())
+                except Exception as exc:failures.append(exc)
+        finally:
+            # 先等工作线程收尾再恢复演出回调，避免退出/放弃时工作线程把
+            # 回执推给已切换的 GUI 采集器。
+            if pool:pool.shutdown(wait=True)
+            self._callbacks=original
+        if failures:raise failures[0]
+        receipts=[]
+        for actor in actors:receipts.extend(results.get(actor,()))
+        return receipts
 
     def _play_actor(self,actor,*,emit,head,on_call,on_batch,on_human,on_stream=None):
         def call(step,result):
@@ -517,7 +591,7 @@ class Session:
             # 全体互相干扰：按行动顺序在主线程跑完，避免无谓线程切换。
             results.update(run(groups[0]))
         else:
-            with ThreadPoolExecutor(max_workers=min(len(groups),self.planning_workers)) as pool:
+            with ThreadPoolExecutor(max_workers=min(len(groups),self._worker_limit())) as pool:
                 for output in pool.map(run,groups):results.update(output)
         receipts=[]
         for actor in actors:receipts.extend(results.get(actor,()))

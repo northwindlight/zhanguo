@@ -91,13 +91,17 @@ class NativeSession(NativeObserver,GridSession):
             except (ValueError,KeyError):continue
             if not player.action_state()['active']:continue
             if not player.action_state()['can_act']:self._settle_end_turn(player)
+            started=False
             for receipt in self.world.buildings.advance_orders(actor):
                 place=self.world.buildings.site(receipt.site).position
                 self._record_production_start(player,'build',{'kind':receipt.kind,'x':place[0],'y':place[1]},receipt)
+                started=True
             for row in self.world.military.advance_recruit_orders(actor):
                 place=row['position']
                 self._record_production_start(player,'military',{'action':'recruit','kind':row['kind'],'count':row['count'],'x':place[0],'y':place[1]},row['units'])
-            if self._batch_callback:self._batch_callback(actor,None)
+                started=True
+            # 只有真的推进了队列才需要演出刷新；并发行动期 AI 侧不发布演出。
+            if started and self._batch_callback:self._batch_callback(actor,None)
 
     def before_actor(self, player):
         actor=player.actor
@@ -109,10 +113,12 @@ class NativeSession(NativeObserver,GridSession):
         return bool(self.world.military.advance_march_orders(actor,observe(),refresh=observe,on_start=record_march))
 
     def record(self,player,action,arguments,receipt,error=None):
-        tool=self.runtime.tools.get(action)
-        if receipt and receipt.get('ok') and action not in BUILTINS and (tool is None or not tool.read_only):
-            self.world.intelligence.capture_maps()
-        return super().record(player,action,arguments,receipt,error)
+        # 并发行动期会从多个工作线程记录：地图采样与审计必须与写入串行。
+        with self.lock:
+            tool=self.runtime.tools.get(action)
+            if receipt and receipt.get('ok') and action not in BUILTINS and (tool is None or not tool.read_only):
+                self.world.intelligence.capture_maps()
+            return super().record(player,action,arguments,receipt,error)
 
     def finished(self):
         future=any(n.get('enabled',True) and n['id'] not in self.roster and n.get('appearance')=='scheduled' for n in self.entries())
