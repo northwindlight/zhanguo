@@ -12,8 +12,6 @@ public partial class Desktop
     {
         _humanCell=at;OpenHumanPage("build");await RtsReady();await HumanIdle();
         if(_targetSummary.Visible)throw new Exception("自动军令范围说明挤入建设面板");
-        if(!_productionQueueMode)await PointerClick((CheckButton)_humanContent.FindChild("ProductionQueueMode",true,false)!);
-        await RtsReady();
         int calls=_humanHistory.Count;
         await PointerClick(_rtsCards["native:castle"]);await HumanIdle();await RtsReady();
         if(_humanHistory.Count!=calls+1)throw new Exception("第一项城堡生产点击未提交");

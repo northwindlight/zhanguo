@@ -88,15 +88,19 @@ class TestHumanPlanning(unittest.TestCase):
         result=self.api.submit(A,'build',{'kind':'native:militia-camp','x':self.site.position[0],'y':self.site.position[1]})
         self.assertFalse(result['ok']);self.assertEqual(before,w.runtime.save_mod_state(w))
 
-    def test_spent_construction_order_is_local_to_selected_tile(self):
+    def test_build_queue_is_local_to_selected_tile(self):
         other=self.second_site();site=self.h.world.buildings.site(other.tile.id)
         result=self.api.submit(A,'build',{'kind':'native:castle','x':self.site.position[0],'y':self.site.position[1]})
         self.assertTrue(result['ok']);a=self.read();b=self.read(site)
-        self.assertTrue(a['ordered']);self.assertFalse(any(r['available'] for r in a['buildings']))
-        self.assertFalse(b['ordered']);self.assertTrue(self.item(b,'castle')['available'])
+        # 直接建造也是入队：行动期不开工，条目只落在所选地块。
+        self.assertEqual(result['data']['status'],'queued')
+        self.assertFalse(a['ordered']);self.assertTrue(any(o['kind']=='native:castle' for o in a['orders']))
+        self.assertFalse(b['orders'])
         result=self.api.submit(A,'build',{'kind':'native:castle','x':site.position[0],'y':site.position[1]})
-        self.assertTrue(result['ok']);self.assertTrue(self.read()['ordered'])
-        self.assertTrue(self.read(site)['ordered'])
+        self.assertTrue(result['ok'])
+        self.assertTrue(any(o['kind']=='native:castle' for o in self.read(site)['orders']))
+        self.assertEqual(len(self.read()['orders']),1)
+        self.assertEqual(len(self.read(site)['orders']),1)
 
     def test_actual_price_includes_terrain_academy_and_policy_rounding(self):
         w=self.h.world;w.buildings._sites[self.site.id]=replace(self.site,penalty=40)
@@ -121,8 +125,12 @@ class TestHumanPlanning(unittest.TestCase):
         self.h.cycle(on_human=lambda p:self.api.submit(A,'end_turn',{}))
         self.assertTrue(self.item(self.read(),'militia','units')['available'])
         args={'kind':'native:militia','count':1,'x':self.site.position[0],'y':self.site.position[1]}
-        self.assertTrue(self.api.submit(A,'recruit',args)['ok'])
-        self.assertFalse(self.item(self.read(),'militia','units')['available'])
+        result=self.api.submit(A,'recruit',args)
+        self.assertTrue(result['ok'])
+        # 征兵也是入队：行动期不扣编制、不出兵，队列里预占。
+        self.assertEqual(result['data']['status'],'queued')
+        self.assertTrue(self.item(self.read(),'militia','units')['available'])
+        self.assertTrue(any(r['kind']=='native:militia' for r in self.read()['recruitment_orders']))
 
     def test_material_shortage_and_previous_power_failure_disable_recruitment(self):
         w=self.h.world;w.buildings.seed(self.site.id,'native:barracks')

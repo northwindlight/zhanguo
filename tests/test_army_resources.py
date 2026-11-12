@@ -26,7 +26,10 @@ class TestArmyResources(unittest.TestCase):
         self.world.buildings.seed(self.site, 'native:militia-camp')
 
     def recruit(self, kind):
-        return self.world.call_tool(Q, 'recruit', {'site': self.site, 'kind': kind})[0]
+        # 玩家征兵只入队；测试显式跑一次回合末出兵，保持原有“立刻拿到新兵”的观察口径。
+        self.world.call_tool(Q, 'recruit', {'site': self.site, 'kind': kind})
+        self.world.military.advance_recruit_orders(Q)
+        return self.world.units.of(Q)[-1]
 
     def test_army_declares_concrete_reads_and_atomic_exchange(self):
         declaration = self.world.runtime.units['native:army'].mod.declaration
@@ -118,7 +121,9 @@ class TestArmyResources(unittest.TestCase):
             w = self.fixture.world(Runtime.load(edition.parent))
             site = self.fixture.site(w, 'scenario:elephant-capital', Q, 1, 1)
             w.buildings.seed(site, 'native:barracks')
-            unit = w.call_tool(Q, 'recruit', {'site': site, 'kind': 'example:war-elephant'})[0]
+            w.call_tool(Q, 'recruit', {'site': site, 'kind': 'example:war-elephant'})
+            w.military.advance_recruit_orders(Q)
+            unit = w.units.of(Q)[-1]
             self.assertEqual((unit.kind, unit.hp, unit.atk()), ('example:war-elephant', 200, 90))
             w.units.by_id(unit.id, Q).take_damage(20)
             self.fixture.cycle(w)

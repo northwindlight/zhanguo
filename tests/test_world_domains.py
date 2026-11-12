@@ -345,17 +345,19 @@ class TestWorldDomains(unittest.TestCase):
     def test_recruitment_newborn_quota_and_resources(self):
         w=self.world();self.site(w,'scenario:qc',Q,1,1);w.buildings.seed('scenario:qc','native:barracks')
         food=w.resources.balance(Q,'native:food');equip=w.resources.balance(Q,'native:equipment')
-        recruits=self.call(w,Q,'recruit',site='scenario:qc')
+        receipt=self.call(w,Q,'recruit',site='scenario:qc')
+        self.assertEqual(receipt['status'],'queued')
         self.assertEqual(w.resources.balance(Q,'native:food'),food-10)
         self.assertEqual(w.resources.balance(Q,'native:equipment'),equip-5)
+        self.assertEqual(w.military.snapshot(Q),())
         before=self.save(w)
-        with self.assertRaises(ValueError):self.call(w,Q,'move',id=recruits[0].id,x=2,y=1)
-        with self.assertRaises(ValueError):self.call(w,Q,'recruit',site='scenario:qc')
         self.assertEqual(self.save(w),before)
+        w.military.advance_recruit_orders(Q)   # 直接 world 级测试需显式跑回合末出兵
         self.cycle(w)
         self.assertGreater(w.economy.turns(Q)[0].recruitment.total,0)
+        recruits=w.units.of(Q)
+        self.assertEqual(len(recruits),1)
         self.call(w,Q,'move',id=recruits[0].id,x=2,y=1)
-        with self.assertRaises(ValueError):self.call(w,Q,'recruit',site='scenario:qc')
 
     def test_supply_shortage_and_healing_expenses(self):
         w=self.world();self.site(w,'scenario:qc',Q,1,1)
@@ -479,7 +481,7 @@ class TestWorldDomains(unittest.TestCase):
         self.assertEqual(self.save(w),before)
         self.call(w,Q,'buy',resource='native:wood',quantity=15)
         receipt=self.call(w,Q,'build',site='scenario:qc',kind='native:farm')
-        self.assertEqual(dict(receipt.costs)['native:gold'],26)
+        self.assertEqual(dict(receipt['paid'])['native:gold'],26)
         other=self.restore(w);self.assertEqual(other.polity[Q],'native:huns')
         with self.assertRaises(ValueError):self.call(other,Q,'gift',target=C,resource='native:food',quantity=1)
         self.assertEqual(w.runtime.parameter(w,Q,'build_cost_pct',100),130)

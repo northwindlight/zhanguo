@@ -41,8 +41,9 @@ class ArmyAPI:
         return self.world.runtime.object_call(self.world, 'native:territory', 'resolve', place)
 
     def recruit(self, actor, site=None, kind='native:infantry', count=1, x=None, y=None):
-        site = self.world.runtime.object_call(self.world, 'native:buildings', 'resolve_site', actor, site, x, y)
-        return self.military.recruit(actor, site, kind, count, energy_short=self.military.grid_short(actor))
+        # 玩家动作统一走队列：提交只预付并占位，回合末统一出兵。
+        # 领域层的即时 recruit 只留给出兵阶段与内部调用。
+        return self.enqueue_recruit(actor, site=site, kind=kind, count=count, x=x, y=y)
 
     def enqueue_recruit(self, actor, site=None, kind='native:infantry', count=1, x=None, y=None):
         site=self.world.runtime.object_call(self.world,'native:buildings','resolve_site',actor,site,x,y)

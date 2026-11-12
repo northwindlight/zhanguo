@@ -51,7 +51,7 @@ class TestNations(unittest.TestCase):
         world.nations.rename('scenario:qin', '秦国')
         self.assertEqual(world.nations.get('scenario:qin').name, '秦国')
         receipt = world.call_tool('scenario:qin','build',{'site':'scenario:capital','kind':'native:farm'})
-        self.assertEqual(receipt.owner, 'scenario:qin')
+        self.assertEqual(receipt['owner'], 'scenario:qin')
         self.assertEqual(world.resources.balance('scenario:qin','native:gold'), 980)
         self.assertEqual(world.resources.balance('scenario:chu','native:gold'), 100)
         with self.assertRaises(ValueError):world.call_tool('秦国','foreign',{})
@@ -186,6 +186,8 @@ class TestNations(unittest.TestCase):
             restored.runtime.load_mod_state(restored,loaded['state'])
         self.assertEqual(self.save(restored), self.save(world))
         for _ in range(10):
+            # 直接调用 world.resolve_turn() 绕过 Session.before_settlement，需显式推进队列。
+            world.buildings.advance_orders('scenario:qin');restored.buildings.advance_orders('scenario:qin')
             world.resolve_turn()
             restored.resolve_turn()
         self.assertEqual(self.save(restored), self.save(world))

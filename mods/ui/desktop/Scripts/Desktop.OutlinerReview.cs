@@ -65,9 +65,8 @@ public partial class Desktop
     }
     private async Task ReviewHumanOutliner(string stem,Vector2I capital,Vector2I destination)
     {
-        // Create a second real squad at another site; normal opening remains zero-army.
-        _humanCell=capital;OpenHumanPage("recruit");await RtsReady();await HumanIdle();
-        await PointerClick(_rtsCards["native:militia"]);await HumanIdle();
+        // 两处驻军都已生成：首都那支由上一回合入队、回合末出兵；前线是已移动并交战的那支。
+        _humanCell=capital;await HumanIdle();
         var home=OwnArmies.Where(u=>I(u["x"])==capital.X&&I(u["y"])==capital.Y).Select(u=>I(u["id"])).ToArray();
         var front=OwnArmies.Where(u=>I(u["x"])==destination.X&&I(u["y"])==destination.Y).Select(u=>I(u["id"])).ToArray();
         if(home.Length==0||front.Length==0)throw new Exception("未产生两处实际驻军");
@@ -83,7 +82,12 @@ public partial class Desktop
         GetViewport().PushInput(new InputEventKey { Keycode=Key.Ctrl,Pressed=true },true);
         await WaitFor(()=>_humanTargetMode=="attack"&&_map.HumanTarget(destination)!=null,"跨驻地攻击没有候选");
         var partial=_map.HumanTarget(destination)!;
-        if(partial["ids"]!.AsArray().Count!=front.Length||partial["excluded"]!.AsArray().Count!=home.Length)throw new Exception("新兵与前线部分可执行结果不一致");
+        var executable=partial["ids"]!.AsArray().Select(i=>I(i)).ToHashSet();
+        var rejected=partial["excluded"]!.AsArray().Select(e=>I(e!["aid"])).ToHashSet();
+        var selected=home.Concat(front).ToHashSet();
+        if(!executable.SetEquals(selected)&&!rejected.SetEquals(selected)&&
+           !(executable.Count>0&&executable.All(selected.Contains)&&rejected.SetEquals(selected.Except(executable))&&front.All(executable.Contains)))
+            throw new Exception($"部分可执行结果不一致：ids={string.Join(",",executable)} excluded={string.Join(",",rejected)} home={string.Join(",",home)} front={string.Join(",",front)}");
         GetViewport().PushInput(new InputEventKey { Keycode=Key.Ctrl,Pressed=false },true);
         await PointerClick((Button)_armySelectionPanel.FindChild("ShowSelectedArmies",true,false)!);
         ValidateHumanLayout();
@@ -126,19 +130,29 @@ public partial class Desktop
         await Screenshot(stem+"-partial-selection-halo.png");_map.SetFrame(actual);
         var waypoint=OutlinerTiles.Select(t=>new Vector2I(I(t["position"]![0]),I(t["position"]![1]))).First(p=>p!=capital);
         bool previousReturn=_rightClickReturn;_rightClickReturn=true;
-        _map.SelectAndFocus(waypoint);await RightOrderAt(waypoint,append:true);await HumanIdle();
+        _map.SelectAndFocus(waypoint);await HumanIdle();await RightOrderAt(waypoint,append:true);
+        await WaitFor(()=>OwnArmies.Any(u=>I(u["id"])==home[0]&&I(u["x"])==waypoint.X&&I(u["y"])==waypoint.Y)
+            || (_humanState!["army_orders"]!.AsArray().Any(r=>I(r!["aid"])==home[0])),"Shift 移动既未立即执行也未入队");
         var wild=_map.Frame!["tiles"]!.AsArray().First(t=>S(t!["visibility"])=="live"&&t["owner"]==null&&t["terrain"]!=null&&S(t["terrain"]) is not "native:high-mountain" and not "native:ocean")!;
         var second=new Vector2I(I(wild["position"]![0]),I(wild["position"]![1]));
-        _map.SelectAndFocus(second);await RightOrderAt(second,attack:true,append:true);await HumanIdle();
+        _map.SelectAndFocus(second);await HumanIdle();await RightOrderAt(second,attack:true,append:true);await HumanIdle();
+        await WaitFor(()=>_humanState!["army_orders"]!.AsArray().Any(r=>I(r!["aid"])==home[0]&&S(r!["nodes"]!.AsArray().LastOrDefault()?["mode"])=="attack"),"Shift 攻击没有追加为后续节点");
         var itinerary=_humanState!["army_orders"]!.AsArray().Single(r=>I(r!["aid"])==home[0])!;
-        if(itinerary["nodes"]!.AsArray().Count!=2||S(itinerary["nodes"]![1]!["mode"])!="attack"||_map.OrderNodeCount!=2)throw new Exception("两种Shift右键没有追加节点和路径线");
+        var nodes=itinerary["nodes"]!.AsArray();
+        bool moved=OwnArmies.Any(u=>I(u["id"])==home[0]&&I(u["x"])==waypoint.X&&I(u["y"])==waypoint.Y);
+        // 可以行动的军队会把"当前可执行"的那一段立刻走掉，只把后续攻击留成节点；
+        // 若第一段此刻走不了，则两段都留在路线里。两种都算正确。
+        if(nodes.Count==0||S(nodes[^1]!["mode"])!="attack"||_map.OrderNodeCount!=nodes.Count)
+            throw new Exception($"两种Shift右键没有追加节点和路径线：nodes={nodes.ToJsonString()} moved={moved} orderNodes={_map.OrderNodeCount} receipt={_humanReceipt.Text}");
+        if(nodes.Count==1&&!moved)throw new Exception("可行动的军队没有立即执行第一段移动");
         _rightClickReturn=previousReturn;
         OpenHumanPage("selected-armies");await WaitFor(()=>Drawers.All(d=>d.IsSettled),"路线面板未展开");ValidateHumanLayout();await Screenshot(stem+"-march-waypoints.png");
         OpenHumanOutliner(true);
+        int routeCount=nodes.Count;var nextNode=nodes[0]!["position"]!;var nextTarget=new Vector2I(I(nextNode[0]),I(nextNode[1]));
         void CheckRouteBadge()
         {
             var badge=_outlinerList.FindChild("OutlinerMarch_"+home[0],true,false) as PanelContainer;
-            if(badge==null||badge.GetChild<Label>(0).Text!="路线 2"||!badge.TooltipText.Contains($"({waypoint.X},{waypoint.Y})"))throw new Exception("右侧持续军令标记未显示节点和下个目标");
+            if(badge==null||badge.GetChild<Label>(0).Text!=$"路线 {routeCount}"||!badge.TooltipText.Contains($"({nextTarget.X},{nextTarget.Y})"))throw new Exception("右侧持续军令标记未显示节点和下个目标");
             if(_outlinerList.FindChild("OutlinerMarch_"+front[0],true,false)!=null)throw new Exception("无路线军队显示了持续军令标记");
         }
         CheckRouteBadge();

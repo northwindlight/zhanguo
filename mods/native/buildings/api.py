@@ -7,9 +7,9 @@ class BuildingsAPI:
         self.world = world
 
     def build(self, actor, kind, site=None, x=None, y=None):
-        site = self.world.buildings.resolve_site(actor, site, x, y)
-        return self.world.buildings.build(actor, site, kind,
-                                          policy_pct=self.world.runtime.parameter(self.world, actor, 'build_cost_pct', 100))
+        # 玩家动作统一走队列：提交只预付材料并占位，回合末统一开工。
+        # 领域层的 immediate build 只留给旧档/内部构造，不再面向玩家。
+        return self.enqueue(actor, kind, site=site, x=x, y=y)
 
     def demolish(self, actor, id):
         return self.world.buildings.demolish(actor,id)
@@ -30,6 +30,7 @@ class BuildingsAPI:
         return {'sites': sites, 'instances': [b for b in snap.instances if b.site in ids],
                 'capacities': [self.world.buildings.site_capacity(actor,s.id) for s in sites],
                 'construction': [r for r in snap.construction if r.owner == actor],
+                'queued': [r for r in self.world.buildings.construction_orders(actor) if r['status']!='construction'],
                 'self_built': {kind: count for owner, kind, count in snap.self_built if owner == actor}}
 
     def catalog(self, actor):

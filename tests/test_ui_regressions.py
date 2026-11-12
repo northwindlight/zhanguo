@@ -165,7 +165,7 @@ class TestUIRegressions(unittest.TestCase):
         x,y=tile['position'];h.world.units.spawn(Q,'native:infantry',x,y)
         self.assertTrue(p.submit('build',{'x':x,'y':y,'kind':'native:lumber-camp'})['ok'])
         text=self.present(h,'land')
-        for value in ('核心属秦','本回合已下单','驻军步兵#1','在建 林场×1'):self.assertIn(value,text)
+        for value in ('核心属秦','本回合已下单','驻军步兵#1','待建 林场×1'):self.assertIn(value,text)
         text=self.present(h,'land',{'offset':1,'limit':1})
         self.assertIn('本次列出1块',text);self.assertIn('全国共5块',text)
         self.assertNotIn('国土 1 块',text)

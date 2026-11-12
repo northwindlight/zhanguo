@@ -61,15 +61,16 @@ class TestNativeDistribution(unittest.TestCase):
         self.assertEqual(trade.price_before,dict(panel.prices)['native:wood'])
         self.assertGreater(trade.exact_total,dict(panel.prices)['native:wood']*3)
         receipt=self.call(world,'build',site='native:qin-capital',kind='native:farm')
-        self.assertEqual(dict(receipt.costs),{'native:gold':20,'native:wood':15})
+        self.assertEqual(dict(receipt['paid']),{'native:gold':20,'native:wood':15})
         self.assertEqual(world.resources.balance('native:qin','native:wood'),88)
+        world.buildings.advance_orders('native:qin')   # 直接 world.resolve_turn 不含会话的回合末钩子
         result=world.resolve_turn();turn=world.economy.turns('native:qin')[-1]
         self.assertEqual(world.resources.balance('native:qin','native:gold'),1000-trade.gold-20+10)
         self.assertEqual(world.resources.balance('native:qin','native:food'),0)
         self.assertEqual(turn.gdp.total,10)
         self.assertEqual(turn.imports,trade.gold)
         self.assertEqual(world.buildings.count('native:qin-capital','native:farm'),1)
-        self.assertEqual(tuple(row.id for row in result['building_completions']),(receipt.id,))
+        self.assertEqual(tuple(row.id for row in result['building_completions']),(receipt['id'],))
         world.resolve_turn();turn=world.economy.turns('native:qin')[-1]
         self.assertEqual(world.resources.balance('native:qin','native:food'),1)
         self.assertAlmostEqual(turn.gdp.total,10+dict(world.market.snapshot().prices)['native:food'])
@@ -156,6 +157,7 @@ class TestNativeDistribution(unittest.TestCase):
                                        'Entry="tests.test_building_objects:TeaContent"\n', encoding='utf-8')
             runtime=Runtime.load(path);world=self.world(runtime)
             self.call(world,'build',site='native:qin-capital',kind='example:tea-garden')
+            world.buildings.advance_orders('native:qin')
             world.resolve_turn();world.resolve_turn()
             self.assertEqual(world.resources.balance('native:qin','example:tea'),2)
             self.assertNotIn('example:tea',dict(self.call(world,'market').prices))

@@ -185,13 +185,16 @@ class TimelineCapture:
         text=' '.join(text.splitlines())
         position=[args['x'],args['y']] if type(args.get('x')) is int and type(args.get('y')) is int else self.home(actor)
         name=self.names.get(actor,actor)
-        if actor!=self.actor:
+        # 回合末统一开工/出兵的回执属于结算演出，不切换行动横幅。
+        automatic_receipt=bool(receipt.get('automatic'))
+        if actor!=self.actor and not automatic_receipt:
             self.actor=actor
             self.turn_started=time.monotonic();self.turn_tokens=self._token_total(actor)
             client=self.host.clients[actor]
             version=getattr(client,'version','rule')
             label='规则 AI '+version if client.kind=='rule' else getattr(client,'cfg',{}).get('model','模型')
             self.add('actor',f'{name}开始行动',f'{label} · 逐项展示本期行动',self.home(actor),source=source,duration=2.2,**self._turn_meta(actor))
+        if automatic_receipt:self.actor=None
         if not receipt.get('ok'):
             self.add('rejected',f'{name} · 行动未执行',text,position,source=source,duration=1.4,
                      market_actor=actor if action in ('buy','sell') else None)
@@ -262,10 +265,11 @@ class TimelineCapture:
                 self.add('trade',name+' · 自动交易',f'按库存与价格限制实际成交 {len(auto_fills)} 笔',self.home(actor),after=after,source=source,
                          market_actor=actor,trade=trade)
                 trade=None
+            extra={'playback_scope':'settlement'} if automatic_receipt else {}
             self.add(phase,f'{name} · {captions.get(action,"行动")}',text,position,after=after,source=source,
                      duration=2 if phase=='build' else 1.4,
                      market_actor=actor if phase=='trade' else None,trade=trade,
-                     **(self._turn_meta(actor,closing=True) if phase=='turn-end' else {}))
+                     **(self._turn_meta(actor,closing=True) if phase=='turn-end' else {}),**extra)
 
     def finish(self):
         if self.warning:return []

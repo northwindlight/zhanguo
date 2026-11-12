@@ -152,7 +152,7 @@ class TestRuleV14(unittest.TestCase):
         self.settle(h,l);self.assert_stocks(p,plan.forecast[0]['stocks'])
         l=Ledger(p)
         self.assertTrue(l.do('build',site=site['id'],kind='native:equipment-factory'))
-        self.assertEqual(dict(l.acts[-1]['data']['costs'])[GOLD],78)
+        self.assertEqual(dict(l.acts[-1]['data']['paid'])[GOLD],78)
         self.settle(h,l);self.assert_stocks(p,plan.forecast[1]['stocks'])
 
     def test_cancel_keeps_official_quota_and_queue_keeps_reserved_space(self):
@@ -162,7 +162,7 @@ class TestRuleV14(unittest.TestCase):
         self.assertTrue(p.call_api('native:buildings','demolish',{'id':l.acts[-1]['data']['id']})['ok'])
         before=h.runtime.save_mod_state(h.world)
         data=collect(p,manage_military=False);j=Joint(data,p,RuleState(),horizon=2)
-        self.assertEqual(data['plans'][site['id']]['space']['order_remaining'],0)
+        self.assertEqual(data['plans'][site['id']]['space']['order_remaining'],1)
         for (sid,kind,t),v in j.x.items():
             if sid==site['id']:self.assertEqual(j.model.upper[next(iter(v.terms))],0)
         self.assertEqual(h.runtime.save_mod_state(h.world),before)

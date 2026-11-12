@@ -115,7 +115,7 @@ def tools(runtime):
 
     recruit_tool = Action('recruit', recruit, owner='native:army', api=('recruit',),
                         content_parameters=('kind',),
-                        description='在本国地块征召（site 传地名或 "x y" 坐标串，或传两个整数 x、y），直接返回实际扣款和军队编号。新兵本回合不能行动；兵营与能源门槛查规则，各兵种的征召材料、上限和速度查 unit_catalog。')
+                        description='在本国地块入队征兵（site 传地名或 "x y" 坐标串，或传两个整数 x、y）：立即预付全部材料，回合末统一出兵，按兵营或军屯每期额度分批生成；新兵当期不能行动。与 queue_recruit 等价（单批入队）。兵营与能源门槛查规则，各兵种的征召材料、上限和速度查 unit_catalog；进度见 recruitment_queue。')
     parameters = location_parameters(recruit_tool.schema()['function']['parameters'])
     kinds = sorted(key for key, value in runtime.content.definitions()
                    if isinstance(value, Mapping) and value.get('category') == 'unit')
@@ -351,15 +351,6 @@ def _threats(data, args, actor, ctx):
     return ctx.text('tool.threats.head') + '\n' + ('\n'.join(_relation(row['relation'], ctx) + '｜' + _army_line(ctx, row['unit']) for row in data) or ctx.text('tool.none'))
 
 
-def _recruit(args, receipt, actor, ctx):
-    data = receipt.get('data')
-    if not isinstance(data, list):
-        return None
-    if not data:
-        return ctx.text('tool.army.empty')
-    return ctx.text('tool.recruit.done') + '\n' + '\n'.join(_army_line(ctx, u) for u in data)
-
-
 def _movement_receipt(action):
     def render(args, receipt, actor, ctx):
         data = receipt.get('data')
@@ -402,7 +393,6 @@ PANELS = {
     'tile': _tile,
 }
 RECEIPTS = {
-    'recruit': _recruit,
     'move': _movement_receipt('move'),
     'attack': _movement_receipt('attack'),
     'retreat': _movement_receipt('retreat'),
@@ -462,7 +452,7 @@ def _recruitment_queue(data, args, actor, ctx):
 CAPTIONS.update(queue_recruit=lambda args,actor,receipt,ctx:'加入征兵队列',
                 cancel_recruit_order=lambda args,actor,receipt,ctx:'取消待征 #'+str(args.get('id','')),
                 recruitment_queue=lambda args,actor,receipt,ctx:'全国征兵队列')
-RECEIPTS.update(queue_recruit=_queued_recruit,cancel_recruit_order=_cancel_recruit)
+RECEIPTS.update(recruit=_queued_recruit,queue_recruit=_queued_recruit,cancel_recruit_order=_cancel_recruit)
 PANELS['recruitment_queue']=_recruitment_queue
 
 

@@ -201,12 +201,13 @@ class TestReplaceExistingContent(unittest.TestCase):
             site = player.query('building_sites')['sites'][0]['id']
             # 这座门控测的是电网：先给该格补一座已落成兵营，否则先撞上"该地没有兵营"。
             host.world.buildings.seed(site, 'native:barracks')
-            try:
-                receipt=player.submit('military', {'action': 'recruit', 'site': site, 'kind': 'native:infantry'})
-                if not receipt['ok']:raise ValueError(receipt['message'])
-                return kinds, None
-            except ValueError as exc:
-                return kinds, str(exc)
+            receipt=player.submit('military', {'action': 'recruit', 'site': site, 'kind': 'native:infantry'})
+            if not receipt['ok']:return kinds, receipt['message']
+            # 入队只预付；电网门槛在回合末出兵时判定，停电则排队等待。
+            host.cycle()
+            if host.world.military.snapshot('scenario:qin'):return kinds, None
+            rows=host.world.military.recruit_orders('scenario:qin')
+            return kinds, (rows[0]['reason'] if rows else '')
 
         native_kinds, native_error = verdict(EXAMPLES / 'recipes_dist')
         plain_kinds, plain_error = verdict(EXAMPLES / 'no_power_dist')

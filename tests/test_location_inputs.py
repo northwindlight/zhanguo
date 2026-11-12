@@ -31,8 +31,8 @@ class LocationInputs(TestCase):
                     self.assertTrue(receipt['ok'],receipt)
                     self.assertLess(w.resources.balance(Q,'native:gold'),before)
                     if action=='recruit':
-                        self.assertEqual(receipt['data'][0]['kind'],'native:militia')
-                        self.assertEqual((receipt['data'][0]['x'],receipt['data'][0]['y']),(1,1))
+                        self.assertEqual(receipt['data']['kind'],'native:militia')
+                        self.assertEqual(tuple(receipt['data']['position'][:2]),(1,1))
                     else:self.assertEqual(receipt['data']['site'],'scenario:home')
 
     def test_all_coordinate_actions_and_queries_accept_both_names(self):

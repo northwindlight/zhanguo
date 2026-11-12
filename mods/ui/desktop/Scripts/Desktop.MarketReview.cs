@@ -17,17 +17,20 @@ public partial class Desktop
         var third=HumanFacts["building_sites"]!["sites"]!.AsArray().Select(s=>new Vector2I(I(s!["position"]![0]),I(s["position"]![1]))).First(p=>p!=capital&&p!=other);
         _humanCell=third;OpenHumanPage("build");await RtsReady();
         await PointerClick(_rtsCards["native:castle"]);await HumanIdle();await RtsReady();
-        var pending=_rtsData!["demolitions"]!.AsArray().First(b=>!Yes(b!["completed"]))!;
+        // 直接建造也只入队：取消未开工条目全额退回，且本格当期额度从未被占用。
+        if(!_humanReceipt.Text.Contains("已排入待建队列"))throw new Exception("建造回执没有说明入队："+_humanReceipt.Text);
+        var pending=QueuedConstruction().First(r=>S(r!["kind"])=="native:castle"&&I(r!["position"]![0])==third.X&&I(r["position"]![1])==third.Y)!.DeepClone();
         int id=I(pending["id"]);double gold=OwnStock("gold"),wood=OwnStock("wood");
-        OpenHumanPage("demolish");await WaitFor(()=>_humanContent.FindChild("Demolish_"+id,true,false)!=null,"撤销施工入口没有出现");
-        await PointerClick(MarketReviewButton("Demolish_"+id));await Screenshot(stem+"-cancel-confirm.png");
+        OpenHumanPage("production");await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
+        var cancel=(Button)_humanContent.FindChild("CancelProduction_Build_"+id,true,false)!;
+        await PointerClick(cancel);await Screenshot(stem+"-cancel-confirm.png");
         await PointerClick(_humanConfirm.GetCancelButton());
-        if(!HumanFacts["building_sites"]!["instances"]!.AsArray().Any(b=>I(b!["id"])==id))throw new Exception("返回确认框却撤销了施工");
-        await PointerClick(MarketReviewButton("Demolish_"+id));await PointerClick(_humanConfirm.GetOkButton());await HumanIdle();
-        if(OwnStock("gold")!=gold+F(pending["refunds"]!["native:gold"])||OwnStock("wood")!=wood+F(pending["refunds"]!["native:wood"]))throw new Exception("GUI 撤销返还没有按实际扣款的一半入账");
-        if(HumanFacts["building_sites"]!["instances"]!.AsArray().Any(b=>I(b!["id"])==id))throw new Exception("撤销后建筑仍存在");
+        if(!QueuedConstruction().Any(r=>I(r!["id"])==id))throw new Exception("返回确认框却取消了待建");
+        await PointerClick(cancel);await PointerClick(_humanConfirm.GetOkButton());await HumanIdle();
+        if(OwnStock("gold")!=gold+F(pending["refunds"]!["native:gold"])||OwnStock("wood")!=wood+F(pending["refunds"]!["native:wood"]))throw new Exception("取消未开工待建没有全额退回预付材料");
+        if(QueuedConstruction().Any(r=>I(r!["id"])==id))throw new Exception("取消后待建条目仍存在");
         OpenHumanPage("build");await RtsReady();
-        if(!Yes(_rtsData!["ordered"])||_rtsCards.Values.Any(b=>_rtsAvailability[b]))throw new Exception("撤销恢复了本格当期施工额度");
+        if(Yes(_rtsData!["ordered"])||!_rtsCards.Values.Any(b=>_rtsAvailability[b]))throw new Exception("取消待建占用了本格当期施工额度");
         await Screenshot(stem+"-cancelled.png");
         var powerCell=HumanFacts["building_sites"]!["sites"]!.AsArray().Select(s=>new Vector2I(I(s!["position"]![0]),I(s["position"]![1]))).First(p=>p!=capital&&p!=other&&p!=third);
         _humanCell=powerCell;OpenHumanPage("build");await RtsReady();

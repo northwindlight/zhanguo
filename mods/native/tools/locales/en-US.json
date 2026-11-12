@@ -119,6 +119,7 @@
   "tool.land.head": "Land: {count} tiles",
   "tool.land.next": "Page full; query offset={offset} for any following tiles.",
   "tool.land.pending": "under construction {names}",
+  "tool.land.queued": "queued {names}",
   "tool.land.capacity": "slots {used}/{capacity}",
   "tool.land.core": "Core of {name}",
   "tool.land.ordered": "Construction ordered this turn",

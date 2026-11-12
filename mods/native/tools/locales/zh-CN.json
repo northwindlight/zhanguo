@@ -119,6 +119,7 @@
   "tool.land.head": "国土 {count} 块：",
   "tool.land.next": "本页已满；如有后续，可用 offset={offset} 继续查询。",
   "tool.land.pending": "在建 {names}",
+  "tool.land.queued": "待建 {names}",
   "tool.land.capacity": "建筑位{used}/{capacity}",
   "tool.land.core": "核心属{name}",
   "tool.land.ordered": "本回合已下单",

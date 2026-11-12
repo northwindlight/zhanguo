@@ -182,11 +182,11 @@ class TestObserver(unittest.TestCase):
     def test_receipts_show_tile_names_coordinates_and_army_kinds(self):
         h=GameHost.new(self.cfg());ui=h.ui.console;observation=h.player('s:q').observe();ui.remember(observation)
         facts=observation['facts'];tile=facts['land'][0]['tile'];x,y=tile['position'];name=tile['name']
-        receipt={'ok':True,'status':'effective','message':'','data':{'site':tile['id'],
-            'kind':'native:lumber-camp','costs':{'native:gold':20,'native:wood':15}}}
+        receipt={'ok':True,'status':'effective','message':'','data':{'id':1,'site':tile['id'],'status':'queued',
+            'kind':'native:lumber-camp','paid':{'native:gold':20,'native:wood':15}}}
         text=ui.action(0,'s:q','build',{'kind':'lumber-camp','site':'所选地块'},receipt,{'s:q':'秦'})
         self.assertIn(f'建造 林场 所选地块 {name}({x}, {y})',text)
-        self.assertIn(f'动工 林场（{name}({x}, {y})',text)
+        self.assertIn('林场 #1 · 已加入待建队列；预付 20金 15木',text)
         position=(x+1,y)
         ui.remember({'actor':'s:q','facts':{'view':[{'position':position,'name':'试验地'}],
             'army':[{'owner':'s:q','id':1,'kind':'native:infantry'},{'owner':'s:q','id':2,'kind':'native:militia'}]}})
@@ -330,10 +330,10 @@ class TestObserver(unittest.TestCase):
 
     def test_receipts_are_readable_truncated_only_on_screen_and_thoughts_silent(self):
         h=GameHost.new(self.cfg());ui=h.ui.console
-        receipt={'ok':True,'status':'effective','message':'','data':{'kind':'native:farm','costs':{'native:gold':20,'native:wood':15}}}
+        receipt={'ok':True,'status':'effective','message':'','data':{'id':1,'status':'queued','kind':'native:farm','paid':{'native:gold':20,'native:wood':15}}}
         text=ui.action(0,'s:q','build','{"kind":"farm","x":4,"y":11}',receipt,{'s:q':'秦'})
-        self.assertIn('建造 农场 (4, 11) → 动工 农场（(4, 11)',text)
-        self.assertIn('−20金 −15木',text)
+        self.assertIn('建造 农场 (4, 11) → 农场 #1 · 已加入待建队列',text)
+        self.assertIn('20金 15木',text)
         self.assertNotIn('native:',text);self.assertNotIn('类型=',text)
         self.assertNotIn('已生效',text)
         receipt['data']={'text':'回执全文'*500}
@@ -402,7 +402,7 @@ class TestObserver(unittest.TestCase):
             self.assertEqual(p.query('player_rules',{'topic':'general'}),p.rules())
             for topic in ('build','energy'):
                 rows=p.query('player_rules',{'topic':topic})
-                self.assertTrue(rows);self.assertIn('每地块每回合只能动工一次',rows[0]['body'])
+                self.assertTrue(rows);self.assertIn('每地块每期只动工一项',rows[0]['body'])
             rejected=p.submit('player_rules',{'topic':'nonexistent'})
             self.assertTrue(rejected['ok']);self.assertEqual(rejected['data'],p.rules());self.assertEqual(p.rules()[0]['title'],'规则目录')
             self.assertGreater(len(p.rules('all')),1)
@@ -423,14 +423,15 @@ class TestObserver(unittest.TestCase):
             farm['costs']={'native:gold':20*(100+site['penalty'])//100,'native:wood':15}
             args['kind']='farm';gold=h.world.resources.balance('s:q','native:gold')
             wood=h.world.resources.balance('s:q','native:wood');receipt=p.submit('build',args)
-            self.assertTrue(receipt['ok']);self.assertEqual(dict(receipt['data']['costs']),farm['costs'])
+            self.assertTrue(receipt['ok']);self.assertEqual(dict(receipt['data']['paid']),farm['costs'])
             self.assertEqual(gold-h.world.resources.balance('s:q','native:gold'),farm['costs']['native:gold'])
             self.assertEqual(wood-h.world.resources.balance('s:q','native:wood'),farm['costs']['native:wood'])
             text=ui.action(0,'s:q','build',args,receipt,{'s:q':'秦'})
-            self.assertIn('动工 农场',text);self.assertIn('结算后落成',text)
+            self.assertIn('已加入待建队列',text);self.assertIn('预付',text)
             self.assertNotIn('native:',text);self.assertNotIn('已生效',text)
-            again=p.submit('build',args);self.assertFalse(again['ok'])
-            self.assertIn('❌',ui.action(0,'s:q','build',args,again,{'s:q':'秦'}))
+            # 直接建造也入队：同格同回合可以继续排到下期开工。
+            again=p.submit('build',args);self.assertTrue(again['ok'])
+            self.assertIn('已加入待建队列',ui.action(0,'s:q','build',args,again,{'s:q':'秦'}))
             self.assertEqual(len(p.query('building_economics')),16)
 
     def test_trade_receipt_uses_actual_cash_and_no_invented_balance(self):

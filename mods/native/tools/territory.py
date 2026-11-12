@@ -52,9 +52,12 @@ def _land(data, args, actor, ctx):
         site = ctx._sites.get(tile.get('id'), {})
         completed = [b for b in instances or [] if b['site'] == tile.get('id') and not b['remaining']]
         pending = [b for b in instances or [] if b['site'] == tile.get('id') and b['remaining']]
+        queued = [r for r in sites.get('queued', []) if r.get('site') == tile.get('id')]
         buildings = ctx.building_names(completed)
         if pending:
             buildings += '；' + ctx.text('tool.land.pending', names=ctx.building_names(pending))
+        if queued:
+            buildings += '；' + ctx.text('tool.land.queued', names=ctx.building_names(queued))
         resources = ctx.resources(row.get('resources', site.get('resources', [])), gold_short=False)
         cap = '｜' + ctx.text('tool.land.capacity', used=len(completed) + len(pending), capacity=site['capacity']) if 'capacity' in site and instances is not None else ''
         terrain = ctx.label('content', tile.get('terrain') or ctx._terrain.get(tile.get('id')) or '')
@@ -64,7 +67,7 @@ def _land(data, args, actor, ctx):
         if core:
             details.append(ctx.text('tool.land.core', name=ctx.name(core, ctx._names)))
         if 'construction' in sites:
-            ordered = any(r['site'] == tile.get('id') and r['period'] == ctx._period for r in sites['construction'])
+            ordered = any(r['site'] == tile.get('id') and r['period'] == ctx._period for r in sites['construction']) or bool(queued)
             details.append(ctx.text('tool.land.ordered' if ordered else 'tool.land.can_build'))
         guards = [u for u in facts.get('army', []) if u['owner'] == actor and (u['x'], u['y']) == position and u['hp'] > 0]
         if guards:

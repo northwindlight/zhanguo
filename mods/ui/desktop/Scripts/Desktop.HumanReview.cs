@@ -186,7 +186,7 @@ public partial class Desktop
             var capital=new Vector2I(I(home["position"]![0]),I(home["position"]![1]));
             CloseDrawers(false);_map.SelectAndFocus(capital);await PointerClickAt(_map.CellCenter(capital));
             if(_humanPage!="tile")throw new Exception("地块点击未打开真人驻军面板");
-            _productionQueueMode=false;OpenHumanPage("build");await RtsReady();
+            OpenHumanPage("build");await RtsReady();
             if(!_rtsCards["native:barracks"].Disabled)throw new Exception("缺前置建筑的兵营未变暗");
             await HoverRts(_rtsCards["native:barracks"]);
             await WaitFor(()=>_rtsTooltip?.Visible==true,"变暗候选无法悬停解释条件");await Screenshot(stem+"-locked.png");
@@ -195,14 +195,17 @@ public partial class Desktop
             await Screenshot(stem+"-price.png");
             await WaitFor(()=>_rtsExpanded,"长悬停没有作用与收益");await Screenshot(stem+"-quote.png");
             await PointerClick(_rtsCards["native:militia-camp"]);await HumanIdle();await RtsReady();
-            if(_rtsCards.Values.Any(b=>_rtsAvailability[b]))throw new Exception("施工额度用尽后仍有可建候选");
-            if(!HumanFacts["building_sites"]!["instances"]!.AsArray().Any(b=>S(b!["kind"])=="native:militia-camp"&&I(b["remaining"])==1))throw new Exception("建设没有真实动工");
+            // 直接建造也只入队预付：行动期不开工，也不占用本格本期施工额度。
+            if(!_humanReceipt.Text.Contains("已排入待建队列"))throw new Exception("建造回执没有说明入队："+_humanReceipt.Text);
+            if(HumanFacts["building_sites"]!["instances"]!.AsArray().Any(b=>S(b!["kind"])=="native:militia-camp"))throw new Exception("入队建筑在行动期直接开工");
+            if(Yes(_rtsData!["ordered"])||!_rtsCards.Values.Any(b=>_rtsAvailability[b]))throw new Exception("入队占用了本格本期施工额度");
+            if(QueuedConstruction().Count!=1||S(QueuedConstruction()[0]!["kind"])!="native:militia-camp")throw new Exception("建造没有进入待建队列");
             var other=HumanFacts["building_sites"]!["sites"]!.AsArray().First(t=>I(t!["position"]![0])!=capital.X||I(t["position"]![1])!=capital.Y)!["position"]!;
             var otherCell=new Vector2I(I(other[0]),I(other[1]));RtsChangeCell(otherCell);await RtsReady();
             if(_rtsCards["native:castle"].Disabled||Yes(_rtsData!["ordered"])||!_humanReceipt.Text.Contains("已切换地块"))throw new Exception("A 地块的状态残留到 B 地块");
             await PointerClick(_rtsCards["native:castle"]);await HumanIdle();await RtsReady();
             RtsChangeCell(capital);await RtsReady();
-            if(!Yes(_rtsData!["ordered"])||_rtsCards.Values.Any(b=>_rtsAvailability[b]))throw new Exception("返回 A 后丢失本期施工状态");
+            if(Yes(_rtsData!["ordered"])||QueuedConstruction().Count!=2||!HumanFacts["building_sites"]!["instances"]!.AsArray().Any(b=>S(b!["kind"])=="native:town-hall"))throw new Exception("返回 A 后待建状态不正确");
             await Screenshot(stem+"-quota.png");
             await ReviewMarketDemolition(stem,capital,otherCell);
             await HumanIdle();await PointerClick(_humanNav["end"]);
@@ -219,32 +222,32 @@ public partial class Desktop
             if(_rtsCards["native:militia"].Disabled||!_rtsCards["native:infantry"].Disabled)throw new Exception("军屯与兵营候选未正确筛选");
             await TypeNumber((SpinBox)_humanContent.FindChild("RtsRecruitCount",true,false)!,"2");
             await WaitFor(()=>!_rtsCountPending&&_rtsData!=null,"征召数量没有刷新报价");await RtsReady();
-            if(!_rtsCards["native:militia"].Disabled)throw new Exception("输入2支却仍采用旧的1支征召条件");
+            // 队列征兵允许超过本期额度，多余部分分期生成；不再按 1 支的旧额度直接禁用。
+            if(_rtsCards["native:militia"].Disabled)throw new Exception("队列模式应允许一次入队 2 支");
+            if(!_rtsData!["units"]!.AsArray().First(u=>S(u!["kind"])=="native:militia")!["requirements"]!.AsArray()
+                .Any(r=>S(r!["text"]).Contains("分期")))throw new Exception("超额征召没有说明分期生成");
             await TypeNumber((SpinBox)_humanContent.FindChild("RtsRecruitCount",true,false)!,"1");
             await WaitFor(()=>!_rtsCountPending&&_rtsData!=null,"征召数量改回后没有刷新");await RtsReady();
             await Screenshot(stem+"-recruit.png");
-            // 生产队列的征兵同样只预付：提交后行动期不出兵，取消未生成部分全退；再切回直接征兵继续原流程。
-            _humanCell=capital;OpenHumanPage("build");await RtsReady();
-            await PointerClick((CheckButton)_humanContent.FindChild("ProductionQueueMode",true,false)!);await RtsReady();
-            OpenHumanPage("recruit");await RtsReady();await HumanIdle();
+            // 征兵只入队预付：行动期不出兵，取消未生成部分全退；出兵统一在回合末。
+            _humanCell=capital;OpenHumanPage("recruit");await RtsReady();await HumanIdle();
             int queueArmies=OwnArmies.Count();int queueCalls=_humanHistory.Count;
             await PointerClick(_rtsCards["native:militia"]);await HumanIdle();await RtsReady();
-            if(_humanHistory.Count!=queueCalls+1)throw new Exception("队列征兵点击未提交");
-            if(OwnArmies.Count()!=queueArmies)throw new Exception("队列征兵在行动期直接出兵");
-            if(!_humanReceipt.Text.Contains("待生成"))throw new Exception("队列征兵回执没有说明待生成："+_humanReceipt.Text);
+            if(_humanHistory.Count!=queueCalls+1)throw new Exception("征兵点击未提交");
+            if(OwnArmies.Count()!=queueArmies)throw new Exception("征兵在行动期直接出兵");
+            if(!_humanReceipt.Text.Contains("待生成"))throw new Exception("征兵回执没有说明待生成："+_humanReceipt.Text);
             var recruitRow=(_humanState!["production_queue"]!["recruitment"] as JsonArray)!.Single()!.DeepClone();
             int recruitId=I(recruitRow["id"]);double recruitGold=OwnStock("gold"),recruitWood=OwnStock("wood");
             OpenHumanPage("production");await ToSignal(GetTree(),SceneTree.SignalName.ProcessFrame);
             var cancelRecruit=(Button)_humanContent.FindChild("CancelProduction_Recruit_"+recruitId,true,false)!;
             await PointerClick(cancelRecruit);await PointerClick(_humanConfirm.GetOkButton());await HumanIdle();
             if(OwnStock("gold")!=recruitGold+F(recruitRow["refunds"]!["native:gold"])||OwnStock("wood")!=recruitWood+F(recruitRow["refunds"]!["native:wood"]))throw new Exception("取消未生成征兵没有全额退回预付款");
-            if(OwnArmies.Count()!=queueArmies)throw new Exception("取消队列征兵后新增了军队");
-            _humanCell=capital;OpenHumanPage("build");await RtsReady();
-            await PointerClick((CheckButton)_humanContent.FindChild("ProductionQueueMode",true,false)!);await RtsReady();
-            OpenHumanPage("recruit");await RtsReady();
+            if(OwnArmies.Count()!=queueArmies)throw new Exception("取消征兵后新增了军队");
+            _humanCell=capital;OpenHumanPage("recruit");await RtsReady();await HumanIdle();
             await PointerClick(_rtsCards["native:militia"]);await HumanIdle();
-            if(!OwnArmies.Any())throw new Exception("真人征兵没有产生真实军队："+_humanReceipt.Text);
-            await HumanIdle();await PointerClick(_humanNav["end"]);await WaitFor(()=>HumanCanWrite&&_period==2,"新兵没有进入下一期",HumanRoundTimeout);
+            if(OwnArmies.Count()!=queueArmies)throw new Exception("征兵入队后行动期就出现了军队："+_humanReceipt.Text);
+            await HumanIdle();await PointerClick(_humanNav["end"]);await WaitFor(()=>HumanCanWrite&&_period==2,"新兵没有在回合末生成",HumanRoundTimeout);
+            if(!OwnArmies.Any(u=>I(u["x"])==capital.X&&I(u["y"])==capital.Y))throw new Exception("回合末出兵后首都没有新兵");
             await ReviewHumanBankLoan(stem);
             _humanCell=capital;OpenHumanPage("tile");
             await CheckGarrisonFirst();await Screenshot(stem+"-garrison.png");
@@ -273,6 +276,9 @@ public partial class Desktop
             _humanCell=destination;OpenHumanPage("tile");StartHumanTarget("attack");await WaitFor(()=>_map.TargetCount>0,"原地攻击没有独立准星圈");
             await Screenshot(stem+"-attack.png");await RightOrderAt(destination,attack:true);await HumanIdle();
             if(!OwnArmies.Any(u=>u["engaged"]?.GetValue<bool>()==true))throw new Exception("进攻没有按真实规则登记交战");
+            // 第二处驻军：入队征兵，回合末生成在首都，供总览验收使用。
+            _humanCell=capital;OpenHumanPage("recruit");await RtsReady();await HumanIdle();
+            await PointerClick(_rtsCards["native:militia"]);await HumanIdle();
             _humanOperation="buy_map";await PointerClick(_humanNav["intel"]);await PointerClick((Button)_mailTools.FindChild("MailboxActions",true,false));await PointerClick(_humanSubmit!);await HumanIdle();
             if(_map.MemoryCount==0)throw new Exception("购图没有合入历史地图");
             var memory=_map.Frame!["tiles"]!.AsArray().First(t=>S(t!["visibility"])=="memory")!;

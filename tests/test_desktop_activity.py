@@ -48,9 +48,11 @@ class TestDesktopActivity(unittest.TestCase):
                          [h.roster[a]['name']+' · 第 1 回合' for a in order])
         self.assertTrue(any(b['phase']=='build' for b in beats));self.assertTrue(any(b['phase']=='complete' for b in beats))
         self.assertFalse(difference(replay(initial,beats),c.scene()))
+        started=[b for b in beats if b['phase']=='build' and b['delta'].get('buildings')]
+        self.assertTrue(started)
+        for beat in started:
+            new=beat['delta']['buildings']['upsert'];self.assertTrue(all(b['remaining']==1 for b in new))
         for beat in beats:
-            if beat['phase']=='build':
-                new=beat['delta']['buildings']['upsert'];self.assertTrue(all(b['remaining']==1 for b in new))
             if beat['phase']=='complete':self.assertTrue(all(b['remaining']==0 for b in beat['delta']['buildings']['upsert']))
 
     def test_observation_and_capture_do_not_change_rule_state_or_rng(self):

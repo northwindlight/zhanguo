@@ -37,8 +37,9 @@ class AuditRepairs(unittest.TestCase):
         f,w=self.world();site=Q+'/capital'
         w.buildings.seed(site,'native:barracks',3)
         w.resources.consume(Q,'native:equipment',w.resources.balance(Q,'native:equipment')-11)
-        recruits=f.call(w,Q,'recruit',site=site,count=99)
-        self.assertEqual(len(recruits),2)
+        # 征兵入队只预付本次数量；11 装备只够 2 支，超额部分不再静默截断。
+        receipt=f.call(w,Q,'recruit',site=site,count=2)
+        self.assertEqual(receipt['remaining'],2)
         self.assertEqual(w.resources.balance(Q,'native:equipment'),1)
         self.assertEqual(w.buildings.effects(site,'native:barracks')['recruit_cap'],3)
 

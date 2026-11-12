@@ -91,7 +91,7 @@ class TestConstructionQueue(unittest.TestCase):
         self.cycle();self.assertEqual(len(self.w.buildings.reserved_costs(A)),2)
         callbacks=[]
         self.h.cycle(on_human=lambda p:[api.submit(A,'end_turn',{})],on_result=lambda *r:callbacks.append(r))
-        automatic=[r for r in callbacks if r[3].get('automatic')=='production_queue']
+        automatic=[r for r in callbacks if r[3].get('automatic')=='production_queue' and r[0]==A]
         self.assertEqual([(r[0],r[1]) for r in automatic],[(A,'build')])
         self.assertFalse(self.w.buildings.reserved_costs(A))
         self.assertEqual(len([b for b in self.w.buildings.instances(self.site.id) if b.kind=='native:castle']),2)
@@ -176,7 +176,7 @@ class TestRecruitmentQueue(unittest.TestCase):
             self.assertEqual(len(h.world.units.of(A)),1)
             return [HumanAPI(h).submit(A,'end_turn',{})]
         h.cycle(on_human=play,on_result=lambda *r:results.append(r))
-        automatic=[r for r in results if r[3].get('automatic')=='production_queue']
+        automatic=[r for r in results if r[3].get('automatic')=='production_queue' and r[2].get('action')=='recruit']
         self.assertEqual([r[2]['action'] for r in automatic],['recruit'])
         self.assertEqual(len(h.world.military._facts),0) # settled once
 
