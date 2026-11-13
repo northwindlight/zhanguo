@@ -37,14 +37,32 @@ class ProvenanceChecks(unittest.TestCase):
         for prefix in ('a6a8c5a5','f39f3569'):
             source=next(key for key in legacy_registry() if key.startswith(prefix))
             metadata=dict(source=source);original=copy.deepcopy(metadata)
-            self.assertEqual(require_compatible(metadata,expected)['feature_contract'],expected['feature_contract'])
+            entry=legacy_registry()[source]
+            historical={k:entry[k] for k in ('feature_contract','teacher_contract')}
+            self.assertEqual(require_compatible(metadata,historical),historical)
+            with self.assertRaisesRegex(ValueError,'contract mismatch'):
+                require_compatible(metadata,expected)
             self.assertEqual(metadata,original)
         with self.assertRaisesRegex(ValueError,'Unverified legacy'):require_compatible(dict(source='unknown'))
 
-    def test_audited_query_cache_keeps_existing_data_contract(self):
-        self.assertEqual(contracts(),dict(
+    def test_observation_change_rejects_historical_contracts_without_rewriting_them(self):
+        historical=dict(
             feature_contract='fc7f507e1efde4439b69fdc1676190a6350054bead891af9d999948862eedeb9',
-            teacher_contract='e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a'))
+            teacher_contract='e8e612dc144bb2b46cdd6b09b6ccbc202a88112f213b6af3d5e7f81c2cb5e80a')
+        self.assertEqual(require_compatible(historical,historical),historical)
+        for old in (historical,dict(feature_contract=
+                '1dd0b7d6af3dec6ac0fde21cc7309208079bf540847244259476dc029ca252e0')):
+            with self.assertRaisesRegex(ValueError,'contract mismatch'):
+                require_compatible(old)
+
+    def test_post_build_energy_semantics_are_part_of_the_contract(self):
+        files=contract_files();before=contracts_from_files(files)
+        path='rl/economy/adapter.py'
+        self.assertIn(b'post_gap > 0',files[path])
+        files[path]=files[path].replace(b'post_gap > 0',b'post_gap >= 0')
+        changed=contracts_from_files(files)
+        with self.assertRaisesRegex(ValueError,'contract mismatch'):
+            require_compatible(before,changed)
 
     def test_cache_or_encoder_edits_need_a_new_equivalence_audit(self):
         before=contracts();files=contract_files()

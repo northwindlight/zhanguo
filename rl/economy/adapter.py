@@ -15,7 +15,7 @@ import numpy as np
 from ruleai.v13.market import MarketModel
 from ruleai.v13.profiles import PROFILES
 
-VERSION = 'economy-bc-3'
+VERSION = 'economy-bc-4'
 ACTIONS = ('finish', 'build', 'recruit', 'buy', 'sell')
 RESOURCES = tuple('native:'+r for r in ('gold','food','wood','ore','oil','equipment','supply'))
 BUILDINGS = tuple('native:'+r for r in ('castle','lumber-camp','farm','mine','oil-well',
@@ -31,7 +31,13 @@ WIDTH = 96
 # 0 = not): the model sees it and may still choose a non-executable project, so it
 # has to learn from the token instead of being forced by a hard mask. Context rows
 # reuse 85:87 for energy totals, candidate rows are the only users of column 85.
+# Columns 87:96 explicitly describe current supply and nominal post-build balance.
+# Binary markers are literal 0/1, like the executable token, not scaled numbers.
 EXECUTABLE_COLUMN = 85
+ENERGY_COLUMNS = dict(zip((
+    'current_short', 'current_sufficient', 'consumes_power', 'provides_power',
+    'current_shortfall', 'committed_capacity_gap', 'post_build_capacity_gap',
+    'post_build_short', 'post_build_sufficient'), range(87, 96)))
 FINGERPRINT = hashlib.sha256(json.dumps([VERSION,ACTIONS,RESOURCES,BUILDINGS,UNITS,
     PROFILES_ORDER,WIDTH],ensure_ascii=True).encode()).hexdigest()
 PROJECT_FINGERPRINT = hashlib.sha256((FINGERPRINT+':funded-projects-1').encode()).hexdigest()
@@ -39,6 +45,20 @@ PROJECT_FINGERPRINT = hashlib.sha256((FINGERPRINT+':funded-projects-1').encode()
 
 def scale(value):
     return math.copysign(math.log1p(abs(float(value)))/5, float(value))
+
+
+def energy_features(energy, committed_gap, *, energy_use=0, energy_output=0):
+    """Public current preview plus all owned instances after completion.
+
+    Post-build balance is nominal: it includes in-progress construction exactly
+    once, but assumes fuel and completion, not immediate or guaranteed generation.
+    A positive gap means demand exceeds capacity; a negative gap is spare capacity.
+    """
+    shortfall = energy['shortfall']
+    post_gap = committed_gap + energy_use - energy_output
+    return np.asarray((shortfall > 0, shortfall <= 0, energy_use > 0, energy_output > 0,
+        scale(shortfall), scale(committed_gap), scale(post_gap), post_gap > 0,
+        post_gap <= 0), dtype=np.float32)
 
 
 def row(group, *, action=None, resource=None, kind=None, position=None,
@@ -91,6 +111,14 @@ def observation(ledger, state, *, include_trades=True):
             own_net[d['resource']]+=d['quantity']*(1 if side=='sell' else -1)
             (bought if side=='buy' else sold).add(d['resource'])
     preview=econ['preview']; energy=preview['energy']; military=preview['military']
+    # Own completed and under-construction instances are already in this public
+    # snapshot. Construction receipts must not be added again.
+    committed_gap=sum(catalog[b['kind']]['energy_use']-catalog[b['kind']]['energy_output']
+        for b in sites['instances'])
+    current_energy=energy_features(energy,committed_gap)
+    build_energy={kind:energy_features(energy,committed_gap,
+        energy_use=definition['energy_use'],energy_output=definition['energy_output'])
+        for kind,definition in catalog.items()}
     own_army=[u for u in facts['army'] if u['owner']==player.actor]
     profile=PROFILES[state.profile]
     context=[row(0,profile=state.profile,values=(len(ledger.acts),
@@ -99,6 +127,7 @@ def observation(ledger, state, *, include_trades=True):
         military['need'],military['equipment_need'],military['shortfall'],
         len(facts['threats']),profile.horizon,profile.reserve,profile.cash_periods,
         profile.self_supply,profile.export,profile.gold,profile.release))]
+    context[0][87:96]=current_energy
     flows=econ['latest_flows']
     for resource in RESOURCES:
         context.append(row(1,resource=resource,values=(stocks.get(resource,0),
@@ -111,11 +140,14 @@ def observation(ledger, state, *, include_trades=True):
     for kind,definition in catalog.items():
         completed=sum(b['kind']==kind and not b['remaining'] for b in sites['instances'])
         pending=sum(b['kind']==kind and bool(b['remaining']) for b in sites['instances'])
-        context.append(row(2,kind=kind,values=(completed,pending,definition['energy_use'],
+        features=row(2,kind=kind,values=(completed,pending,definition['energy_use'],
             definition['energy_output'],definition['min_slots'],
             definition['effects'].get('gold_base',0),definition['effects'].get('gold_per_slot',0),
             definition['build_discount']),costs=definition['costs_by_level'][0],
-            inputs=definition['inputs'],outputs=definition['outputs']))
+            inputs=definition['inputs'],outputs=definition['outputs'])
+        features[ENERGY_COLUMNS['consumes_power']]=definition['energy_use']>0
+        features[ENERGY_COLUMNS['provides_power']]=definition['energy_output']>0
+        context.append(features)
     actions=[('finish',{})]; candidates=[row(4,action='finish')]; legal=[True]; limits=[0]
     for site in sites['sites']:
         args=dict(zip(('x','y'),site['position']))
@@ -162,6 +194,13 @@ def observation(ledger, state, *, include_trades=True):
                 prices.get(resource,0),stocks.get(resource,0),inventory.get(resource,0)))
             actions.append((side,{'resource':resource}));candidates.append(features)
             legal.append(available);limits.append(cap)
+    for (action,args),features in zip(actions,candidates):
+        if action=='build':
+            features[87:96]=build_energy[args['kind']]
+        else:
+            # Trades/recruitment/finish do not add installed electrical capacity
+            # or demand. Trade effects on fuel are not a nominal build forecast.
+            features[87:96]=current_energy
     return {'context':np.stack(context),'candidates':np.stack(candidates),
             'legal':np.asarray(legal,dtype=bool),'limits':np.asarray(limits,dtype=np.int64),
             'actions':actions}
