@@ -1,20 +1,23 @@
 # 真实游戏日志与完整存档
 
-这里收录对局提供者实际游玩战国时留下的完整存档和原始日志，公开供研究与参考。其中两局来自旧版单体游戏，`20261018` 局来自 `main` 的 experimental 发行版；均非合成测试。
+这里收录对局提供者实际游玩战国时留下的完整存档和原始日志，公开供研究与参考。其中两局来自旧版单体游戏，`20261018` 局来自 `main` 的 experimental 发行版，另有一局 stock 股票模拟；均非合成测试。
 
 | 对局 | 存档回合 | 模型 | 状态 | 存档 | 日志 | 报告 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 八国终局，种子 20260921 | 258 | `qwen3.8flash`、DeepSeek | 已终局，燕为最后存续国家 | [state.json](eight-nations-258/state.json) | [journal.md](eight-nations-258/journal.md) | — |
 | 八国，种子 20261009 | 158 | `qwen3.8flash` | 当前公开快照，日志含之后的未完成回合及调用失败 | [state.json](eight-nations-158/state.json) | [journal.md](eight-nations-158/journal.md) | — |
 | 八国，种子 20261018 | 50 | Gemini 3.8 Flash / DeepSeek V4.1 Flash Free / Qwen 3.8 Flash | 第 50 回合结算后中断；**effort 不对称，非模型对照** | [state.json.gz](eight-nations-20261018/state.json.gz) | [journal.md](eight-nations-20261018/journal.md) | [report.md](eight-nations-20261018/report.md) |
+| 股票模拟，种子 2026111303 | 60 | 四席 Gemini 4 Hydrogen High | 已终局，量化丁第一 | [session.json.gz](stock-gemini-hydrogen-20261113/session.json.gz) | [journal.md](stock-gemini-hydrogen-20261113/journal.md) | [结算厅复盘](stock-gemini-hydrogen-20261113/结算厅复盘.md) |
 
-三局均为 24×24 地图，初始国家为秦、魏、韩、赵、燕、齐、楚、周。模型名称由对局提供者说明。258 局确实使用过 DeepSeek，原始存档中部分 `reasoning_signature.model` 为 `deepseek-flash[1m]`；这些字段原样保留。没有整理或推断各国、各回合的完整模型切换表，不能把该局当作单一模型的受控实验。
+上述三局八国对局均为 24×24 地图，初始国家为秦、魏、韩、赵、燕、齐、楚、周。模型名称由对局提供者说明。258 局确实使用过 DeepSeek，原始存档中部分 `reasoning_signature.model` 为 `deepseek-flash[1m]`；这些字段原样保留。没有整理或推断各国、各回合的完整模型切换表，不能把该局当作单一模型的受控实验。
 
 `20261018` 局是 3 Gemini / 3 DeepSeek / 2 Qwen 的混合阵容，且 Gemini 为 `high`、其余为 `low`（`max_tokens` 也不同）；可以描述本局实际表现差异，但不能直接推出相同条件下的总体能力排序。其修订[报告](eight-nations-20261018/report.md)与独立[主观附文](eight-nations-20261018/afterword-model-behavior.md)分开阅读；本地输出及思考档位测量另记于[speed-probe](eight-nations-20261018/speed-probe/README.md)。
 
 ## 文件与完整性
 
 每局包含完整 JSON 存档和整份原始文本日志 `journal.md`。文件只改了存放目录与文件名，内容逐字节保留，没有裁剪、重写、补齐回合或修改世界状态。258/158 局直接收录 `state.json`；`20261018` 局的原始存档 107,275,643 B，超过 GitHub 单文件 100 MiB 限制，收录为 `state.json.gz`（14,183,770 B），解压后哈希见该目录 README 与 `manifest.json`。
+
+股票局的版本、审计归档与校验方式见[对局说明](stock-gemini-hydrogen-20261113/README.md)。以下 manifest 与 SHA256SUMS 针对八国记录。
 
 [manifest.json](manifest.json) 记录原始文件名、保存回合、地图参数、模型来源、文件大小和 SHA-256。[SHA256SUMS](SHA256SUMS) 可直接校验：
 
@@ -23,7 +26,7 @@ cd research/game-records
 sha256sum -c SHA256SUMS
 ```
 
-日志可能包含重启、重复回合、模型错误或尚未结算的行动。保存回合以 JSON 顶层 `turn` 为准；日志末尾的文字提示不一定与该字段一致。原始日志中未记录的内容不另行补造，存档中的模型记忆也不等于开局以来的全部推理对话。
+日志可能包含重启、重复回合、模型错误或尚未结算的行动。八国旧格式的保存回合以 JSON 顶层 `turn` 为准，股票局以时钟状态为准；日志末尾的文字提示不一定与该字段一致。原始日志中未记录的内容不另行补造，存档中的模型记忆也不等于开局以来的全部推理对话。
 
 ## 版本与研究用途
 
