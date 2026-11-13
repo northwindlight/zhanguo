@@ -1,4 +1,7 @@
 """Stock v2 acceptance: real matching, causal callbacks, one ledger and paid compute."""
+import ast
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -72,6 +75,50 @@ class StockGameTest(unittest.TestCase):
         self.assertTrue({'script', 'compute', 'compute_status', 'end_turn'} <= names)
         self.assertFalse({'buy', 'sell', 'short', 'cover', 'stock_trade'} & names)
         self.assertFalse(self.submit(h, 'stock_trade', symbol='shanhai', quantity=10)['ok'])
+
+    def test_read_own_script_reaches_model_and_preserves_private_slots(self):
+        h = self.host(actors=2)
+        player = h.player(ACTOR)
+        view = StockView({'language': 'zh-CN'}, presentation=h.presentation)
+        source = "def on_tick():\n    print('当前策略')\n"
+        research = "print('研究槽')\n"
+        self.write(h, source)
+        self.write(h, research, 'research')
+        other = h.player('stock:player1')
+        self.assertTrue(other.submit('script', {'action': 'write', 'source': "print('私有策略')"})['ok'])
+        before = deepcopy(h.world.compute.status(ACTOR))
+        window_before = h.world.clock.view(ACTOR)['window_used']
+        self.assertNotIn('script_read', player.observe()['facts'])
+        schema = next(t for t in player.actions() if t['function']['name'] == 'script')
+        self.assertIn('read', schema['function']['parameters']['properties']['action']['enum'])
+        for slot, expected in [('1', source), ('research', research)]:
+            args = {'action': 'read', 'slot': slot}
+            receipt = player.submit('script', args)
+            self.assertTrue(receipt['ok'], receipt)
+            self.assertEqual(receipt['data']['source'], expected)
+            self.assertIn(expected, view.receipt(receipt, args))
+            self.assertNotIn('私有策略', view.receipt(receipt, args))
+        receipt = player.submit('script', {'action': 'read'})
+        self.assertEqual(receipt['data']['source'], source)
+        direct = player.submit('script_read', {'slot': 'research'})
+        self.assertEqual(direct['data']['source'], research)
+        self.assertIn(research, view.receipt(direct, {'slot': 'research'}))
+        status_args = {'action': 'status', 'include_source': True}
+        self.assertIn(source, view.receipt(player.submit('script', status_args), status_args))
+        empty_args = {'action': 'read', 'slot': '2'}
+        self.assertIn('尚未保存脚本', view.receipt(player.submit('script', empty_args), empty_args))
+        self.assertFalse(player.submit('script', {'action': 'read', 'slot': 'stock:player1'})['ok'])
+        self.assertEqual(h.world.compute.status(ACTOR), before)
+        self.assertEqual(h.world.clock.view(ACTOR)['window_used'], window_before)
+        h.cycle()
+        status_receipt = player.submit('script', status_args)
+        self.assertIn(source, view.receipt(status_receipt, status_args))
+        h.cycle()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'save.json'
+            h.save(path)
+            loaded = GameHost.load(path, config(actors=2))
+            self.assertEqual(loaded.player(ACTOR).submit('script', {'action': 'read'})['data']['source'], source)
 
     def test_direct_pre_market_api_trade_rejected(self):
         h = self.host()
@@ -261,9 +308,9 @@ class StockGameTest(unittest.TestCase):
     def test_holiday_cannot_trade(self):
         h = self.host()
         h.world.clock.round = 6
-        h.clients[ACTOR].scripts['6'] = BUY
-        h.cycle()
-        self.assertIn('休市', self.result(h)['error']['message'])
+        self.open(h)
+        with self.assertRaisesRegex(ValueError, '休市'):
+            h.world.market.place(h.world, ACTOR, 'buy', 'shanhai', 10)
 
     def test_visible_path_contains_no_future_and_news_are_causal(self):
         h = self.host(); m = self.open(h)
@@ -300,6 +347,78 @@ class StockGameTest(unittest.TestCase):
         h = self.host(); s = h.world.compute.status(ACTOR)
         self.assertEqual((s['steps_limit'], s['calls_limit'], s['slots']), (4000000, 4000, 1))
         self.assertEqual(s['research_runs_left'], 3)
+
+    def test_discounted_compute_prices_are_charged(self):
+        h = self.host()
+        for kind, expected in [('pool', (120, 240, 480)), ('slot', (80, 160, 320))]:
+            for price in expected:
+                cash = h.world.portfolio.holdings(ACTOR)['cash']
+                receipt = self.buy_resource(h, kind)
+                self.assertEqual(receipt['paid'], price)
+                self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], cash - price)
+        self.assertEqual(h.world.compute.status(ACTOR)['prices']['research_run'], 200)
+
+    def test_pool_tier_scales_syntax_limit_for_check_and_execution(self):
+        h = self.host()
+        source = 'def on_tick():\n' + '    x=1\n' * 550
+        nodes = len(list(ast.walk(ast.parse(source))))
+        self.assertTrue(2048 < nodes < 4096)
+        args = {'action': 'write', 'slot': '1', 'source': source}
+        first = self.submit(h, 'script', **args)
+        self.assertFalse(first['data']['check']['valid'])
+        self.assertEqual((first['data']['check']['nodes'], first['data']['check']['nodes_limit']), (nodes, 2048))
+        view = StockView({'language': 'zh-CN'}, presentation=h.presentation)
+        self.assertIn(f'{nodes}/2048', view.receipt(first, args))
+        self.buy_resource(h, 'pool')
+        second = self.submit(h, 'script', **args)
+        self.assertTrue(second['data']['check']['valid'])
+        self.assertEqual((second['data']['check']['nodes'], second['data']['check']['nodes_limit']), (nodes, 4096))
+        self.assertEqual(h.world.scripts.status(ACTOR)['limits']['nodes'], 4096)
+        self.assertIn(f'{nodes}/4096', view.receipt(second, args))
+        research = self.research(h, 'x=1\n' * 550)
+        self.assertTrue(research['ok'], research)
+        h.cycle()
+        self.assertEqual(self.result(h)['status'], 'effective')
+        self.assertEqual(h.world.scripts.status(ACTOR)['limits']['nodes'], 2048)
+        h.cycle()
+        result = self.result(h)
+        self.assertEqual(result['status'], 'failed')
+        self.assertIn(f'{nodes}/2048', result['error']['message'])
+
+    def test_syntax_limit_tracks_all_four_pool_tiers(self):
+        h = self.host(actors=2)
+        source = 'x=1\n' * 1650
+        nodes = len(list(ast.walk(ast.parse(source))))
+        self.assertTrue(6144 < nodes < 8192)
+        for tier, limit in enumerate((2048, 4096, 6144, 8192), 1):
+            result = self.submit(h, 'script', action='write', source=source)['data']['check']
+            self.assertEqual((result['nodes'], result['nodes_limit']), (nodes, limit))
+            self.assertEqual(result['valid'], tier == 4)
+            if tier < 4:
+                self.buy_resource(h, 'pool')
+        self.assertEqual(h.world.scripts.status('stock:player1')['limits']['nodes'], 2048)
+
+    def test_source_limit_scales_and_long_source_survives_downgrade_and_load(self):
+        h = self.host()
+        source = '# ' + ('z' * 17000) + '\nx=1\n'
+        first = self.submit(h, 'script', action='write', source=source)['data']['check']
+        self.assertFalse(first['valid'])
+        self.assertEqual((first['source_bytes'], first['source_limit']), (len(source), 16384))
+        self.buy_resource(h, 'pool')
+        self.assertEqual(h.world.scripts.status(ACTOR)['limits']['source'], 32768)
+        self.assertTrue(self.submit(h, 'script', action='write', source=source)['data']['check']['valid'])
+        h.cycle()
+        self.assertEqual(self.result(h)['status'], 'effective')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'save.json'
+            h.save(path)
+            loaded = GameHost.load(path, config())
+            self.assertEqual(loaded.world.scripts.status(ACTOR, True)['source'], source)
+            self.assertFalse(loaded.world.scripts.check(ACTOR)['valid'])
+        h.cycle()
+        self.assertEqual(self.result(h)['status'], 'failed')
+        self.assertIn(f'{len(source)}/16384', self.result(h)['error']['message'])
+        self.assertFalse(self.submit(h, 'script', action='write', source='z' * 65537)['ok'])
 
     def test_buy_pool_debits_game_cash_and_increases_shared_quota(self):
         h = self.host(); s = self.buy_resource(h, 'pool')
@@ -343,7 +462,7 @@ class StockGameTest(unittest.TestCase):
         self.assertEqual(r['data']['output'], '21\n0\n')
         self.assertEqual(h.world.clock.tick, 0)
         self.assertEqual(h.world.market.state, h.world.market.PRE)
-        self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], cash - 1000)
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], cash - 200)
         self.assertEqual(h.world.compute.status(ACTOR)['research_runs_left'], 2)
         # 研究不占共享算力池
         self.assertEqual(h.world.compute.status(ACTOR)['steps_used'], 0)
@@ -353,7 +472,7 @@ class StockGameTest(unittest.TestCase):
         cash = h.world.portfolio.holdings(ACTOR)['cash']
         r = self.submit(h, 'script', action='run', slot='research')
         self.assertTrue(r['ok']); self.assertEqual(r['data']['output'], '2\n')
-        self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], cash - 1000)
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], cash - 200)
         self.assertTrue(self.submit(h, 'script', action='run', slot='research')['ok'])
         self.assertFalse(self.submit(h, 'script', action='run', slot='research')['ok'])
         self.assertEqual(h.world.compute.status(ACTOR)['research_runs_left'], 0)
@@ -387,10 +506,32 @@ class StockGameTest(unittest.TestCase):
         self.assertIn('before', r['output'])
         self.assertGreater(r['steps'], 0)   # 用量每回合重置，结果行里保留本回合消耗
 
-    def test_checks_are_free_and_do_not_run_code(self):
+    def test_automatic_checks_do_not_run_code(self):
         h = self.host()
-        r = self.submit(h, 'script', action='check', source="print(1/0)")
-        self.assertTrue(r['data']['valid'])
+        r = self.submit(h, 'script', action='write', source="print(1/0)")
+        self.assertTrue(r['data']['check']['valid'])
+        self.assertEqual(h.world.compute.status(ACTOR)['steps_used'], 0)
+
+    def test_write_and_patch_automatically_report_validation(self):
+        h = self.host()
+        view = StockView({'language': 'zh-CN'}, presentation=h.presentation)
+        player = h.player(ACTOR)
+        schema = next(t for t in player.actions() if t['function']['name'] == 'script')
+        self.assertNotIn('check', schema['function']['parameters']['properties']['action']['enum'])
+        view.actions(player.actions())
+        view.rules(player.rules('all'))
+        self.assertNotIn('script(action=check)', view.system())
+        args = {'action': 'write', 'source': 'x = f"{1}"\n'}
+        receipt = player.submit('script', args)
+        self.assertTrue(receipt['ok'])
+        self.assertFalse(receipt['data']['check']['valid'])
+        self.assertIn('自动检查未通过', view.receipt(receipt, args))
+        self.assertEqual(h.world.scripts.status(ACTOR, True)['source'], args['source'])
+        args = {'action': 'patch', 'old': 'f"{1}"', 'new': 'str(1)'}
+        receipt = player.submit('script', args)
+        self.assertTrue(receipt['data']['check']['valid'])
+        self.assertIn('语法检查通过', view.receipt(receipt, args))
+        self.assertEqual(h.world.clock.view(ACTOR)['window_used'], 2)
         self.assertEqual(h.world.compute.status(ACTOR)['steps_used'], 0)
 
     def test_pool_tier_raises_per_callback_budget_and_hints(self):
@@ -572,7 +713,7 @@ class StockGameTest(unittest.TestCase):
         self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], 100000)
         self.write(h, 'print(1)', 'research')
         self.assertTrue(self.submit(h, 'script', action='run', slot='research')['ok'])
-        self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], 99000)
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], 99800)
 
     def test_failed_state_is_not_committed_but_valid_previous_state_remains(self):
         h = self.host()
@@ -677,9 +818,9 @@ class StockGameTest(unittest.TestCase):
             ('s = set()\ns.add(1)\n', 'list'),
         ):
             with self.subTest(needle=needle):
-                r = self.submit(h, 'script', action='check', source=source)
+                r = self.submit(h, 'script', action='write', source=source)
                 self.assertTrue(r['ok'])
-                error = r['data'].get('error') or {}
+                error = r['data']['check'].get('error') or {}
                 self.assertIn('改法', error.get('message', ''))
                 self.assertIn(needle, error['message'])
 
@@ -739,18 +880,52 @@ class StockGameTest(unittest.TestCase):
         self.assertIn('成交1笔，买10股/卖0股', text)
         self.assertIn('财富', text)
 
-    def test_rest_day_settlement_digest_has_no_market_noise(self):
+    def test_rest_days_skip_trading_slots_but_allow_research_and_resume_on_open(self):
         h = self.host()
-        h.world.clock.round = 6
-        h.clients[ACTOR].scripts['6'] = "print('规划中')\n"
+        self.write(h, "state['runs']=state.get('runs',0)+1\n")
+        h.world.clock.round = 33
+        h.cycle()
+        prior = deepcopy(self.result(h))
+        self.assertEqual(prior['period'], 33)
+        self.assertEqual(h.world.scripts.rows[ACTOR]['1']['state']['runs'], 1)
         seen = []
-        h.cycle(on_result=lambda actor, action, args, receipt: seen.append(action))
-        self.assertIn('settlement', seen)
-        row = next(r for r in h.audit if r['action'] == 'settlement')
-        text = row['receipt']['data']['text']
-        self.assertIn('槽1 effective', text)
-        self.assertIn('财富', text)
-        self.assertNotIn('委托', text)
+        for day in (34, 35):
+            self.assertFalse(h.world.clock.trading_day())
+            if day == 35:
+                research = self.research(h, "print('休市研究')\n")
+                self.assertTrue(research['ok'])
+                self.assertIn('休市研究', research['data']['output'])
+            h.cycle(on_result=lambda actor, action, args, receipt: seen.append((action, receipt)))
+            self.assertEqual(self.result(h), prior)
+            self.assertEqual(h.world.scripts.rows[ACTOR]['1']['state']['runs'], 1)
+        settlements = [receipt for action, receipt in seen if action == 'settlement']
+        self.assertEqual([r['period'] for r in settlements], [34, 35])
+        for receipt in settlements:
+            self.assertIn('休市，交易槽未运行', receipt['data']['text'])
+            self.assertNotIn('委托', receipt['data']['text'])
+        briefing = StockView({'language': 'zh-CN'}).stock_briefing(h.player(ACTOR).observe())
+        self.assertIn('最近一次脚本（第 33 回合）', briefing)
+        h.cycle()
+        self.assertEqual(self.result(h)['period'], 36)
+        self.assertEqual(h.world.scripts.rows[ACTOR]['1']['state']['runs'], 2)
+
+    def test_observer_labels_delayed_trading_and_rest_settlements_with_their_own_round(self):
+        from mp_run import Observer
+
+        h = self.host()
+        h.world.clock.round = 5
+        h.clients[ACTOR].scripts.update({'5': "print('交易日')\n", '6': "print('休市日')\n"})
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            observer = Observer(h, Path(tmp) / 'journal.md')
+            for day in (5, 6):
+                h.cycle(on_result=observer.result)
+                self.assertEqual(h.clock(), day + 1)
+                observer.flush(ACTOR)
+            journal = observer.path.read_text(encoding='utf-8')
+        self.assertIn('[5·行动] 量化0 ◇ settlement → round：5', journal)
+        self.assertIn('[6·行动] 量化0 ◇ settlement → round：6', journal)
+        self.assertNotIn('[6·行动] 量化0 ◇ settlement → round：5', journal)
+        self.assertNotIn('[7·行动] 量化0 ◇ settlement → round：6', journal)
 
     def test_ipo_lists_new_stock_on_published_schedule(self):
         h = self.host(); h.world.clock.round = 9   # trading day 7

@@ -1,7 +1,7 @@
 """股市版模型客户端。
 
 * :class:`StockView` 在原版视图后面补一段「本回合开局简报」：回合与日历、
-  账户与财富、持仓、行情、上回合脚本的打印输出与报错。
+  账户与财富、持仓、行情、最近一次脚本执行的打印输出与报错。
   原版简报是战场口径，股市发行版用不到，所以这一段才是模型每回合真正读到的战情。
 * :class:`StockClient` 把模型客户端接到股市发行版上。
 * :class:`SimClient` 不需要模型与 API key 的离线客户端，跑一套简单均线策略，
@@ -18,6 +18,16 @@ from clients.model_view import ModelView
 
 class StockView(ModelView):
     """回合开局的股市简报。"""
+
+    def system(self):
+        # Stock's script lifecycle is described by its own system rule section;
+        # the native game's manual check/run guidance does not apply here.
+        previous = self.has_scripts
+        try:
+            self.has_scripts = False
+            return super().system()
+        finally:
+            self.has_scripts = previous
 
     def state(self, observation, events):
         tail, image = super().state(observation, events)
@@ -39,8 +49,8 @@ class StockView(ModelView):
                              f'不能买卖，但可以改脚本、规划、借贷。')
             lines.append(f'盘前规划动作 {view.get("window_used")}/{view.get("window_limit")}；'
                          f'市场共同时间线 {view.get("tick")}/{view.get("slices")} tick。'
-                         '全体结束行动后自动运行交易槽；on_tick回调默认每100tick唤醒，state跨日保留。'
-                         '研究槽按次收费：每次 1000 现金，只能在自己行动时手动只读运行。')
+                         '交易日全体结束行动后自动运行交易槽，休市日不运行；on_tick回调默认每100tick唤醒，state跨日保留。'
+                         '研究槽按次收费：每次 200 现金，只能在自己行动时手动只读运行。')
         compute = facts.get('compute_status') or {}
         if compute:
             lines.append(f'算力池 {compute["pool"]} 档、交易槽 {compute["slots"]} 个（每回合重置，需要请重买）；'
@@ -122,7 +132,7 @@ class StockView(ModelView):
         status = facts.get('script_status') or {}
         result = status.get('result')
         if result:
-            lines.append(f'上回合脚本：{result.get("status")}，步数 {result.get("steps")}，'
+            lines.append(f'最近一次脚本（第 {result.get("period")} 回合）：{result.get("status")}，步数 {result.get("steps")}，'
                          f'API 调用 {result.get("calls")}，动作 {result.get("actions")}。')
             error = result.get('error')
             if error:
@@ -133,12 +143,12 @@ class StockView(ModelView):
             if result.get('output'):
                 lines.append('打印输出：\n' + result['output'])
         else:
-            lines.append('上回合还没跑过脚本：脚本在回合末由引擎统一执行，结果下回合开局给你。')
+            lines.append('脚本还没跑过：交易日回合末由引擎统一执行，结果下回合开局给你。')
 
         for other in status.get('other_slots', []):
             r = other.get('result')
             if r:
-                lines.append(f'槽 {other["slot"]}：{r["status"]}，计算 {r["steps"]}，API {r["calls"]}。')
+                lines.append(f'槽 {other["slot"]} 最近一次（第 {r.get("period")} 回合）：{r["status"]}，计算 {r["steps"]}，API {r["calls"]}。')
                 if r.get('error'): lines.append('错误：' + r['error']['message'])
                 if r.get('output'): lines.append('输出：\n' + r['output'])
         intel = facts.get('intel_status') or {}

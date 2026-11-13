@@ -101,6 +101,13 @@ def limit_message(message, limits):
         return hint
 
 
+def limits_for_pool(limits, pool):
+    """Structural limits scale with the current compute tier."""
+    tier = max(1, int(pool.get('pool', 1)))
+    return dict(limits, nodes=min(8192, limits['nodes'] * tier),
+                source=min(65536, limits['source'] * tier))
+
+
 class SlotPrograms:
     def __init__(self, world, limits):
         self.world, self.limits = world, dict(limits)
@@ -117,7 +124,7 @@ class SlotPrograms:
         return self.rows.get(actor, {}).get(slot, dict(source='', revision=0,
                     last_period=None, result=None, state={}))
     def _source(self, source):
-        if not isinstance(source, str) or len(source.encode('utf-8')) > self.limits['source']:
+        if not isinstance(source, str) or len(source.encode('utf-8')) > min(65536, self.limits['source'] * 4):
             raise ValueError('脚本必须是字符串，且不能超过源码字节上限')
         return source
     def write(self, actor, source, slot='1'):
@@ -127,7 +134,8 @@ class SlotPrograms:
         row = dict(self._row(actor, slot))
         row.update(source=self._source(source), revision=row['revision']+1)
         self.rows.setdefault(actor, {})[slot] = row
-        return dict(slot=slot, revision=row['revision'], bytes=len(source.encode('utf-8')))
+        return dict(slot=slot, revision=row['revision'], bytes=len(source.encode('utf-8')),
+                    check=self.check(actor, slot=slot))
     def patch(self, actor, old, new, slot='1'):
         row = self._row(actor, slot)
         if not isinstance(old, str) or not old or not isinstance(new, str) or row['source'].count(old) != 1:
@@ -135,7 +143,18 @@ class SlotPrograms:
         return self.write(actor, row['source'].replace(old, new, 1), slot)
     def check(self, actor, source=None, slot='1'):
         row = self._row(actor, slot)
-        verdict = check(row['source'] if source is None else source, self.limits)
+        source = row['source'] if source is None else source
+        limits = limits_for_pool(self.limits, self.world.compute.status(actor))
+        verdict = check(source, limits)
+        if isinstance(source, str):
+            verdict['source_bytes'] = len(source.encode('utf-8'))
+            verdict['source_limit'] = limits['source']
+        if isinstance(source, str) and len(source.encode('utf-8')) <= limits['source']:
+            try:
+                verdict['nodes'] = len(list(ast.walk(ast.parse(source))))
+                verdict['nodes_limit'] = limits['nodes']
+            except (SyntaxError, ValueError, RecursionError):
+                pass
         if verdict.get('error'):
             verdict['error'] = with_hint(verdict['error'])
         return verdict
@@ -146,7 +165,7 @@ class SlotPrograms:
         result = {k: deepcopy(row[k]) for k in ('revision', 'last_period', 'result')}
         result.update(slot=slot, enabled=self.world.compute.allowed(actor, slot),
                       available=self.world.compute.allowed(actor, slot) and pool['steps_remaining'] > 0,
-                      limits=dict(self.limits, steps=pool['steps_remaining'], calls=pool['calls_remaining']))
+                      limits=dict(limits_for_pool(self.limits, pool), steps=pool['steps_remaining'], calls=pool['calls_remaining']))
         if include_source: result['source'] = row['source']
         if slot == '1':
             result['other_slots'] = [dict(slot=s, revision=r['revision'], result=deepcopy(r['result']),
@@ -267,21 +286,24 @@ class ConcurrentRunner:
         actor, slot = task['actor'], task['slot']
         pool = self._object('stock:compute', 'status', actor)
         params = self.module.declaration['Parameters']
+        structural_limits = limits_for_pool(self.module.limits, pool)
         if research:
             # 研究槽按次收费，不占共享算力池，只有单次上限。
-            limits = dict(self.module.limits, steps=params['ResearchSteps'], calls=params['ResearchCalls'])
+            limits = dict(structural_limits, steps=params['ResearchSteps'], calls=params['ResearchCalls'])
         else:
             # 单次回调上限随算力池档数线性提高：免费 1 档 = 5 万步/200 次，第 N 档 = N 倍。
             tier = max(1, int(pool.get('pool', 1)))
-            limits = dict(self.module.limits,
+            limits = dict(structural_limits,
                           steps=min(params['BurstSteps'] * tier, pool['steps_remaining']),
                           calls=min(params['BurstCalls'] * tier, pool['calls_remaining']))
         if limits['steps'] < 1:
             return self._exhausted(task)
         source = task['source']
         callback = False
+        node_count = None
         try:
             tree = ast.parse(source)
+            node_count = len(list(ast.walk(tree)))
             callback = not research and any(isinstance(n, ast.FunctionDef) and n.name == 'on_tick' for n in tree.body)
         except SyntaxError:
             pass  # Machine produces the original syntax diagnostic.
@@ -326,6 +348,12 @@ class ConcurrentRunner:
         if error:
             error = with_hint(error)               # 常见沙盒拒绝附一句改法
             raw = error.get('message', '')
+            if raw == 'Syntax tree size limit exceeded' and node_count is not None:
+                error['message'] = (f'语法树节点 {node_count}/{structural_limits["nodes"]} 超限；'
+                                    '可购买算力池或精简脚本。')
+            elif raw == 'Source size limit exceeded':
+                error['message'] = (f'源码 {len(task["source"].encode("utf-8"))}/'
+                                    f'{structural_limits["source"]} 字节超限；可购买算力池或精简脚本。')
             hint = limit_message(raw, limits)      # 超长报错先给摘要，全文在括号里
             if hint:
                 if '本次回调' in hint:
@@ -374,27 +402,28 @@ class ConcurrentRunner:
 
     def run_all(self):
         world = self.world
+        if not world.clock.trading_day():
+            if world.scripts.recorder:
+                for actor in sorted(world.nation_actors):
+                    world.scripts.recorder(actor, 'settlement', {},
+                                           self._settlement_line(actor, {}))
+            return
         tasks = []
         for actor in sorted(world.nation_actors):
             for index in range(1, world.compute.status(actor)['slots']+1):
                 task = world.scripts.claim(actor, str(index))
                 if task: tasks.append(task)
         results = {}
-        if not world.clock.trading_day():
-            for task in tasks:
+        self._object('stock:market', 'open_session')
+        for tick in range(world.clock.slices()+1):
+            if tick: self._object('stock:market', 'advance', tick)
+            if tick == world.clock.slices(): break
+            due = [task for task in tasks if task['wake'] == tick and task['actor'] in world.nation_actors]
+            if due: self._object('stock:market', 'freeze_public')
+            for task in due:
                 self.execute(task)
+                # 执行结果按槽累计步数/调用量，读回即全天汇总；失败的槽停在后一次结果。
                 results.setdefault(task['actor'], {})[task['slot']] = world.scripts.status(task['actor'], slot=task['slot'])['result']
-        else:
-            self._object('stock:market', 'open_session')
-            for tick in range(world.clock.slices()+1):
-                if tick: self._object('stock:market', 'advance', tick)
-                if tick == world.clock.slices(): break
-                due = [task for task in tasks if task['wake'] == tick and task['actor'] in world.nation_actors]
-                if due: self._object('stock:market', 'freeze_public')
-                for task in due:
-                    self.execute(task)
-                    # 执行结果按槽累计步数/调用量，读回即全天汇总；失败的槽停在后一次结果。
-                    results.setdefault(task['actor'], {})[task['slot']] = world.scripts.status(task['actor'], slot=task['slot'])['result']
         # 看海摘要：脚本执行的逐笔回执已静默进审计，这里每个玩家补一行结果。
         if world.scripts.recorder:
             for actor in sorted(results):
@@ -414,7 +443,7 @@ class ConcurrentRunner:
             if error.get('message'):
                 tag += f"（{str(error['message']).splitlines()[0][:80]}）"
             parts.append(tag)
-        text = '；'.join(parts) or '无交易槽运行'
+        text = '；'.join(parts) or ('休市，交易槽未运行' if not world.clock.trading_day() else '无交易槽运行')
         runtime = self.module.runtime
         if world.clock.trading_day():
             summary = runtime.call(world, actor, 'day_report', {})
@@ -474,16 +503,20 @@ class StockPythonMod(GameMod):
     def save_state(self, world): return world.scripts.to_save()
     def load_state(self, world, state): world.scripts.restore(state)
     def before_tool(self, world, actor, name, arguments):
-        if name == 'script' and arguments.get('action') not in ('check', 'status'):
+        if name == 'script' and arguments.get('action') not in ('status', 'read'):
             self.runtime.object_call(world, 'stock:clock', 'charge', actor)
     def stages(self):
         return (Stage('stock.python.run', lambda w, c: ConcurrentRunner(self, w).run_all(), hook='market.settlement'),)
     def rule_sections(self, world=None):
         return (RuleSection('Python 策略与研究槽',
-            'script(action=write/patch/check/status,slot="1"..."4"或"research")管理各槽源码；'
-            '普通源码每天自动执行一次；定义无参数 def on_tick(): 会每100tick重新回调，可用'
+            'script(action=write/patch/read/status,slot="1"..."4"或"research")管理各槽源码；read 免费查看自己的当前完整源码；'
+            '每次写入或修订后自动检查并返回结果，失败的源码仍保存，须修好或续买算力才能运行；'
+            '普通源码只在交易日自动执行；休市日交易槽不运行，研究槽仍可手动运行。定义无参数 def on_tick(): 会每100tick重新回调，可用'
             'api.call("stock:clock","sleep",ticks=N)设置下一次回调间隔，不暂停、不推进行情、不按等待扣步数。'
             '回调必须返回，不能用while+sleep等待；单次回调上限 = 50000计算单位、200次API × 算力池档数（撞上限时买池或拆到多个交易槽）。'
+            '脚本语法树节点上限随算力池档数提升：第1/2/3/4档为2048/4096/6144/8192，交易槽与研究槽均按当前档位检查；'
+            '源码检查与执行字节上限依档位为16384/32768/49152/65536；允许保存未超65536字节的源码，执行仍受当前档限制。'
+            '算力池每回合重置，次日未续买则上限也恢复，超限源码仍保存但不能执行。'
             'state是每槽独立、跨回调和跨日保存的64KB JSON字典；成功回调提交state，失败不撤销已受理动作。'
             '行情与账户一律用 api.call(能力, 方法, ...)，签名如下：'
             '"stock:market"：quotes()、history(symbol, limit=30)、ticks(symbol)、catalog()、pool()、'
@@ -512,7 +545,7 @@ class StockPythonMod(GameMod):
             '        elif held.get(symbol) and row["ma5"] < row["ma20"]:\n'
             '            api.call("stock:market", "sell", symbol=symbol, quantity=held[symbol])\n'
             '    api.call("stock:clock", "sleep", ticks=100)\n'
-            '研究槽在行动时手动运行 script(action=run,slot="research",inputs={...})：每次固定 1000 现金、每回合最多 3 次，'
+            '研究槽在行动时手动运行 script(action=run,slot="research",inputs={...})：每次固定 200 现金、每回合最多 3 次，'
             '只读、不下单、不推进行情，也不占共享算力池（交易槽 1～4 不能手动 run，只在交易日结束时自动执行）。'
             '研究单次上限 100 万步、1000 次 API。'
             'print 每槽每天合计上限4096字节，只打印摘要（len、前几条、关键字段），不要打印整个dict。'
@@ -523,6 +556,6 @@ class StockPythonMod(GameMod):
             'abs all any bool dict enumerate float int len list max min print range reversed round sorted str sum tuple zip；'
             '对象方法仅限 get items keys values append extend pop copy count index sort reverse lower upper strip split '
             'join startswith endswith replace；属性不能赋值，双下划线名字禁用。'
-            '被拒的写法会在报错信息里附一句改法；script(action=check) 免费预检。'
+            '被拒的写法会在报错信息里附一句改法；每次写入和修订自动检查。'
             'print、错误行与各槽用量会出现在状态和下回合简报。禁止导入、文件、网络、随机和动态执行。',
             ('脚本', 'Python', '研究槽', 'on_tick', 'state'), '自动交易回调、持久状态及手动研究', system=True),)

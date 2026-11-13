@@ -3,9 +3,9 @@
 模型直接能用的只有这些：
 
 ============  ==========================================================
-script        伞工具：write 保存源码 / patch 精确改一处 / check 免费查语法
-              / status 查状态（脚本在回合末由引擎统一执行，模型侧不手动跑）
-script_status 只读事实：上回合脚本的执行结果（打印输出与报错）
+script        伞工具：write 保存源码 / patch 精确改一处（均自动检查）
+              / read 读取自己的源码 / status 查执行状态（脚本在回合末统一执行）
+script_status 只读事实：最近一次脚本的执行结果（打印输出与报错）
 portfolio     只读事实：自己的持仓、现金、负债与财富
 market        只读事实：行情快照（现价、均线、动量、波动率、交易成本）
 round         只读事实：回合号、交易日历与两个窗口的额度
@@ -93,6 +93,10 @@ def build(runtime):
         def script_status(world, actor, include_source: bool = False, slot: str = "1"):
             return runtime.player_api(world, 'sandbox:programs').status(actor, include_source, slot)
 
+        def script_read(world, actor, slot: str = "1"):
+            status = runtime.player_api(world, 'sandbox:programs').status(actor, True, slot)
+            return {key: status[key] for key in ('slot', 'revision', 'enabled', 'source')}
+
         def script_run(world, actor, slot: str = "research", inputs: dict | None = None):
             return runtime.player_api(world, 'sandbox:programs').run(actor, slot, inputs)
 
@@ -111,42 +115,44 @@ def build(runtime):
                               '    api.call("stock:clock", "sleep", ticks=200)'),
             Action('script_patch', script_patch, owner='sandbox:programs', api=('patch',),
                    description='精确替换已保存源码中的一处内容（old 必须在源码里恰好出现一次），不执行'),
-            Action('script_check', script_check, owner='sandbox:programs', api=('check',), read_only=True,
-                   description='免费检查 Python 语法与沙盒规则，不执行、不消耗窗口额度；'
-                              '被拒写法会附一句改法提示，保存后先检查再结束回合'),
             Tool('script_status', script_status, owner='sandbox:programs', api=('status',), read_only=True, fact=True,
-                 description='本国脚本状态：上回合执行结果（打印输出、报错类型与行列）、源码版本与预算；'
+                 description='本国脚本状态：最近一次执行的回合及结果（打印输出、报错类型与行列）、源码版本与预算；'
                             'include_source=true 查看源码'),
+            Tool('script_read', script_read, owner='sandbox:programs', api=('status',), read_only=True,
+                 description='免费读取自己指定槽的完整当前源码和版本；slot 为 1～4 或 research，默认 1。'),
         )
         script_specs = (*script_specs, Action('script_run', script_run, owner='sandbox:programs', api=('run',),
-            description='行动时手动运行 research 研究槽（只读）。每次固定 1000 现金、每回合最多 3 次，不占共享算力池；不能下单或推进行情。'))
+            description='行动时手动运行 research 研究槽（只读）。每次固定 200 现金、每回合最多 3 次，不占共享算力池；不能下单或推进行情。'))
         umbrella = command_layer.action_tool(
             runtime, 'script',
-            '计算槽：write保存、patch修订、check免费语法检查（会附改法提示）、status查结果；slot为1～4或research。'
-            '自动交易槽普通源码每日一次；定义def on_tick():则按sleep间隔回调，state是独立持久JSON字典。'
+            '计算槽：write保存、patch修订（均自动检查并返回结果）、read免费读取自己当前源码、status查结果；slot为1～4或research。'
+            '自动交易槽仅在交易日执行，休市不执行；定义def on_tick():则按sleep间隔回调，state是独立持久JSON字典。'
             '沙盒Python子集：无f-string/lambda/set/try/class/import；排序用 def 具名函数作 key=，字符串用+拼接。'
             'api.call("stock:clock","sleep",ticks=N)只安排下次回调，回调应返回，不写while等待。'
             'run仅手动运行已解锁的research槽，用于分析和回测，只读不下单。'
             '交易日全体结束后沿20000共同tick自动运行，委托最早下一tick生效，成交立即可见。'
             '沙盒是Python子集：无try/except、class、import、with、lambda、f-string；'
             '内置函数与方法清单见规则「Python 策略与研究槽」，写之前先核对。',
-            (('write', script_specs[0]), ('patch', script_specs[1]), ('check', script_specs[2]),
-             ('status', script_specs[3]), ('run', script_specs[4])))
+            (('write', script_specs[0]), ('patch', script_specs[1]),
+             ('status', script_specs[2]), ('read', script_specs[3]), ('run', script_specs[4])))
         tools.append(umbrella)
         tools.extend(spec for spec in script_specs if isinstance(spec, Tool) and not isinstance(spec, Action))
         actions.extend(spec for spec in script_specs if isinstance(spec, Action))
+        # Keep the declared read-only API covered for engine consumers without
+        # exposing a separate model-facing manual check action.
+        actions.append(Action('script_check', script_check, owner='sandbox:programs', api=('check',), read_only=True))
         commands['script'] = {'write': 'script_write', 'patch': 'script_patch',
-                               'check': 'script_check', 'status': 'script_status', 'run': 'script_run'}
+                               'status': 'script_status', 'read': 'script_read', 'run': 'script_run'}
         receipts.update({
             'script_write': _write_receipt,
             'script_patch': _patch_receipt,
-            'script_check': _check_receipt,
             'script_status': _status_receipt,
+            'script_read': _read_receipt,
             'script_run': _run_receipt,
         })
         captions.update({name: (lambda args, actor, receipt, ctx, name=name: _CAPTIONS[name])
-                         for name in ('script_write', 'script_patch', 'script_check',
-                                      'script_status')})
+                         for name in ('script_write', 'script_patch',
+                                      'script_status', 'script_read')})
         captions['script_run'] = _run_caption
 
     # ── 只读事实 ────────────────────────────────────────────────────
@@ -309,8 +315,8 @@ def build(runtime):
 _CAPTIONS = {
     'script_write': '保存脚本',
     'script_patch': '修订脚本',
-    'script_check': '脚本检查',
     'script_status': '脚本状态',
+    'script_read': '读取脚本',
 }
 
 
@@ -322,37 +328,56 @@ def _money(value):
 
 def _write_receipt(args, receipt, actor, ctx):
     data = receipt.get('data') or {}
-    return f'脚本已保存（第 {data.get("revision", "?")} 版，{data.get("bytes", "?")} 字节）。'
+    return f'脚本已保存（第 {data.get("revision", "?")} 版，{data.get("bytes", "?")} 字节）。' + _check_receipt(args, {'data': data.get('check') or {}}, actor, ctx)
 
 
 def _patch_receipt(args, receipt, actor, ctx):
     data = receipt.get('data') or {}
-    return f'脚本已修订（第 {data.get("revision", "?")} 版）。'
+    return f'脚本已修订（第 {data.get("revision", "?")} 版）。' + _check_receipt(args, {'data': data.get('check') or {}}, actor, ctx)
 
 
 def _check_receipt(args, receipt, actor, ctx):
     data = receipt.get('data') or {}
+    source = (f'源码 {data["source_bytes"]}/{data["source_limit"]} 字节。'
+              if 'source_bytes' in data and 'source_limit' in data else '')
+    nodes = (f'语法树节点 {data["nodes"]}/{data["nodes_limit"]}。'
+             if 'nodes' in data and 'nodes_limit' in data else '')
     if data.get('valid'):
-        return '语法检查通过。'
+        return '语法检查通过。' + source + nodes
     error = data.get('error') or {}
     where = f'第 {error.get("line")} 行第 {error.get("column")} 列：' if error.get('line') else ''
-    return f'语法有问题：{where}{error.get("message")}'
+    return f'自动检查未通过：{where}{error.get("message")}。{source}{nodes}源码已保存，执行前请修订或调整算力档位。'
 
 
 def _status_receipt(args, receipt, actor, ctx):
     data = receipt.get('data') or {}
     result = data.get('result')
     if not result:
-        return '脚本还没跑过：脚本在回合末由引擎统一执行，结果下回合开局给你。'
-    lines = [f'上回合脚本：{result.get("status")}，步数 {result.get("steps")}，'
-             f'API 调用 {result.get("calls")}，动作 {result.get("actions")}。']
-    error = result.get('error')
-    if error:
-        where = f'第 {error.get("line")} 行第 {error.get("column")} 列：' if error.get('line') else ''
-        lines.append(f'报错 {error.get("type")}：{where}{error.get("message")}')
-    if result.get('output'):
-        lines.append('打印输出：\n' + result['output'])
+        lines = ['脚本还没跑过：交易日回合末由引擎统一执行，结果下回合开局给你。']
+    else:
+        lines = [f'最近一次脚本（第 {result.get("period")} 回合）：{result.get("status")}，步数 {result.get("steps")}，'
+                 f'API 调用 {result.get("calls")}，动作 {result.get("actions")}。']
+        error = result.get('error')
+        if error:
+            where = f'第 {error.get("line")} 行第 {error.get("column")} 列：' if error.get('line') else ''
+            lines.append(f'报错 {error.get("type")}：{where}{error.get("message")}')
+        if result.get('output'):
+            lines.append('打印输出：\n' + result['output'])
+    if 'source' in data:
+        lines.append(_source_text(data))
     return '\n'.join(lines)
+
+
+def _source_text(data):
+    slot, revision = data.get('slot', '1'), data.get('revision', 0)
+    source = data.get('source', '')
+    if not revision:
+        return f'槽 {slot} 尚未保存脚本（版本 0）。'
+    return f'槽 {slot} 当前源码（第 {revision} 版）：\n{source}'
+
+
+def _read_receipt(args, receipt, actor, ctx):
+    return _source_text(receipt.get('data') or {})
 
 
 def _run_caption(args, actor, receipt, ctx):

@@ -40,8 +40,9 @@ Windows 用 `start.ps1 --config mp_config.stock.offline.example.json`，也可�
 
 ## 自动交易与行动内研究
 
-`script` 支持 `write / patch / check / status / run`，`slot` 用字符串 `"1"`～`"4"` 或 `"research"`。
-普通源码每天执行一次；定义无参数 `on_tick()` 时，默认每 100 tick 回调。
+`script` 支持 `write / patch / read / status / run`，`slot` 用字符串 `"1"`～`"4"` 或 `"research"`。每次写入或修订都会自动检查，并在回执中报告错误及结构用量；检查失败的源码仍保存供修订，不能成功执行。
+用 `{"action":"read","slot":"1"}` 免费读取自己的当前完整源码和版本；省略 `slot` 默认读取槽 1，研究槽用 `"research"`。也可用 `status` 加 `include_source: true` 同时查看执行结果和源码；源码在尚未执行时同样可查。
+交易槽源码只在交易日执行；休市日不运行交易槽，仍可手动运行研究槽。定义无参数 `on_tick()` 时，默认每 100 tick 回调。
 `state` 是每槽独立、跨日持久的 JSON 字典（最多 64KB），成功回调提交；错误不会撤销已受理动作。
 
 ```python
@@ -69,7 +70,7 @@ def on_tick():
 {"action":"run","slot":"research","inputs":{"x":3}}
 ```
 
-研究槽每次 1000 现金、每回合最多 3 次；单次最多 100 万单位、1000 次 API，不占共享算力池。
+研究槽每次 200 现金、每回合最多 3 次；单次最多 100 万单位、1000 次 API，不占共享算力池。
 它只能读取已知行情、自己的账户及已购报告；不能下单、借贷、购买资源、发动谍报、嵌套运行脚本或推进行情。
 源码、结果、错误位置、每槽用量及私人 state 随完整回合存档。
 
@@ -82,7 +83,7 @@ def on_tick():
 lambda、set 与集合推导、生成器表达式、try/except、class、import、解包与海象运算符；
 方法仅限 get/items/keys/values/append/extend/pop/copy/count/index/sort/reverse 与字符串处理；
 内建仅限 abs/all/any/bool/dict/enumerate/float/int/len/list/max/min/print/range/reversed/
-round/sorted/str/sum/tuple/zip。`script(action=check)` 免费预检，被拒写法会得到改法提示。
+round/sorted/str/sum/tuple/zip。写入和修订时自动检查，被拒写法会得到改法提示。
 
 ```python
 def on_tick():
@@ -97,7 +98,7 @@ def on_tick():
 
 盘前简报自动附带：回合与日历、账户与持仓、行情（含每只股票的已公布消息和财报日程）、
 **上一交易日的执行回执**（委托各状态笔数、成交笔数、买卖股数与金额、手续费——
-用来核对策略是否按预期执行）、上回合脚本输出与报错、算力与谍报状态。
+用来核对策略是否按预期执行）、最近一次脚本输出与报错及其回合、算力与谍报状态。
 脚本报错带行号和改法提示；脚本里也可 `api.call('stock:market','day_summary')` 查询执行回执。
 
 可运行示例：[公开消息策略](examples/news_strategy.py)、[只读研究](examples/research.py)、[策略动物园](examples/strategy_zoo.py)。
@@ -109,13 +110,15 @@ def on_tick():
 
 | `compute(action=buy,kind=...)` | 内容 | 价格（每回合） |
 | --- | --- | --- |
-| `pool` | 增购一档 400 万单位 / 4000 次 API，最多 4 档 | 第 2/3/4 档 600 / 1200 / 2400 |
-| `slot` | 增购一个自动交易槽，最多 4 个 | 第 2/3/4 个 400 / 800 / 1600 |
+| `pool` | 增购一档 400 万单位 / 4000 次 API，最多 4 档 | 第 2/3/4 档 120 / 240 / 480 |
+| `slot` | 增购一个自动交易槽，最多 4 个 | 第 2/3/4 个 80 / 160 / 320 |
 
 购买立即生效、按整回合计费；`compute(action=release,kind=...)` 退租不退钱，资源用到收盘。
 回合边界把档位归零、用量清零，源码与已存 state 保留。
 
-**研究槽按次计费**，不需要购买：每次 `script(action=run,slot="research")` 固定 **1000 现金**，
+脚本结构限制随当前算力池档位增加：第 1/2/3/4 档语法树节点上限为 2048/4096/6144/8192，源码检查和执行上限为 16384/32768/49152/65536 字节；交易槽和研究槽都按此检查。写入或修订回执会报告实际字节数、节点数及各自上限。可保存至多 65536 字节的源码；次日若不重新购买算力池，上限恢复免费档，超限源码仍保留，执行前需要续买或精简。
+
+**研究槽按次计费**，不需要购买：每次 `script(action=run,slot="research")` 固定 **200 现金**，
 每回合最多 **3 次**；研究不占共享算力池，单次上限 100 万步 / 1000 次 API。
 研究只能读行情、账户与已购报告，不能下单、借贷或推进行情。
 费用从真实游戏现金扣，进入 `compute_expenses`；`compute_status` 返回档位、用量、剩余研究次数与各档价格。
@@ -207,6 +210,8 @@ api.call('stock:market', 'cancel', order_id=123)
 每行原子完整。配置 `"planning_workers": 1` 可退回严格串行；未设置时按人数并发。
 
 ## 看海（人类观战）
+
+完成最终清算后，可用 `python settlement.py --save 存档路径 --config 配置路径 --out 报告路径 --rounds 5` 生成按最终结算现金排名的股市结算厅报告。每位模型携带自己的回放、记忆和策略源码参与复盘；终局清算前不会虚构排名。用 `--table` 只查看离线成绩，`--no-chat` 不调用模型。
 
 模型盘前的规划动作（改脚本、租算力、买谍报、借贷、end_turn）照常逐条出现在终端与日志。
 交易日 20000 tick 的脚本执行不再逐笔汇报：下单受理、成交、清算回执只进完整审计

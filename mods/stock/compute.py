@@ -71,7 +71,7 @@ class ComputePools:
         return self.status(actor)
 
     def begin_research(self, actor):
-        """研究槽按次收费：每次固定 1000 现金，每回合有次数上限，不占共享算力池。"""
+        """研究槽按次收费：每次固定 200 现金，每回合有次数上限，不占共享算力池。"""
         row = self._row(actor)
         cap = self.parameters['ResearchRunsPerRound']
         if row['research_runs'] >= cap:

@@ -157,7 +157,10 @@ class Observer:
         remember=getattr(self.ui.console,'remember',None)
         if callable(remember):remember(self.host.player(actor).observe())
         for action,args,receipt in self.pending.pop(actor,[]):
-            full=self.ui.console.action(self.host.clock(),actor,action,args,receipt,self.names())
+            # Settlement receipts may be flushed after the clock advances.
+            period=receipt.get('period')
+            if type(period) is not int:period=self.host.clock()
+            full=self.ui.console.action(period,actor,action,args,receipt,self.names())
             to_journal(self.path,full)
             preview=getattr(self.ui.console,'preview',None)
             echo_line(preview(full,action=action) if callable(preview) else full)
