@@ -1,0 +1,67 @@
+{
+  "mods": "mods.stock.toml",
+  "seed": 2026111303,
+  "max_turns": 60,
+  "ctx_window": 500000,
+  "planning_workers": 1,
+  "ctx_compact_tokens": 8192,
+  "ctx_old_reasoning": "strip",
+  "nations": [
+    {
+      "id": "stock:alpha",
+      "name": "量化甲",
+      "client": "llm",
+      "model": "gemini-3.8-flash-high",
+      "provider": "anthropic",
+      "temperature": 0.3,
+      "max_tokens": 16384,
+      "max_steps": 28,
+      "api_ttft_timeout": 600,
+      "api_chunk_timeout": 180,
+      "api_retries": 80,
+      "api_retry_wait": 10
+    },
+    {
+      "id": "stock:beta",
+      "name": "量化乙",
+      "client": "llm",
+      "model": "gemini-3.8-flash-high",
+      "provider": "anthropic",
+      "temperature": 0.3,
+      "max_tokens": 16384,
+      "max_steps": 28,
+      "api_ttft_timeout": 600,
+      "api_chunk_timeout": 180,
+      "api_retries": 80,
+      "api_retry_wait": 10
+    },
+    {
+      "id": "stock:gamma",
+      "name": "量化丙",
+      "client": "llm",
+      "model": "gemini-3.8-flash-high",
+      "provider": "anthropic",
+      "temperature": 0.3,
+      "max_tokens": 16384,
+      "max_steps": 28,
+      "api_ttft_timeout": 600,
+      "api_chunk_timeout": 180,
+      "api_retries": 80,
+      "api_retry_wait": 10
+    },
+    {
+      "id": "stock:delta",
+      "name": "量化丁",
+      "client": "llm",
+      "model": "gemini-3.8-flash-high",
+      "provider": "anthropic",
+      "temperature": 0.3,
+      "max_tokens": 16384,
+      "max_steps": 28,
+      "api_ttft_timeout": 600,
+      "api_chunk_timeout": 180,
+      "api_retries": 80,
+      "api_retry_wait": 10
+    }
+  ]
+}

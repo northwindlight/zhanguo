@@ -1,0 +1,2628 @@
+{
+  "hydrogen": {
+    "save": "../stock-gemini-hydrogen-20261113/session.json",
+    "sha256": "2345b9fd75b08c468d6f076f5aad990d53160bf0793502398faadf236ba4595c",
+    "summary": {
+      "complete": true,
+      "saved_round": 60,
+      "completed_rounds": 59,
+      "average_cash": 107711.1,
+      "median_cash": 106209.99,
+      "total_cash": 430844.39,
+      "positive_players": 2,
+      "average_return_pct": 7.7111,
+      "average_drawdown_pct": 9.5487,
+      "compute_expenses": 50680.0,
+      "intelligence_expenses": 17500.0,
+      "interest_paid": 0.0,
+      "borrow_fees": 52.13,
+      "fills": 8625,
+      "turnover": 20614778.34,
+      "trading_fees": 20615.15,
+      "tool_actions": 1016,
+      "rejected_tool_actions": 17,
+      "script_edits": 361,
+      "failed_auto_checks": 40,
+      "research_runs": 22,
+      "research_failures": 7,
+      "trading_slot_runs": 255,
+      "trading_slot_failures": 39,
+      "out_tokens": 1033246,
+      "reason_tokens": 233676,
+      "hit": 241432505,
+      "miss": 15536910,
+      "wall": 7762.56
+    },
+    "players": [
+      {
+        "actor": "stock:alpha",
+        "name": "量化甲",
+        "final_cash": 115064.65,
+        "final_rank": 2,
+        "last_equity": 115069.99,
+        "return_pct": 15.0646,
+        "max_drawdown_pct": 7.7195,
+        "compute_expenses": 17160.0,
+        "intelligence_expenses": 10500.0,
+        "interest_paid": 0.0,
+        "borrow_fees": 1.09,
+        "fills": 2271,
+        "turnover": 6328318.53,
+        "trading_fees": 6327.93,
+        "tool_actions": 273,
+        "rejected_tool_actions": 6,
+        "script_edits": 101,
+        "failed_auto_checks": 32,
+        "research_runs": 16,
+        "research_failures": 5,
+        "trading_slot_runs": 43,
+        "trading_slot_failures": 8,
+        "final_script_bytes": 9019,
+        "final_script_revisions": 100,
+        "model_usage": {
+          "maxgap": 1690.0403792858124,
+          "out_tokens": 269705,
+          "reason_tokens": 60568,
+          "hit": 83649468,
+          "miss": 4658255,
+          "wall": 2360.276559829712,
+          "first": 1663.706456899643,
+          "stream": 627.2566528320312
+        },
+        "error_examples": [
+          {
+            "id": 6,
+            "round": 1,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 12,
+            "round": 1,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 13,
+            "round": 1,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 14,
+            "round": 1,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 1162,
+            "round": 6,
+            "action": "script",
+            "message": "计算量超过本次回调额度（1000000 单位）；compute(action=buy,kind=pool) 可把单次上限提到 100000 步（当前 1 档），或者把工作拆到多个交易槽并行（Computation budget exceeded）"
+          },
+          {
+            "id": 1164,
+            "round": 6,
+            "action": "script",
+            "message": "计算量超过本次回调额度（1000000 单位）；compute(action=buy,kind=pool) 可把单次上限提到 100000 步（当前 1 档），或者把工作拆到多个交易槽并行（Computation budget exceeded）"
+          },
+          {
+            "id": 1177,
+            "round": 7,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 1178,
+            "round": 7,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 1179,
+            "round": 7,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 1180,
+            "round": 7,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 1181,
+            "round": 7,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 1182,
+            "round": 7,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 1183,
+            "round": 7,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 1184,
+            "round": 7,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 1185,
+            "round": 7,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 2573,
+            "round": 13,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 2574,
+            "round": 13,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 2575,
+            "round": 13,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 2576,
+            "round": 13,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 2577,
+            "round": 13,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 2578,
+            "round": 13,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 2579,
+            "round": 13,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 2580,
+            "round": 13,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 3827,
+            "round": 20,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 3828,
+            "round": 20,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          }
+        ],
+        "top_tool_errors": [
+          [
+            "Syntax tree size limit exceeded",
+            32
+          ],
+          [
+            "计算量超过本次回调额度（1000000 单位）；compute(action=buy,kind=pool) 可把单次上限提到 100000 步（当前 1 档），或者把工作拆到多个交易槽并行（Computation budget exceeded）",
+            3
+          ],
+          [
+            "'type'",
+            1
+          ],
+          [
+            "本回合研究次数已用完（每回合 3 次），下回合再来",
+            1
+          ],
+          [
+            "old 必须恰好出现一次，new 必须是字符串",
+            1
+          ]
+        ],
+        "equity": [
+          {
+            "round": 1,
+            "wealth": 100862.61
+          },
+          {
+            "round": 2,
+            "wealth": 100256.29
+          },
+          {
+            "round": 3,
+            "wealth": 99612.67
+          },
+          {
+            "round": 4,
+            "wealth": 100875.3
+          },
+          {
+            "round": 5,
+            "wealth": 100767.66
+          },
+          {
+            "round": 6,
+            "wealth": 97167.66
+          },
+          {
+            "round": 7,
+            "wealth": 96767.66
+          },
+          {
+            "round": 8,
+            "wealth": 95226.07
+          },
+          {
+            "round": 9,
+            "wealth": 98637.54
+          },
+          {
+            "round": 10,
+            "wealth": 98981.94
+          },
+          {
+            "round": 11,
+            "wealth": 98604.63
+          },
+          {
+            "round": 12,
+            "wealth": 98086.86
+          },
+          {
+            "round": 13,
+            "wealth": 96886.86
+          },
+          {
+            "round": 14,
+            "wealth": 96886.86
+          },
+          {
+            "round": 15,
+            "wealth": 97321.2
+          },
+          {
+            "round": 16,
+            "wealth": 97895.89
+          },
+          {
+            "round": 17,
+            "wealth": 97319.26
+          },
+          {
+            "round": 18,
+            "wealth": 98845.13
+          },
+          {
+            "round": 19,
+            "wealth": 98587.83
+          },
+          {
+            "round": 20,
+            "wealth": 98387.83
+          },
+          {
+            "round": 21,
+            "wealth": 98387.83
+          },
+          {
+            "round": 22,
+            "wealth": 98125.71
+          },
+          {
+            "round": 23,
+            "wealth": 98035.56
+          },
+          {
+            "round": 24,
+            "wealth": 98879.69
+          },
+          {
+            "round": 25,
+            "wealth": 99618.03
+          },
+          {
+            "round": 26,
+            "wealth": 98519.38
+          },
+          {
+            "round": 27,
+            "wealth": 94419.38
+          },
+          {
+            "round": 28,
+            "wealth": 93819.38
+          },
+          {
+            "round": 29,
+            "wealth": 93088.23
+          },
+          {
+            "round": 30,
+            "wealth": 94127.49
+          },
+          {
+            "round": 31,
+            "wealth": 95535.52
+          },
+          {
+            "round": 32,
+            "wealth": 96637.07
+          },
+          {
+            "round": 33,
+            "wealth": 95355.83
+          },
+          {
+            "round": 34,
+            "wealth": 95155.83
+          },
+          {
+            "round": 35,
+            "wealth": 95155.83
+          },
+          {
+            "round": 36,
+            "wealth": 95279.29
+          },
+          {
+            "round": 37,
+            "wealth": 95676.51
+          },
+          {
+            "round": 38,
+            "wealth": 96527.31
+          },
+          {
+            "round": 39,
+            "wealth": 96738.43
+          },
+          {
+            "round": 40,
+            "wealth": 97678.62
+          },
+          {
+            "round": 41,
+            "wealth": 96678.62
+          },
+          {
+            "round": 42,
+            "wealth": 96678.62
+          },
+          {
+            "round": 43,
+            "wealth": 97391.96
+          },
+          {
+            "round": 44,
+            "wealth": 99346.88
+          },
+          {
+            "round": 45,
+            "wealth": 102837.18
+          },
+          {
+            "round": 46,
+            "wealth": 105171.77
+          },
+          {
+            "round": 47,
+            "wealth": 107587.51
+          },
+          {
+            "round": 48,
+            "wealth": 106587.51
+          },
+          {
+            "round": 49,
+            "wealth": 106587.51
+          },
+          {
+            "round": 50,
+            "wealth": 106257.81
+          },
+          {
+            "round": 51,
+            "wealth": 106098.13
+          },
+          {
+            "round": 52,
+            "wealth": 108159.23
+          },
+          {
+            "round": 53,
+            "wealth": 110136.66
+          },
+          {
+            "round": 54,
+            "wealth": 111034.14
+          },
+          {
+            "round": 55,
+            "wealth": 110034.14
+          },
+          {
+            "round": 56,
+            "wealth": 110034.14
+          },
+          {
+            "round": 57,
+            "wealth": 109894.36
+          },
+          {
+            "round": 58,
+            "wealth": 112080.08
+          },
+          {
+            "round": 59,
+            "wealth": 115069.99
+          }
+        ]
+      },
+      {
+        "actor": "stock:beta",
+        "name": "量化乙",
+        "final_cash": 92808.8,
+        "final_rank": 4,
+        "last_equity": 92808.8,
+        "return_pct": -7.1912,
+        "max_drawdown_pct": 12.0347,
+        "compute_expenses": 16560.0,
+        "intelligence_expenses": 3000.0,
+        "interest_paid": 0.0,
+        "borrow_fees": 16.5,
+        "fills": 1282,
+        "turnover": 3311380.48,
+        "trading_fees": 3311.64,
+        "tool_actions": 312,
+        "rejected_tool_actions": 5,
+        "script_edits": 121,
+        "failed_auto_checks": 5,
+        "research_runs": 0,
+        "research_failures": 0,
+        "trading_slot_runs": 82,
+        "trading_slot_failures": 11,
+        "final_script_bytes": 26062,
+        "final_script_revisions": 116,
+        "model_usage": {
+          "maxgap": 1414.0513761043549,
+          "out_tokens": 282112,
+          "reason_tokens": 61849,
+          "hit": 70673456,
+          "miss": 3529936,
+          "wall": 2196.3587551116943,
+          "first": 1377.2590775489807,
+          "stream": 751.923172712326
+        },
+        "error_examples": [
+          {
+            "id": 22,
+            "round": 1,
+            "action": "script",
+            "message": "old 必须恰好出现一次，new 必须是字符串"
+          },
+          {
+            "id": 507,
+            "round": 3,
+            "action": "script",
+            "message": "Unsupported attribute: remove。可用方法：get/items/keys/values/append/extend/pop/copy/count/index/sort/reverse/lower/upper/strip/split/join/startswith/endswith/replace"
+          },
+          {
+            "id": 508,
+            "round": 3,
+            "action": "script",
+            "message": "Unsupported attribute: remove。可用方法：get/items/keys/values/append/extend/pop/copy/count/index/sort/reverse/lower/upper/strip/split/join/startswith/endswith/replace"
+          },
+          {
+            "id": 1144,
+            "round": 6,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 1145,
+            "round": 6,
+            "action": "script",
+            "message": "该计算槽尚未启用，请先购买"
+          },
+          {
+            "id": 1189,
+            "round": 7,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 1190,
+            "round": 7,
+            "action": "script",
+            "message": "old 必须恰好出现一次，new 必须是字符串"
+          },
+          {
+            "id": 1191,
+            "round": 7,
+            "action": "script",
+            "message": "old 必须恰好出现一次，new 必须是字符串"
+          },
+          {
+            "id": 2586,
+            "round": 13,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 7569,
+            "round": 36,
+            "action": "script",
+            "message": "old 必须恰好出现一次，new 必须是字符串"
+          }
+        ],
+        "top_tool_errors": [
+          [
+            "old 必须恰好出现一次，new 必须是字符串",
+            4
+          ],
+          [
+            "Syntax tree size limit exceeded",
+            3
+          ],
+          [
+            "Unsupported attribute: remove。可用方法：get/items/keys/values/append/extend/pop/copy/count/index/sort/reverse/lower/upper/strip/split/join/startswith/endswith/replace",
+            2
+          ],
+          [
+            "该计算槽尚未启用，请先购买",
+            1
+          ]
+        ],
+        "equity": [
+          {
+            "round": 1,
+            "wealth": 100000.0
+          },
+          {
+            "round": 2,
+            "wealth": 98086.97
+          },
+          {
+            "round": 3,
+            "wealth": 97615.98
+          },
+          {
+            "round": 4,
+            "wealth": 98212.48
+          },
+          {
+            "round": 5,
+            "wealth": 98243.78
+          },
+          {
+            "round": 6,
+            "wealth": 98243.78
+          },
+          {
+            "round": 7,
+            "wealth": 97243.78
+          },
+          {
+            "round": 8,
+            "wealth": 95559.93
+          },
+          {
+            "round": 9,
+            "wealth": 96389.3
+          },
+          {
+            "round": 10,
+            "wealth": 96073.34
+          },
+          {
+            "round": 11,
+            "wealth": 96722.43
+          },
+          {
+            "round": 12,
+            "wealth": 96392.81
+          },
+          {
+            "round": 13,
+            "wealth": 96392.81
+          },
+          {
+            "round": 14,
+            "wealth": 96392.81
+          },
+          {
+            "round": 15,
+            "wealth": 96066.49
+          },
+          {
+            "round": 16,
+            "wealth": 96331.49
+          },
+          {
+            "round": 17,
+            "wealth": 96946.4
+          },
+          {
+            "round": 18,
+            "wealth": 99696.37
+          },
+          {
+            "round": 19,
+            "wealth": 99626.03
+          },
+          {
+            "round": 20,
+            "wealth": 99626.03
+          },
+          {
+            "round": 21,
+            "wealth": 98626.03
+          },
+          {
+            "round": 22,
+            "wealth": 98120.62
+          },
+          {
+            "round": 23,
+            "wealth": 98416.97
+          },
+          {
+            "round": 24,
+            "wealth": 99614.22
+          },
+          {
+            "round": 25,
+            "wealth": 101449.13
+          },
+          {
+            "round": 26,
+            "wealth": 101753.46
+          },
+          {
+            "round": 27,
+            "wealth": 101753.46
+          },
+          {
+            "round": 28,
+            "wealth": 101753.46
+          },
+          {
+            "round": 29,
+            "wealth": 102120.95
+          },
+          {
+            "round": 30,
+            "wealth": 102612.89
+          },
+          {
+            "round": 31,
+            "wealth": 99825.36
+          },
+          {
+            "round": 32,
+            "wealth": 100793.15
+          },
+          {
+            "round": 33,
+            "wealth": 101139.0
+          },
+          {
+            "round": 34,
+            "wealth": 101137.02
+          },
+          {
+            "round": 35,
+            "wealth": 101135.04
+          },
+          {
+            "round": 36,
+            "wealth": 100516.36
+          },
+          {
+            "round": 37,
+            "wealth": 100948.9
+          },
+          {
+            "round": 38,
+            "wealth": 103068.99
+          },
+          {
+            "round": 39,
+            "wealth": 104983.02
+          },
+          {
+            "round": 40,
+            "wealth": 105506.13
+          },
+          {
+            "round": 41,
+            "wealth": 105506.13
+          },
+          {
+            "round": 42,
+            "wealth": 105506.13
+          },
+          {
+            "round": 43,
+            "wealth": 104644.56
+          },
+          {
+            "round": 44,
+            "wealth": 102183.39
+          },
+          {
+            "round": 45,
+            "wealth": 100898.41
+          },
+          {
+            "round": 46,
+            "wealth": 100540.75
+          },
+          {
+            "round": 47,
+            "wealth": 100662.17
+          },
+          {
+            "round": 48,
+            "wealth": 100662.17
+          },
+          {
+            "round": 49,
+            "wealth": 100662.17
+          },
+          {
+            "round": 50,
+            "wealth": 98558.71
+          },
+          {
+            "round": 51,
+            "wealth": 94447.4
+          },
+          {
+            "round": 52,
+            "wealth": 94215.06
+          },
+          {
+            "round": 53,
+            "wealth": 94769.53
+          },
+          {
+            "round": 54,
+            "wealth": 93944.08
+          },
+          {
+            "round": 55,
+            "wealth": 93944.08
+          },
+          {
+            "round": 56,
+            "wealth": 93944.08
+          },
+          {
+            "round": 57,
+            "wealth": 95782.73
+          },
+          {
+            "round": 58,
+            "wealth": 93911.89
+          },
+          {
+            "round": 59,
+            "wealth": 92808.8
+          }
+        ]
+      },
+      {
+        "actor": "stock:gamma",
+        "name": "量化丙",
+        "final_cash": 97355.33,
+        "final_rank": 3,
+        "last_equity": 97381.9,
+        "return_pct": -2.6447,
+        "max_drawdown_pct": 14.4341,
+        "compute_expenses": 8640.0,
+        "intelligence_expenses": 4000.0,
+        "interest_paid": 0.0,
+        "borrow_fees": 2.3499999999999996,
+        "fills": 1547,
+        "turnover": 3418613.67,
+        "trading_fees": 3418.76,
+        "tool_actions": 192,
+        "rejected_tool_actions": 3,
+        "script_edits": 53,
+        "failed_auto_checks": 2,
+        "research_runs": 6,
+        "research_failures": 2,
+        "trading_slot_runs": 49,
+        "trading_slot_failures": 12,
+        "final_script_bytes": 10760,
+        "final_script_revisions": 52,
+        "model_usage": {
+          "maxgap": 888.8906764984131,
+          "out_tokens": 260321,
+          "reason_tokens": 70126,
+          "hit": 38297219,
+          "miss": 3742489,
+          "wall": 1724.407846212387,
+          "first": 867.7148025035858,
+          "stream": 780.0856957435608
+        },
+        "error_examples": [
+          {
+            "id": 1150,
+            "round": 6,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 2590,
+            "round": 13,
+            "action": "script",
+            "message": "计算量超过本次回调额度（1000000 单位）；compute(action=buy,kind=pool) 可把单次上限提到 100000 步（当前 1 档），或者把工作拆到多个交易槽并行（Computation budget exceeded）"
+          },
+          {
+            "id": 2592,
+            "round": 13,
+            "action": "script",
+            "message": "计算量超过本次回调额度（1000000 单位）；compute(action=buy,kind=pool) 可把单次上限提到 100000 步（当前 1 档），或者把工作拆到多个交易槽并行（Computation budget exceeded）"
+          },
+          {
+            "id": 2593,
+            "round": 13,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 3833,
+            "round": 20,
+            "action": "script",
+            "message": "old 必须恰好出现一次，new 必须是字符串"
+          }
+        ],
+        "top_tool_errors": [
+          [
+            "Syntax tree size limit exceeded",
+            2
+          ],
+          [
+            "计算量超过本次回调额度（1000000 单位）；compute(action=buy,kind=pool) 可把单次上限提到 100000 步（当前 1 档），或者把工作拆到多个交易槽并行（Computation budget exceeded）",
+            2
+          ],
+          [
+            "old 必须恰好出现一次，new 必须是字符串",
+            1
+          ]
+        ],
+        "equity": [
+          {
+            "round": 1,
+            "wealth": 100665.26
+          },
+          {
+            "round": 2,
+            "wealth": 99187.75
+          },
+          {
+            "round": 3,
+            "wealth": 99137.41
+          },
+          {
+            "round": 4,
+            "wealth": 99417.52
+          },
+          {
+            "round": 5,
+            "wealth": 99386.81
+          },
+          {
+            "round": 6,
+            "wealth": 98386.81
+          },
+          {
+            "round": 7,
+            "wealth": 98386.81
+          },
+          {
+            "round": 8,
+            "wealth": 97589.62
+          },
+          {
+            "round": 9,
+            "wealth": 97884.79
+          },
+          {
+            "round": 10,
+            "wealth": 98152.96
+          },
+          {
+            "round": 11,
+            "wealth": 99154.89
+          },
+          {
+            "round": 12,
+            "wealth": 97860.79
+          },
+          {
+            "round": 13,
+            "wealth": 96460.79
+          },
+          {
+            "round": 14,
+            "wealth": 96460.79
+          },
+          {
+            "round": 15,
+            "wealth": 95925.94
+          },
+          {
+            "round": 16,
+            "wealth": 96231.15
+          },
+          {
+            "round": 17,
+            "wealth": 95574.0
+          },
+          {
+            "round": 18,
+            "wealth": 96263.8
+          },
+          {
+            "round": 19,
+            "wealth": 93813.58
+          },
+          {
+            "round": 20,
+            "wealth": 93813.58
+          },
+          {
+            "round": 21,
+            "wealth": 93813.58
+          },
+          {
+            "round": 22,
+            "wealth": 93868.86
+          },
+          {
+            "round": 23,
+            "wealth": 94225.64
+          },
+          {
+            "round": 24,
+            "wealth": 95376.82
+          },
+          {
+            "round": 25,
+            "wealth": 95283.76
+          },
+          {
+            "round": 26,
+            "wealth": 94268.41
+          },
+          {
+            "round": 27,
+            "wealth": 93668.41
+          },
+          {
+            "round": 28,
+            "wealth": 93668.41
+          },
+          {
+            "round": 29,
+            "wealth": 95207.6
+          },
+          {
+            "round": 30,
+            "wealth": 97236.68
+          },
+          {
+            "round": 31,
+            "wealth": 94630.62
+          },
+          {
+            "round": 32,
+            "wealth": 97204.56
+          },
+          {
+            "round": 33,
+            "wealth": 98980.47
+          },
+          {
+            "round": 34,
+            "wealth": 97980.47
+          },
+          {
+            "round": 35,
+            "wealth": 97980.47
+          },
+          {
+            "round": 36,
+            "wealth": 99017.38
+          },
+          {
+            "round": 37,
+            "wealth": 99482.79
+          },
+          {
+            "round": 38,
+            "wealth": 100885.36
+          },
+          {
+            "round": 39,
+            "wealth": 102675.97
+          },
+          {
+            "round": 40,
+            "wealth": 105684.03
+          },
+          {
+            "round": 41,
+            "wealth": 104684.03
+          },
+          {
+            "round": 42,
+            "wealth": 104684.03
+          },
+          {
+            "round": 43,
+            "wealth": 105601.61
+          },
+          {
+            "round": 44,
+            "wealth": 111115.38
+          },
+          {
+            "round": 45,
+            "wealth": 108765.72
+          },
+          {
+            "round": 46,
+            "wealth": 113203.53
+          },
+          {
+            "round": 47,
+            "wealth": 107047.03
+          },
+          {
+            "round": 48,
+            "wealth": 107047.03
+          },
+          {
+            "round": 49,
+            "wealth": 107047.03
+          },
+          {
+            "round": 50,
+            "wealth": 107353.79
+          },
+          {
+            "round": 51,
+            "wealth": 100017.23
+          },
+          {
+            "round": 52,
+            "wealth": 100198.34
+          },
+          {
+            "round": 53,
+            "wealth": 97799.87
+          },
+          {
+            "round": 54,
+            "wealth": 96863.58
+          },
+          {
+            "round": 55,
+            "wealth": 96863.58
+          },
+          {
+            "round": 56,
+            "wealth": 96863.58
+          },
+          {
+            "round": 57,
+            "wealth": 98818.69
+          },
+          {
+            "round": 58,
+            "wealth": 97455.93
+          },
+          {
+            "round": 59,
+            "wealth": 97381.9
+          }
+        ]
+      },
+      {
+        "actor": "stock:delta",
+        "name": "量化丁",
+        "final_cash": 125615.61,
+        "final_rank": 1,
+        "last_equity": 125615.61,
+        "return_pct": 25.6156,
+        "max_drawdown_pct": 4.0064,
+        "compute_expenses": 8320.0,
+        "intelligence_expenses": 0.0,
+        "interest_paid": 0.0,
+        "borrow_fees": 32.19,
+        "fills": 3525,
+        "turnover": 7556465.66,
+        "trading_fees": 7556.82,
+        "tool_actions": 239,
+        "rejected_tool_actions": 3,
+        "script_edits": 86,
+        "failed_auto_checks": 1,
+        "research_runs": 0,
+        "research_failures": 0,
+        "trading_slot_runs": 81,
+        "trading_slot_failures": 8,
+        "final_script_bytes": 28515,
+        "final_script_revisions": 83,
+        "model_usage": {
+          "maxgap": 1009.9464917182922,
+          "out_tokens": 221108,
+          "reason_tokens": 41133,
+          "hit": 48812362,
+          "miss": 3606230,
+          "wall": 1481.516470193863,
+          "first": 989.7675492763519,
+          "stream": 436.374942779541
+        },
+        "error_examples": [
+          {
+            "id": 1152,
+            "round": 6,
+            "action": "script",
+            "message": "Syntax tree size limit exceeded"
+          },
+          {
+            "id": 1153,
+            "round": 6,
+            "action": "script",
+            "message": "该计算槽尚未启用，请先购买"
+          },
+          {
+            "id": 6270,
+            "round": 31,
+            "action": "script",
+            "message": "old 必须恰好出现一次，new 必须是字符串"
+          },
+          {
+            "id": 6271,
+            "round": 31,
+            "action": "script",
+            "message": "old 必须恰好出现一次，new 必须是字符串"
+          }
+        ],
+        "top_tool_errors": [
+          [
+            "old 必须恰好出现一次，new 必须是字符串",
+            2
+          ],
+          [
+            "Syntax tree size limit exceeded",
+            1
+          ],
+          [
+            "该计算槽尚未启用，请先购买",
+            1
+          ]
+        ],
+        "equity": [
+          {
+            "round": 1,
+            "wealth": 100228.53
+          },
+          {
+            "round": 2,
+            "wealth": 100034.23
+          },
+          {
+            "round": 3,
+            "wealth": 99436.91
+          },
+          {
+            "round": 4,
+            "wealth": 100482.14
+          },
+          {
+            "round": 5,
+            "wealth": 100397.43
+          },
+          {
+            "round": 6,
+            "wealth": 100393.77
+          },
+          {
+            "round": 7,
+            "wealth": 100390.11
+          },
+          {
+            "round": 8,
+            "wealth": 99816.06
+          },
+          {
+            "round": 9,
+            "wealth": 101106.76
+          },
+          {
+            "round": 10,
+            "wealth": 102336.63
+          },
+          {
+            "round": 11,
+            "wealth": 103928.64
+          },
+          {
+            "round": 12,
+            "wealth": 104252.72
+          },
+          {
+            "round": 13,
+            "wealth": 104252.72
+          },
+          {
+            "round": 14,
+            "wealth": 104252.72
+          },
+          {
+            "round": 15,
+            "wealth": 106533.78
+          },
+          {
+            "round": 16,
+            "wealth": 107213.3
+          },
+          {
+            "round": 17,
+            "wealth": 107775.51
+          },
+          {
+            "round": 18,
+            "wealth": 108929.18
+          },
+          {
+            "round": 19,
+            "wealth": 109365.76
+          },
+          {
+            "round": 20,
+            "wealth": 109364.81
+          },
+          {
+            "round": 21,
+            "wealth": 109363.86
+          },
+          {
+            "round": 22,
+            "wealth": 109461.49
+          },
+          {
+            "round": 23,
+            "wealth": 111029.23
+          },
+          {
+            "round": 24,
+            "wealth": 112276.82
+          },
+          {
+            "round": 25,
+            "wealth": 113944.62
+          },
+          {
+            "round": 26,
+            "wealth": 113853.82
+          },
+          {
+            "round": 27,
+            "wealth": 113853.82
+          },
+          {
+            "round": 28,
+            "wealth": 113853.82
+          },
+          {
+            "round": 29,
+            "wealth": 115475.58
+          },
+          {
+            "round": 30,
+            "wealth": 117331.75
+          },
+          {
+            "round": 31,
+            "wealth": 117570.91
+          },
+          {
+            "round": 32,
+            "wealth": 118550.97
+          },
+          {
+            "round": 33,
+            "wealth": 118475.82
+          },
+          {
+            "round": 34,
+            "wealth": 118471.85
+          },
+          {
+            "round": 35,
+            "wealth": 118467.88
+          },
+          {
+            "round": 36,
+            "wealth": 113831.26
+          },
+          {
+            "round": 37,
+            "wealth": 113801.3
+          },
+          {
+            "round": 38,
+            "wealth": 114132.69
+          },
+          {
+            "round": 39,
+            "wealth": 114180.12
+          },
+          {
+            "round": 40,
+            "wealth": 114448.91
+          },
+          {
+            "round": 41,
+            "wealth": 114448.91
+          },
+          {
+            "round": 42,
+            "wealth": 114448.91
+          },
+          {
+            "round": 43,
+            "wealth": 115987.04
+          },
+          {
+            "round": 44,
+            "wealth": 117670.26
+          },
+          {
+            "round": 45,
+            "wealth": 119146.26
+          },
+          {
+            "round": 46,
+            "wealth": 120366.64
+          },
+          {
+            "round": 47,
+            "wealth": 121408.87
+          },
+          {
+            "round": 48,
+            "wealth": 121408.87
+          },
+          {
+            "round": 49,
+            "wealth": 121408.87
+          },
+          {
+            "round": 50,
+            "wealth": 121814.05
+          },
+          {
+            "round": 51,
+            "wealth": 121333.33
+          },
+          {
+            "round": 52,
+            "wealth": 124088.76
+          },
+          {
+            "round": 53,
+            "wealth": 124822.32
+          },
+          {
+            "round": 54,
+            "wealth": 124502.1
+          },
+          {
+            "round": 55,
+            "wealth": 124502.1
+          },
+          {
+            "round": 56,
+            "wealth": 124502.1
+          },
+          {
+            "round": 57,
+            "wealth": 126260.33
+          },
+          {
+            "round": 58,
+            "wealth": 126084.32
+          },
+          {
+            "round": 59,
+            "wealth": 125615.61
+          }
+        ]
+      }
+    ]
+  },
+  "flash": {
+    "save": "session.json",
+    "sha256": "04e6d461c6c49b4c6629e1cae93ad1af42f1c9bf67bec373aad634bde3e862f0",
+    "summary": {
+      "complete": true,
+      "saved_round": 60,
+      "completed_rounds": 59,
+      "average_cash": 76463.24,
+      "median_cash": 77314.93,
+      "total_cash": 305852.97,
+      "positive_players": 0,
+      "average_return_pct": -23.5368,
+      "average_drawdown_pct": 23.5368,
+      "compute_expenses": 69560.0,
+      "intelligence_expenses": 7000.0,
+      "interest_paid": 0.0,
+      "borrow_fees": 0.0,
+      "fills": 1796,
+      "turnover": 3965904.9,
+      "trading_fees": 3965.77,
+      "tool_actions": 944,
+      "rejected_tool_actions": 0,
+      "script_edits": 164,
+      "failed_auto_checks": 1,
+      "research_runs": 22,
+      "research_failures": 0,
+      "trading_slot_runs": 172,
+      "trading_slot_failures": 25,
+      "out_tokens": 1140319,
+      "reason_tokens": 206493,
+      "hit": 283202597,
+      "miss": 15919371,
+      "wall": 11440.98
+    },
+    "players": [
+      {
+        "actor": "stock:alpha",
+        "name": "量化甲",
+        "final_cash": 82070.03,
+        "final_rank": 2,
+        "last_equity": 82070.03,
+        "return_pct": -17.93,
+        "max_drawdown_pct": 17.93,
+        "compute_expenses": 12280.0,
+        "intelligence_expenses": 0.0,
+        "interest_paid": 0.0,
+        "borrow_fees": 0.0,
+        "fills": 650,
+        "turnover": 1582404.67,
+        "trading_fees": 1582.34,
+        "tool_actions": 201,
+        "rejected_tool_actions": 0,
+        "script_edits": 22,
+        "failed_auto_checks": 0,
+        "research_runs": 5,
+        "research_failures": 0,
+        "trading_slot_runs": 43,
+        "trading_slot_failures": 7,
+        "final_script_bytes": 594,
+        "final_script_revisions": 22,
+        "model_usage": {
+          "maxgap": 1633.2977685928345,
+          "out_tokens": 231676,
+          "reason_tokens": 50543,
+          "hit": 60661943,
+          "miss": 4130155,
+          "wall": 2502.04469704628,
+          "first": 1622.4745657444,
+          "stream": 795.1756784915924
+        },
+        "error_examples": [],
+        "top_tool_errors": [],
+        "equity": [
+          {
+            "round": 1,
+            "wealth": 99400.0
+          },
+          {
+            "round": 2,
+            "wealth": 99400.0
+          },
+          {
+            "round": 3,
+            "wealth": 99782.93
+          },
+          {
+            "round": 4,
+            "wealth": 99240.04
+          },
+          {
+            "round": 5,
+            "wealth": 98916.78
+          },
+          {
+            "round": 6,
+            "wealth": 98916.78
+          },
+          {
+            "round": 7,
+            "wealth": 98916.78
+          },
+          {
+            "round": 8,
+            "wealth": 98375.53
+          },
+          {
+            "round": 9,
+            "wealth": 98294.02
+          },
+          {
+            "round": 10,
+            "wealth": 97934.02
+          },
+          {
+            "round": 11,
+            "wealth": 98374.37
+          },
+          {
+            "round": 12,
+            "wealth": 97842.34
+          },
+          {
+            "round": 13,
+            "wealth": 97842.34
+          },
+          {
+            "round": 14,
+            "wealth": 97842.34
+          },
+          {
+            "round": 15,
+            "wealth": 97612.46
+          },
+          {
+            "round": 16,
+            "wealth": 97294.95
+          },
+          {
+            "round": 17,
+            "wealth": 97174.95
+          },
+          {
+            "round": 18,
+            "wealth": 96887.88
+          },
+          {
+            "round": 19,
+            "wealth": 96507.18
+          },
+          {
+            "round": 20,
+            "wealth": 96507.18
+          },
+          {
+            "round": 21,
+            "wealth": 96507.18
+          },
+          {
+            "round": 22,
+            "wealth": 96387.18
+          },
+          {
+            "round": 23,
+            "wealth": 96267.18
+          },
+          {
+            "round": 24,
+            "wealth": 95747.18
+          },
+          {
+            "round": 25,
+            "wealth": 95316.64
+          },
+          {
+            "round": 26,
+            "wealth": 95196.64
+          },
+          {
+            "round": 27,
+            "wealth": 95196.64
+          },
+          {
+            "round": 28,
+            "wealth": 95196.64
+          },
+          {
+            "round": 29,
+            "wealth": 94885.58
+          },
+          {
+            "round": 30,
+            "wealth": 93974.21
+          },
+          {
+            "round": 31,
+            "wealth": 92815.22
+          },
+          {
+            "round": 32,
+            "wealth": 93155.62
+          },
+          {
+            "round": 33,
+            "wealth": 92986.5
+          },
+          {
+            "round": 34,
+            "wealth": 92986.5
+          },
+          {
+            "round": 35,
+            "wealth": 92986.5
+          },
+          {
+            "round": 36,
+            "wealth": 92019.67
+          },
+          {
+            "round": 37,
+            "wealth": 90477.5
+          },
+          {
+            "round": 38,
+            "wealth": 90189.1
+          },
+          {
+            "round": 39,
+            "wealth": 88889.47
+          },
+          {
+            "round": 40,
+            "wealth": 90308.78
+          },
+          {
+            "round": 41,
+            "wealth": 90308.78
+          },
+          {
+            "round": 42,
+            "wealth": 90308.78
+          },
+          {
+            "round": 43,
+            "wealth": 89508.63
+          },
+          {
+            "round": 44,
+            "wealth": 88338.06
+          },
+          {
+            "round": 45,
+            "wealth": 86523.36
+          },
+          {
+            "round": 46,
+            "wealth": 86599.89
+          },
+          {
+            "round": 47,
+            "wealth": 85691.2
+          },
+          {
+            "round": 48,
+            "wealth": 85691.2
+          },
+          {
+            "round": 49,
+            "wealth": 85691.2
+          },
+          {
+            "round": 50,
+            "wealth": 84544.77
+          },
+          {
+            "round": 51,
+            "wealth": 82795.28
+          },
+          {
+            "round": 52,
+            "wealth": 83136.67
+          },
+          {
+            "round": 53,
+            "wealth": 83268.43
+          },
+          {
+            "round": 54,
+            "wealth": 83335.71
+          },
+          {
+            "round": 55,
+            "wealth": 83335.71
+          },
+          {
+            "round": 56,
+            "wealth": 83335.71
+          },
+          {
+            "round": 57,
+            "wealth": 83711.76
+          },
+          {
+            "round": 58,
+            "wealth": 82070.03
+          },
+          {
+            "round": 59,
+            "wealth": 82070.03
+          }
+        ]
+      },
+      {
+        "actor": "stock:beta",
+        "name": "量化乙",
+        "final_cash": 83890.71,
+        "final_rank": 1,
+        "last_equity": 83890.71,
+        "return_pct": -16.1093,
+        "max_drawdown_pct": 16.1093,
+        "compute_expenses": 16640.0,
+        "intelligence_expenses": 0.0,
+        "interest_paid": 0.0,
+        "borrow_fees": 0.0,
+        "fills": 218,
+        "turnover": 530396.36,
+        "trading_fees": 530.39,
+        "tool_actions": 221,
+        "rejected_tool_actions": 0,
+        "script_edits": 45,
+        "failed_auto_checks": 0,
+        "research_runs": 1,
+        "research_failures": 0,
+        "trading_slot_runs": 43,
+        "trading_slot_failures": 8,
+        "final_script_bytes": 1223,
+        "final_script_revisions": 45,
+        "model_usage": {
+          "maxgap": 2155.4113550186157,
+          "out_tokens": 278590,
+          "reason_tokens": 42678,
+          "hit": 65619495,
+          "miss": 3836192,
+          "wall": 2781.6237716674805,
+          "first": 2128.8683483600616,
+          "stream": 565.4267106056213
+        },
+        "error_examples": [],
+        "top_tool_errors": [],
+        "equity": [
+          {
+            "round": 1,
+            "wealth": 99800.0
+          },
+          {
+            "round": 2,
+            "wealth": 99790.94
+          },
+          {
+            "round": 3,
+            "wealth": 99288.96
+          },
+          {
+            "round": 4,
+            "wealth": 99123.17
+          },
+          {
+            "round": 5,
+            "wealth": 98916.64
+          },
+          {
+            "round": 6,
+            "wealth": 98916.64
+          },
+          {
+            "round": 7,
+            "wealth": 98916.64
+          },
+          {
+            "round": 8,
+            "wealth": 98175.01
+          },
+          {
+            "round": 9,
+            "wealth": 98189.42
+          },
+          {
+            "round": 10,
+            "wealth": 97393.28
+          },
+          {
+            "round": 11,
+            "wealth": 97423.98
+          },
+          {
+            "round": 12,
+            "wealth": 96817.43
+          },
+          {
+            "round": 13,
+            "wealth": 96817.43
+          },
+          {
+            "round": 14,
+            "wealth": 96817.43
+          },
+          {
+            "round": 15,
+            "wealth": 96719.47
+          },
+          {
+            "round": 16,
+            "wealth": 95658.71
+          },
+          {
+            "round": 17,
+            "wealth": 95417.23
+          },
+          {
+            "round": 18,
+            "wealth": 95421.01
+          },
+          {
+            "round": 19,
+            "wealth": 95101.78
+          },
+          {
+            "round": 20,
+            "wealth": 95101.78
+          },
+          {
+            "round": 21,
+            "wealth": 95101.78
+          },
+          {
+            "round": 22,
+            "wealth": 94741.78
+          },
+          {
+            "round": 23,
+            "wealth": 94381.78
+          },
+          {
+            "round": 24,
+            "wealth": 94021.78
+          },
+          {
+            "round": 25,
+            "wealth": 93131.3
+          },
+          {
+            "round": 26,
+            "wealth": 92771.3
+          },
+          {
+            "round": 27,
+            "wealth": 92771.3
+          },
+          {
+            "round": 28,
+            "wealth": 92771.3
+          },
+          {
+            "round": 29,
+            "wealth": 92225.21
+          },
+          {
+            "round": 30,
+            "wealth": 91674.67
+          },
+          {
+            "round": 31,
+            "wealth": 91314.67
+          },
+          {
+            "round": 32,
+            "wealth": 90954.67
+          },
+          {
+            "round": 33,
+            "wealth": 90714.13
+          },
+          {
+            "round": 34,
+            "wealth": 90714.13
+          },
+          {
+            "round": 35,
+            "wealth": 90714.13
+          },
+          {
+            "round": 36,
+            "wealth": 90387.1
+          },
+          {
+            "round": 37,
+            "wealth": 90045.58
+          },
+          {
+            "round": 38,
+            "wealth": 89431.73
+          },
+          {
+            "round": 39,
+            "wealth": 89071.11
+          },
+          {
+            "round": 40,
+            "wealth": 88711.11
+          },
+          {
+            "round": 41,
+            "wealth": 88711.11
+          },
+          {
+            "round": 42,
+            "wealth": 88711.11
+          },
+          {
+            "round": 43,
+            "wealth": 88351.11
+          },
+          {
+            "round": 44,
+            "wealth": 87288.81
+          },
+          {
+            "round": 45,
+            "wealth": 86928.81
+          },
+          {
+            "round": 46,
+            "wealth": 86568.81
+          },
+          {
+            "round": 47,
+            "wealth": 86208.81
+          },
+          {
+            "round": 48,
+            "wealth": 86208.81
+          },
+          {
+            "round": 49,
+            "wealth": 86208.81
+          },
+          {
+            "round": 50,
+            "wealth": 85766.83
+          },
+          {
+            "round": 51,
+            "wealth": 85406.83
+          },
+          {
+            "round": 52,
+            "wealth": 85046.83
+          },
+          {
+            "round": 53,
+            "wealth": 85184.51
+          },
+          {
+            "round": 54,
+            "wealth": 84759.11
+          },
+          {
+            "round": 55,
+            "wealth": 84759.11
+          },
+          {
+            "round": 56,
+            "wealth": 84759.11
+          },
+          {
+            "round": 57,
+            "wealth": 84399.11
+          },
+          {
+            "round": 58,
+            "wealth": 83890.71
+          },
+          {
+            "round": 59,
+            "wealth": 83890.71
+          }
+        ]
+      },
+      {
+        "actor": "stock:gamma",
+        "name": "量化丙",
+        "final_cash": 72559.83,
+        "final_rank": 3,
+        "last_equity": 72559.83,
+        "return_pct": -27.4402,
+        "max_drawdown_pct": 27.4402,
+        "compute_expenses": 10720.0,
+        "intelligence_expenses": 7000.0,
+        "interest_paid": 0.0,
+        "borrow_fees": 0.0,
+        "fills": 410,
+        "turnover": 966945.98,
+        "trading_fees": 966.95,
+        "tool_actions": 219,
+        "rejected_tool_actions": 0,
+        "script_edits": 45,
+        "failed_auto_checks": 0,
+        "research_runs": 5,
+        "research_failures": 0,
+        "trading_slot_runs": 43,
+        "trading_slot_failures": 4,
+        "final_script_bytes": 4199,
+        "final_script_revisions": 45,
+        "model_usage": {
+          "maxgap": 1685.2797577381134,
+          "out_tokens": 317543,
+          "reason_tokens": 62500,
+          "hit": 59038182,
+          "miss": 4134883,
+          "wall": 2827.675187587738,
+          "first": 1640.494856595993,
+          "stream": 1111.213336467743
+        },
+        "error_examples": [],
+        "top_tool_errors": [],
+        "equity": [
+          {
+            "round": 1,
+            "wealth": 99800.0
+          },
+          {
+            "round": 2,
+            "wealth": 92704.77
+          },
+          {
+            "round": 3,
+            "wealth": 93374.24
+          },
+          {
+            "round": 4,
+            "wealth": 94904.44
+          },
+          {
+            "round": 5,
+            "wealth": 94119.17
+          },
+          {
+            "round": 6,
+            "wealth": 93719.17
+          },
+          {
+            "round": 7,
+            "wealth": 93719.17
+          },
+          {
+            "round": 8,
+            "wealth": 92744.46
+          },
+          {
+            "round": 9,
+            "wealth": 92989.81
+          },
+          {
+            "round": 10,
+            "wealth": 93213.9
+          },
+          {
+            "round": 11,
+            "wealth": 92975.57
+          },
+          {
+            "round": 12,
+            "wealth": 91747.03
+          },
+          {
+            "round": 13,
+            "wealth": 90747.03
+          },
+          {
+            "round": 14,
+            "wealth": 90747.03
+          },
+          {
+            "round": 15,
+            "wealth": 91083.42
+          },
+          {
+            "round": 16,
+            "wealth": 91717.17
+          },
+          {
+            "round": 17,
+            "wealth": 90436.97
+          },
+          {
+            "round": 18,
+            "wealth": 91385.86
+          },
+          {
+            "round": 19,
+            "wealth": 89685.83
+          },
+          {
+            "round": 20,
+            "wealth": 89685.83
+          },
+          {
+            "round": 21,
+            "wealth": 89685.83
+          },
+          {
+            "round": 22,
+            "wealth": 89163.24
+          },
+          {
+            "round": 23,
+            "wealth": 88591.8
+          },
+          {
+            "round": 24,
+            "wealth": 87237.64
+          },
+          {
+            "round": 25,
+            "wealth": 87441.97
+          },
+          {
+            "round": 26,
+            "wealth": 86478.44
+          },
+          {
+            "round": 27,
+            "wealth": 86478.44
+          },
+          {
+            "round": 28,
+            "wealth": 86478.44
+          },
+          {
+            "round": 29,
+            "wealth": 85771.51
+          },
+          {
+            "round": 30,
+            "wealth": 85636.49
+          },
+          {
+            "round": 31,
+            "wealth": 84362.48
+          },
+          {
+            "round": 32,
+            "wealth": 84344.17
+          },
+          {
+            "round": 33,
+            "wealth": 84525.84
+          },
+          {
+            "round": 34,
+            "wealth": 84525.84
+          },
+          {
+            "round": 35,
+            "wealth": 84525.84
+          },
+          {
+            "round": 36,
+            "wealth": 84826.95
+          },
+          {
+            "round": 37,
+            "wealth": 84296.21
+          },
+          {
+            "round": 38,
+            "wealth": 84116.03
+          },
+          {
+            "round": 39,
+            "wealth": 83576.06
+          },
+          {
+            "round": 40,
+            "wealth": 83672.92
+          },
+          {
+            "round": 41,
+            "wealth": 81672.92
+          },
+          {
+            "round": 42,
+            "wealth": 81672.92
+          },
+          {
+            "round": 43,
+            "wealth": 81059.7
+          },
+          {
+            "round": 44,
+            "wealth": 81025.23
+          },
+          {
+            "round": 45,
+            "wealth": 79758.7
+          },
+          {
+            "round": 46,
+            "wealth": 79401.88
+          },
+          {
+            "round": 47,
+            "wealth": 78357.38
+          },
+          {
+            "round": 48,
+            "wealth": 76357.38
+          },
+          {
+            "round": 49,
+            "wealth": 76357.38
+          },
+          {
+            "round": 50,
+            "wealth": 75937.76
+          },
+          {
+            "round": 51,
+            "wealth": 74961.54
+          },
+          {
+            "round": 52,
+            "wealth": 74559.83
+          },
+          {
+            "round": 53,
+            "wealth": 74559.83
+          },
+          {
+            "round": 54,
+            "wealth": 74559.83
+          },
+          {
+            "round": 55,
+            "wealth": 72559.83
+          },
+          {
+            "round": 56,
+            "wealth": 72559.83
+          },
+          {
+            "round": 57,
+            "wealth": 72559.83
+          },
+          {
+            "round": 58,
+            "wealth": 72559.83
+          },
+          {
+            "round": 59,
+            "wealth": 72559.83
+          }
+        ]
+      },
+      {
+        "actor": "stock:delta",
+        "name": "量化丁",
+        "final_cash": 67332.4,
+        "final_rank": 4,
+        "last_equity": 67332.4,
+        "return_pct": -32.6676,
+        "max_drawdown_pct": 32.6676,
+        "compute_expenses": 29920.0,
+        "intelligence_expenses": 0.0,
+        "interest_paid": 0.0,
+        "borrow_fees": 0.0,
+        "fills": 518,
+        "turnover": 886157.89,
+        "trading_fees": 886.09,
+        "tool_actions": 303,
+        "rejected_tool_actions": 0,
+        "script_edits": 52,
+        "failed_auto_checks": 1,
+        "research_runs": 11,
+        "research_failures": 0,
+        "trading_slot_runs": 43,
+        "trading_slot_failures": 6,
+        "final_script_bytes": 2320,
+        "final_script_revisions": 52,
+        "model_usage": {
+          "maxgap": 2308.903641939163,
+          "out_tokens": 312510,
+          "reason_tokens": 50772,
+          "hit": 97882977,
+          "miss": 3818141,
+          "wall": 3329.6344702243805,
+          "first": 2190.8582146167755,
+          "stream": 1067.8479254245758
+        },
+        "error_examples": [
+          {
+            "id": 62,
+            "round": 1,
+            "action": "script",
+            "message": "Unsupported syntax: Delete"
+          }
+        ],
+        "top_tool_errors": [
+          [
+            "Unsupported syntax: Delete",
+            1
+          ]
+        ],
+        "equity": [
+          {
+            "round": 1,
+            "wealth": 99400.0
+          },
+          {
+            "round": 2,
+            "wealth": 98986.25
+          },
+          {
+            "round": 3,
+            "wealth": 98890.43
+          },
+          {
+            "round": 4,
+            "wealth": 98344.76
+          },
+          {
+            "round": 5,
+            "wealth": 97910.04
+          },
+          {
+            "round": 6,
+            "wealth": 97910.04
+          },
+          {
+            "round": 7,
+            "wealth": 97910.04
+          },
+          {
+            "round": 8,
+            "wealth": 97550.04
+          },
+          {
+            "round": 9,
+            "wealth": 97190.04
+          },
+          {
+            "round": 10,
+            "wealth": 96830.04
+          },
+          {
+            "round": 11,
+            "wealth": 96470.04
+          },
+          {
+            "round": 12,
+            "wealth": 95710.04
+          },
+          {
+            "round": 13,
+            "wealth": 95710.04
+          },
+          {
+            "round": 14,
+            "wealth": 95710.04
+          },
+          {
+            "round": 15,
+            "wealth": 95350.04
+          },
+          {
+            "round": 16,
+            "wealth": 94990.04
+          },
+          {
+            "round": 17,
+            "wealth": 94230.04
+          },
+          {
+            "round": 18,
+            "wealth": 93670.04
+          },
+          {
+            "round": 19,
+            "wealth": 90933.72
+          },
+          {
+            "round": 20,
+            "wealth": 90933.72
+          },
+          {
+            "round": 21,
+            "wealth": 90933.72
+          },
+          {
+            "round": 22,
+            "wealth": 88012.11
+          },
+          {
+            "round": 23,
+            "wealth": 88294.95
+          },
+          {
+            "round": 24,
+            "wealth": 86816.81
+          },
+          {
+            "round": 25,
+            "wealth": 85829.12
+          },
+          {
+            "round": 26,
+            "wealth": 84469.0
+          },
+          {
+            "round": 27,
+            "wealth": 84469.0
+          },
+          {
+            "round": 28,
+            "wealth": 84469.0
+          },
+          {
+            "round": 29,
+            "wealth": 83270.08
+          },
+          {
+            "round": 30,
+            "wealth": 82355.9
+          },
+          {
+            "round": 31,
+            "wealth": 81259.81
+          },
+          {
+            "round": 32,
+            "wealth": 80733.23
+          },
+          {
+            "round": 33,
+            "wealth": 80303.96
+          },
+          {
+            "round": 34,
+            "wealth": 80303.96
+          },
+          {
+            "round": 35,
+            "wealth": 80303.96
+          },
+          {
+            "round": 36,
+            "wealth": 79703.08
+          },
+          {
+            "round": 37,
+            "wealth": 78868.34
+          },
+          {
+            "round": 38,
+            "wealth": 78115.27
+          },
+          {
+            "round": 39,
+            "wealth": 77284.53
+          },
+          {
+            "round": 40,
+            "wealth": 76575.92
+          },
+          {
+            "round": 41,
+            "wealth": 76575.92
+          },
+          {
+            "round": 42,
+            "wealth": 76575.92
+          },
+          {
+            "round": 43,
+            "wealth": 75488.45
+          },
+          {
+            "round": 44,
+            "wealth": 74792.79
+          },
+          {
+            "round": 45,
+            "wealth": 73385.23
+          },
+          {
+            "round": 46,
+            "wealth": 72515.02
+          },
+          {
+            "round": 47,
+            "wealth": 71744.86
+          },
+          {
+            "round": 48,
+            "wealth": 71744.86
+          },
+          {
+            "round": 49,
+            "wealth": 71744.86
+          },
+          {
+            "round": 50,
+            "wealth": 70794.32
+          },
+          {
+            "round": 51,
+            "wealth": 69930.58
+          },
+          {
+            "round": 52,
+            "wealth": 69138.59
+          },
+          {
+            "round": 53,
+            "wealth": 68265.59
+          },
+          {
+            "round": 54,
+            "wealth": 68226.43
+          },
+          {
+            "round": 55,
+            "wealth": 68226.43
+          },
+          {
+            "round": 56,
+            "wealth": 68226.43
+          },
+          {
+            "round": 57,
+            "wealth": 68305.1
+          },
+          {
+            "round": 58,
+            "wealth": 67332.4
+          },
+          {
+            "round": 59,
+            "wealth": 67332.4
+          }
+        ]
+      }
+    ]
+  }
+}
