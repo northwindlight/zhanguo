@@ -1,0 +1,1139 @@
+"""Stock v2 acceptance: real matching, causal callbacks, one ledger and paid compute."""
+import ast
+import contextlib
+import io
+import json
+import tempfile
+import unittest
+from copy import deepcopy
+from pathlib import Path
+from unittest.mock import patch
+
+from host import GameHost
+from mods.stock.client import StockClient, StockView
+from mods.stock.market import MAKER, CLEARING
+
+ROOT = Path(__file__).resolve().parents[1]
+ACTOR = 'stock:player0'
+BUY = "api.call('stock:market','buy',symbol='shanhai',quantity=10)\n"
+
+
+def config(source=None, actors=1, seed=11):
+    return dict(mods='mods.stock.toml', seed=seed, nations=[
+        dict(id=f'stock:player{i}', name=f'量化{i}', client='replay',
+             scripts={'1': source} if source else {}) for i in range(actors)])
+
+
+class StockGameTest(unittest.TestCase):
+    def host(self, source=None, actors=1, seed=11, ticks=200):
+        h = GameHost.new(config(source, actors, seed))
+        h.world.clock.session_ticks = ticks
+        return h
+
+    def submit(self, h, tool, **arguments):
+        return h.player(ACTOR).submit(tool, arguments)
+
+    def result(self, h, slot='1'):
+        return h.world.scripts.status(ACTOR, slot=slot)['result']
+
+    def open(self, h):
+        h.runtime.object_call(h.world, 'stock:market', 'open_session')
+        return h.world.market
+
+    def buy_resource(self, h, kind):
+        r = self.submit(h, 'compute', action='buy', kind=kind)
+        self.assertTrue(r['ok'], r)
+        return r['data']
+
+    def write(self, h, source, slot='1'):
+        r = self.submit(h, 'script', action='write', source=source, slot=slot)
+        self.assertTrue(r['ok'], r)
+
+    def research(self, h, source, inputs=None):
+        self.write(h, source, 'research')
+        return self.submit(h, 'script', action='run', slot='research', inputs=inputs or {})
+
+    def test_distribution_is_v2_and_has_real_backend(self):
+        h = self.host()
+        self.assertEqual(h.runtime.distribution['Version'], '2.2.0')
+        m = self.open(h)
+        from pams import Market
+        self.assertIsInstance(m.backend.books['shanhai'], Market)
+
+    def test_default_has_20000_ticks(self):
+        h = GameHost.new(config())
+        self.assertEqual(h.world.clock.slices(), 20000)
+
+    def test_wrong_backend_version_fails_before_starting_clients(self):
+        with patch('importlib.metadata.version', return_value='0.0'):
+            with self.assertRaisesRegex(ValueError, 'pams==0.3.0'):
+                GameHost.new(config())
+
+    def test_model_tools_hide_direct_trades(self):
+        h = self.host()
+        names = {t['function']['name'] for t in h.player(ACTOR).actions()}
+        self.assertTrue({'script', 'compute', 'compute_status', 'end_turn'} <= names)
+        self.assertFalse({'buy', 'sell', 'short', 'cover', 'stock_trade'} & names)
+        self.assertFalse(self.submit(h, 'stock_trade', symbol='shanhai', quantity=10)['ok'])
+
+    def test_read_own_script_reaches_model_and_preserves_private_slots(self):
+        h = self.host(actors=2)
+        player = h.player(ACTOR)
+        view = StockView({'language': 'zh-CN'}, presentation=h.presentation)
+        source = "def on_tick():\n    print('当前策略')\n"
+        research = "print('研究槽')\n"
+        self.write(h, source)
+        self.write(h, research, 'research')
+        other = h.player('stock:player1')
+        self.assertTrue(other.submit('script', {'action': 'write', 'source': "print('私有策略')"})['ok'])
+        before = deepcopy(h.world.compute.status(ACTOR))
+        window_before = h.world.clock.view(ACTOR)['window_used']
+        self.assertNotIn('script_read', player.observe()['facts'])
+        schema = next(t for t in player.actions() if t['function']['name'] == 'script')
+        self.assertIn('read', schema['function']['parameters']['properties']['action']['enum'])
+        for slot, expected in [('1', source), ('research', research)]:
+            args = {'action': 'read', 'slot': slot}
+            receipt = player.submit('script', args)
+            self.assertTrue(receipt['ok'], receipt)
+            self.assertEqual(receipt['data']['source'], expected)
+            self.assertIn(expected, view.receipt(receipt, args))
+            self.assertNotIn('私有策略', view.receipt(receipt, args))
+        receipt = player.submit('script', {'action': 'read'})
+        self.assertEqual(receipt['data']['source'], source)
+        direct = player.submit('script_read', {'slot': 'research'})
+        self.assertEqual(direct['data']['source'], research)
+        self.assertIn(research, view.receipt(direct, {'slot': 'research'}))
+        status_args = {'action': 'status', 'include_source': True}
+        self.assertIn(source, view.receipt(player.submit('script', status_args), status_args))
+        empty_args = {'action': 'read', 'slot': '2'}
+        self.assertIn('尚未保存脚本', view.receipt(player.submit('script', empty_args), empty_args))
+        self.assertFalse(player.submit('script', {'action': 'read', 'slot': 'stock:player1'})['ok'])
+        self.assertEqual(h.world.compute.status(ACTOR), before)
+        self.assertEqual(h.world.clock.view(ACTOR)['window_used'], window_before)
+        h.cycle()
+        status_receipt = player.submit('script', status_args)
+        self.assertIn(source, view.receipt(status_receipt, status_args))
+        h.cycle()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'save.json'
+            h.save(path)
+            loaded = GameHost.load(path, config(actors=2))
+            self.assertEqual(loaded.player(ACTOR).submit('script', {'action': 'read'})['data']['source'], source)
+
+    def test_direct_pre_market_api_trade_rejected(self):
+        h = self.host()
+        self.assertFalse(h.player(ACTOR).call_api('stock:market', 'buy', symbol='shanhai', quantity=10)['ok'])
+
+    def test_script_is_deferred_and_order_applies_next_tick(self):
+        h = self.host(BUY)
+        self.assertIsNone(self.result(h))
+        self.assertFalse(h.world.market.pending_orders())
+        h.cycle()
+        fills = h.world.market.fills(ACTOR)
+        self.assertEqual(len(fills), 1)
+        self.assertEqual(fills[0]['tick'], 1)
+        self.assertEqual(h.world.portfolio.position_of(ACTOR)['shares']['shanhai'], 10)
+
+    def test_shared_tick_has_equal_public_snapshots(self):
+        source = "def on_tick():\n    print(api.call('stock:clock','snapshot')['tick'], api.call('stock:market','quotes')[0]['price'])\n"
+        h = self.host(source, actors=2)
+        h.cycle()
+        self.assertEqual(self.result(h)['output'], h.world.scripts.status('stock:player1')['result']['output'])
+
+    def test_sleep_schedules_callback_without_advancing_current_tick(self):
+        source = "def on_tick():\n    a=api.call('stock:clock','snapshot')['tick']\n    api.call('stock:clock','sleep',ticks=50)\n    b=api.call('stock:clock','snapshot')['tick']\n    print(a,b)\n"
+        h = self.host(source)
+        h.cycle()
+        self.assertEqual(self.result(h)['output'], '0 0\n50 50\n100 100\n150 150\n')
+        self.assertLess(self.result(h)['steps'], 10000)
+
+    def test_callback_persistent_private_state(self):
+        source = "def on_tick():\n    state['count']=state.get('count',0)+1\n"
+        h = self.host(source, actors=2)
+        h.cycle(); h.cycle()
+        self.assertEqual(h.world.scripts.rows[ACTOR]['1']['state']['count'], 4)
+        self.assertEqual(h.world.scripts.rows['stock:player1']['1']['state']['count'], 4)
+
+    def test_trade_feedback_is_visible_in_next_callback(self):
+        source = "def on_tick():\n    c=api.call('stock:clock','snapshot')\n    if c['tick']==0:\n        api.call('stock:market','buy',symbol='shanhai',quantity=10)\n    else:\n        print(api.call('stock:portfolio','holdings')['positions'][0]['quantity'])\n"
+        h = self.host(source); h.cycle()
+        self.assertEqual(self.result(h)['output'], '10\n')
+
+    def test_orders_change_book_and_partial_fills(self):
+        h = self.host(); m = self.open(h)
+        before = m.backend.depth('shanhai')['asks'][0][0]
+        order = m.place(h.world, ACTOR, 'buy', 'shanhai', 150)
+        m.advance(1)
+        fills = m.fills(ACTOR)
+        self.assertEqual(sum(f['quantity'] for f in fills), 150)
+        self.assertEqual(len(fills), 2)
+        self.assertGreater(m.backend.depth('shanhai')['asks'][0][0], before)
+        # PAMS explicitly clears this batch at a uniform price.
+        self.assertEqual(len({f['price'] for f in fills}), 1)
+        self.assertEqual(m.orders[order['id']]['status'], 'filled')
+
+    def test_reservation_prevents_cash_double_spend(self):
+        h = self.host(); m = self.open(h)
+        m.place(h.world, ACTOR, 'buy', 'shanhai', 1000)
+        m.place(h.world, ACTOR, 'buy', 'shanhai', 1000)
+        with self.assertRaisesRegex(ValueError, '现金'):
+            m.place(h.world, ACTOR, 'buy', 'shanhai', 1000)
+        self.assertLess(h.world.portfolio.holdings(ACTOR)['available_cash'], 20000)
+
+    def test_cancel_before_delivery_does_not_trade(self):
+        h = self.host(); m = self.open(h)
+        o = m.place(h.world, ACTOR, 'buy', 'shanhai', 10)
+        m.cancel(h.world, ACTOR, o['id']); m.advance(1)
+        self.assertFalse(m.fills(ACTOR))
+        self.assertEqual(m.orders[o['id']]['status'], 'cancelled')
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['reserved_cash'], 0)
+
+    def test_limit_day_order_expires_and_releases(self):
+        h = self.host("api.call('stock:market','buy',symbol='shanhai',quantity=10,price=1)\n")
+        h.cycle()
+        self.assertFalse(h.world.market.fills(ACTOR))
+        self.assertEqual(h.world.market.order_history(ACTOR)[0]['status'], 'expired')
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['reserved_cash'], 0)
+
+    def test_cannot_cancel_other_account_order(self):
+        h = self.host(actors=2); m = self.open(h)
+        o = m.place(h.world, ACTOR, 'buy', 'shanhai', 10, 1)
+        with self.assertRaises(ValueError): m.cancel(h.world, 'stock:player1', o['id'])
+
+    def test_sell_requires_available_inventory(self):
+        h = self.host(); m = self.open(h)
+        with self.assertRaisesRegex(ValueError, '持仓'):
+            m.place(h.world, ACTOR, 'sell', 'shanhai', 1)
+
+    def test_cash_and_shares_conserved_across_matching(self):
+        h = self.host(BUY, actors=2)
+        before = deepcopy(h.world.portfolio.accounts)
+        h.cycle()
+        portfolio = h.world.portfolio
+        self.assertAlmostEqual(sum(a['cash'] for a in before.values()),
+                               sum(a['cash'] for a in portfolio.accounts.values())+portfolio.fees_collected,
+                               delta=.01)
+        for symbol in h.world.market.stocks:
+            self.assertEqual(sum(a['positions'].get(symbol, {}).get('quantity', 0) for a in before.values()),
+                             sum(a['positions'].get(symbol, {}).get('quantity', 0) for a in portfolio.accounts.values()))
+
+    def test_fills_cannot_be_booked_twice(self):
+        h = self.host(BUY); h.cycle()
+        before = deepcopy(h.world.portfolio.accounts)
+        for fill in h.world.market.fills():
+            h.world.portfolio.execute(fill, fill['remaining'])
+        self.assertEqual(before, h.world.portfolio.accounts)
+
+    def test_partial_sale_preserves_average_cost(self):
+        h = self.host(); m = self.open(h)
+        m.place(h.world, ACTOR, 'buy', 'shanhai', 100); m.advance(1)
+        before = deepcopy(h.world.portfolio.accounts[ACTOR]['positions']['shanhai'])
+        m.place(h.world, ACTOR, 'sell', 'shanhai', 50); m.advance(2)
+        after = h.world.portfolio.accounts[ACTOR]['positions']['shanhai']
+        self.assertEqual(after['quantity'], 50)
+        self.assertLessEqual(abs(after['cost']-before['cost']/2), .01)  # cent allocation
+
+    def test_short_borrow_cover_and_collateral(self):
+        h = self.host(); m = self.open(h)
+        m.place(h.world, ACTOR, 'short', 'shanhai', 100); m.advance(1)
+        book = h.world.portfolio.holdings(ACTOR)
+        self.assertEqual(book['positions'][0]['quantity'], -100)
+        self.assertGreater(book['short_collateral'], 0)
+        self.assertLess(book['available_cash'], 100000)
+        m.place(h.world, ACTOR, 'cover', 'shanhai', 100); m.advance(2)
+        self.assertFalse(h.world.portfolio.holdings(ACTOR)['positions'])
+        self.assertEqual(h.world.portfolio.short_used('shanhai'), 0)
+
+    def test_borrow_supply_is_finite_and_reserved(self):
+        h = self.host(); m = self.open(h)
+        with self.assertRaisesRegex(ValueError, '借券'):
+            m.place(h.world, ACTOR, 'short', 'shanhai', 5001)
+
+    def test_short_borrow_fee_charged_once(self):
+        h = self.host("api.call('stock:market','short',symbol='shanhai',quantity=10)\n")
+        h.cycle()
+        book = h.world.portfolio.holdings(ACTOR)
+        self.assertEqual(book['borrow_fees'], round(book['short_value']*.0002, 2))
+        self.assertEqual(book['debt'], 0)
+
+    def test_long_short_direction_must_be_explicit(self):
+        h = self.host(); m = self.open(h)
+        m.place(h.world, ACTOR, 'buy', 'shanhai', 10); m.advance(1)
+        with self.assertRaisesRegex(ValueError, '相反'):
+            m.place(h.world, ACTOR, 'short', 'shanhai', 10)
+
+    def test_loan_does_not_create_wealth_and_interest_once(self):
+        h = self.host()
+        r = self.submit(h, 'bank', action='borrow', amount=10000)
+        self.assertTrue(r['ok'])
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['wealth'], 100000)
+        h.cycle()
+        book = h.world.portfolio.holdings(ACTOR)
+        self.assertEqual(book['debt'], 10000)
+        self.assertEqual(book['cash'], 109800)
+        self.assertEqual(book['wealth'], 99800)
+        self.assertEqual(book['interest_paid'], 200)
+
+    def test_excess_loan_rejected_without_money_change(self):
+        h = self.host()
+        self.assertFalse(self.submit(h, 'bank', action='borrow', amount=1000000)['ok'])
+        self.assertEqual(h.world.portfolio.accounts[ACTOR]['cash'], 100000)
+
+    def test_liquidation_transfers_cash_and_does_not_create_wealth(self):
+        h = self.host(); self.open(h)
+        p = h.world.portfolio; a = p.accounts[ACTOR]
+        a.update(cash=96000., debt=90000.)
+        a['positions']['shanhai'] = dict(quantity=100, cost=4200.)
+        before = p.holdings(ACTOR)['wealth']
+        total = sum(x['cash'] for x in p.accounts.values())+p.fees_collected
+        records = p.force_liquidate(h.world, 1, ACTOR, a)
+        self.assertTrue(records)
+        self.assertLessEqual(p.holdings(ACTOR)['wealth'], before)
+        # Repayment destroys loan-created cash and reduces debt equally.
+        self.assertAlmostEqual(total, sum(x['cash'] for x in p.accounts.values())+p.fees_collected+records[0]['repaid'])
+
+    def test_bankruptcy_retires_actor_without_losing_history(self):
+        h = self.host(actors=2)
+        h.world.portfolio.accounts[ACTOR]['cash'] = -1
+        h.cycle()
+        self.assertNotIn(ACTOR, h.actors())
+        self.assertFalse(h.world.portfolio.holdings(ACTOR)['alive'])
+
+    def test_calendar_five_open_two_closed(self):
+        h = self.host()
+        for day in range(1, 9):
+            self.assertEqual(h.world.clock.trading_day(), (day-1)%7 < 5)
+            h.cycle()
+
+    def test_holiday_cannot_trade(self):
+        h = self.host()
+        h.world.clock.round = 6
+        self.open(h)
+        with self.assertRaisesRegex(ValueError, '休市'):
+            h.world.market.place(h.world, ACTOR, 'buy', 'shanhai', 10)
+
+    def test_visible_path_contains_no_future_and_news_are_causal(self):
+        h = self.host(); m = self.open(h)
+        self.assertEqual(len(m.quotes(ACTOR)[0]['path']), 1)
+        self.assertFalse(m.quotes(ACTOR)[0]['news'])
+        for tick in range(1, 68): m.advance(tick)
+        q = m.quotes(ACTOR)[0]
+        self.assertTrue(q['news'])
+        self.assertTrue(all(n['tick'] <= 67 for n in q['news']))
+        self.assertLess(len(q['path']), 21)
+        self.assertNotIn('seed', q)
+        self.assertNotIn('fundamental', q)
+
+    def test_seed_and_full_results_survive_save_resume(self):
+        source = "def on_tick():\n    state['count']=state.get('count',0)+1\n"
+        h = self.host(source, seed=99); h.cycle()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'s.json'; h.save(path)
+            loaded = GameHost.load(path, config(source, seed=99))
+            loaded.world.clock.session_ticks = 200
+            h.cycle(); loaded.cycle()
+            self.assertEqual(h.runtime.save_mod_state(h.world), loaded.runtime.save_mod_state(loaded.world))
+
+    def test_mid_session_save_forbidden(self):
+        h = self.host(); self.open(h)
+        with self.assertRaises(ValueError): h.to_save()
+
+    def test_trade_requests_and_fills_are_audited(self):
+        h = self.host(BUY); h.cycle()
+        actions = [row['action'] for row in h.audit]
+        self.assertIn('buy', actions); self.assertIn('stock_fill', actions)
+
+    def test_default_compute_pool(self):
+        h = self.host(); s = h.world.compute.status(ACTOR)
+        self.assertEqual((s['steps_limit'], s['calls_limit'], s['slots']), (4000000, 4000, 1))
+        self.assertEqual(s['research_runs_left'], 3)
+
+    def test_discounted_compute_prices_are_charged(self):
+        h = self.host()
+        for kind, expected in [('pool', (120, 240, 480)), ('slot', (80, 160, 320))]:
+            for price in expected:
+                cash = h.world.portfolio.holdings(ACTOR)['cash']
+                receipt = self.buy_resource(h, kind)
+                self.assertEqual(receipt['paid'], price)
+                self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], cash - price)
+        self.assertEqual(h.world.compute.status(ACTOR)['prices']['research_run'], 200)
+
+    def test_pool_tier_scales_syntax_limit_for_check_and_execution(self):
+        h = self.host()
+        source = 'def on_tick():\n' + '    x=1\n' * 550
+        nodes = len(list(ast.walk(ast.parse(source))))
+        self.assertTrue(2048 < nodes < 4096)
+        args = {'action': 'write', 'slot': '1', 'source': source}
+        first = self.submit(h, 'script', **args)
+        self.assertFalse(first['data']['check']['valid'])
+        self.assertEqual((first['data']['check']['nodes'], first['data']['check']['nodes_limit']), (nodes, 2048))
+        view = StockView({'language': 'zh-CN'}, presentation=h.presentation)
+        self.assertIn(f'{nodes}/2048', view.receipt(first, args))
+        self.buy_resource(h, 'pool')
+        second = self.submit(h, 'script', **args)
+        self.assertTrue(second['data']['check']['valid'])
+        self.assertEqual((second['data']['check']['nodes'], second['data']['check']['nodes_limit']), (nodes, 4096))
+        self.assertEqual(h.world.scripts.status(ACTOR)['limits']['nodes'], 4096)
+        self.assertIn(f'{nodes}/4096', view.receipt(second, args))
+        research = self.research(h, 'x=1\n' * 550)
+        self.assertTrue(research['ok'], research)
+        h.cycle()
+        self.assertEqual(self.result(h)['status'], 'effective')
+        self.assertEqual(h.world.scripts.status(ACTOR)['limits']['nodes'], 2048)
+        h.cycle()
+        result = self.result(h)
+        self.assertEqual(result['status'], 'failed')
+        self.assertIn(f'{nodes}/2048', result['error']['message'])
+
+    def test_syntax_limit_tracks_all_four_pool_tiers(self):
+        h = self.host(actors=2)
+        source = 'x=1\n' * 1650
+        nodes = len(list(ast.walk(ast.parse(source))))
+        self.assertTrue(6144 < nodes < 8192)
+        for tier, limit in enumerate((2048, 4096, 6144, 8192), 1):
+            result = self.submit(h, 'script', action='write', source=source)['data']['check']
+            self.assertEqual((result['nodes'], result['nodes_limit']), (nodes, limit))
+            self.assertEqual(result['valid'], tier == 4)
+            if tier < 4:
+                self.buy_resource(h, 'pool')
+        self.assertEqual(h.world.scripts.status('stock:player1')['limits']['nodes'], 2048)
+
+    def test_source_limit_scales_and_long_source_survives_downgrade_and_load(self):
+        h = self.host()
+        source = '# ' + ('z' * 17000) + '\nx=1\n'
+        first = self.submit(h, 'script', action='write', source=source)['data']['check']
+        self.assertFalse(first['valid'])
+        self.assertEqual((first['source_bytes'], first['source_limit']), (len(source), 16384))
+        self.buy_resource(h, 'pool')
+        self.assertEqual(h.world.scripts.status(ACTOR)['limits']['source'], 32768)
+        self.assertTrue(self.submit(h, 'script', action='write', source=source)['data']['check']['valid'])
+        h.cycle()
+        self.assertEqual(self.result(h)['status'], 'effective')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'save.json'
+            h.save(path)
+            loaded = GameHost.load(path, config())
+            self.assertEqual(loaded.world.scripts.status(ACTOR, True)['source'], source)
+            self.assertFalse(loaded.world.scripts.check(ACTOR)['valid'])
+        h.cycle()
+        self.assertEqual(self.result(h)['status'], 'failed')
+        self.assertIn(f'{len(source)}/16384', self.result(h)['error']['message'])
+        self.assertFalse(self.submit(h, 'script', action='write', source='z' * 65537)['ok'])
+
+    def test_buy_pool_debits_game_cash_and_increases_shared_quota(self):
+        h = self.host(); s = self.buy_resource(h, 'pool')
+        fee = h.world.compute.parameters['PoolFeeTier2']
+        self.assertEqual(s['paid'], fee)
+        self.assertEqual(s['steps_limit'], 8000000)
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['wealth'], 100000 - fee)
+
+    def test_buy_pool_cannot_reset_usage(self):
+        h = self.host(); h.world.compute.consume(ACTOR, 1000, 2)
+        s = self.buy_resource(h, 'pool')
+        self.assertEqual((s['steps_used'], s['calls_used']), (1000, 2))
+
+    def test_compute_capacity_maxima(self):
+        h = self.host()
+        for _ in range(3): self.buy_resource(h, 'pool'); self.buy_resource(h, 'slot')
+        self.assertFalse(self.submit(h, 'compute', action='buy', kind='pool')['ok'])
+        self.assertFalse(self.submit(h, 'compute', action='buy', kind='slot')['ok'])
+
+    def test_locked_slots_cannot_be_written_or_run(self):
+        h = self.host()
+        self.assertFalse(self.submit(h, 'script', action='write', slot='2', source='print(1)')['ok'])
+        self.assertFalse(self.submit(h, 'script', action='run', slot='research')['ok'])
+        self.assertFalse(self.submit(h, 'script', action='run', slot='1')['ok'])
+
+    def test_multiple_slots_share_pool_and_keep_private_state(self):
+        h = self.host(); self.buy_resource(h, 'slot')
+        self.write(h, "state['a']=1\nprint('one')", '1')
+        self.write(h, "state['b']=2\nprint('two')", '2')
+        h.cycle()
+        self.assertEqual(h.world.scripts.rows[ACTOR]['1']['state'], {'a': 1})
+        self.assertEqual(h.world.scripts.rows[ACTOR]['2']['state'], {'b': 2})
+        self.assertEqual(h.world.compute.status(ACTOR)['steps_used'], 0)  # next day's reset
+        total = sum(h.world.scripts.rows[ACTOR][s]['result']['steps'] for s in ('1','2'))
+        self.assertGreater(total, 0)
+
+    def test_research_runs_now_and_charges_per_run(self):
+        h = self.host(); cash = h.world.portfolio.holdings(ACTOR)['cash']
+        r = self.research(h, "print(inputs['x'] * 7)\nprint(api.call('stock:clock','snapshot')['tick'])", {'x': 3})
+        self.assertTrue(r['ok'], r)
+        self.assertEqual(r['data']['output'], '21\n0\n')
+        self.assertEqual(h.world.clock.tick, 0)
+        self.assertEqual(h.world.market.state, h.world.market.PRE)
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], cash - 200)
+        self.assertEqual(h.world.compute.status(ACTOR)['research_runs_left'], 2)
+        # 研究不占共享算力池
+        self.assertEqual(h.world.compute.status(ACTOR)['steps_used'], 0)
+
+    def test_research_repeats_with_fee_and_per_round_cap(self):
+        h = self.host(); self.research(h, "state['runs']=state.get('runs',0)+1\nprint(state['runs'])")
+        cash = h.world.portfolio.holdings(ACTOR)['cash']
+        r = self.submit(h, 'script', action='run', slot='research')
+        self.assertTrue(r['ok']); self.assertEqual(r['data']['output'], '2\n')
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], cash - 200)
+        self.assertTrue(self.submit(h, 'script', action='run', slot='research')['ok'])
+        self.assertFalse(self.submit(h, 'script', action='run', slot='research')['ok'])
+        self.assertEqual(h.world.compute.status(ACTOR)['research_runs_left'], 0)
+
+    def test_research_write_apis_are_forbidden(self):
+        for cap, method, args in [('stock:market','buy',"symbol='shanhai',quantity=1"),
+                                  ('stock:portfolio','borrow','amount=1'),
+                                  ('stock:compute','buy',"kind='pool'"),
+                                  ('stock:clock','sleep','ticks=1')]:
+            with self.subTest(method=method):
+                h = self.host()
+                r = self.research(h, f"api.call('{cap}','{method}',{args})")
+                self.assertFalse(r['ok'], r)
+                self.assertEqual(h.world.clock.tick, 0)
+                self.assertFalse(h.world.market.pending_orders())
+                self.assertEqual(h.world.portfolio.accounts[ACTOR]['debt'], 0)
+
+    def test_pool_exhaustion_survives_rewrite_and_slot_changes(self):
+        h = self.host(); self.buy_resource(h, 'slot')
+        h.world.compute.consume(ACTOR, 4000000, 0)
+        self.write(h, 'print(1)', '1')
+        h.cycle()
+        result = self.result(h, '1')
+        self.assertEqual(result['status'], 'failed')
+        self.assertIn('共享算力池', result['error']['message'])
+
+    def test_failed_script_consumes_computation(self):
+        h = self.host("print('before')\nprint(missing)")
+        h.cycle(); r = self.result(h)
+        self.assertEqual(r['status'], 'failed')
+        self.assertIn('before', r['output'])
+        self.assertGreater(r['steps'], 0)   # 用量每回合重置，结果行里保留本回合消耗
+
+    def test_automatic_checks_do_not_run_code(self):
+        h = self.host()
+        r = self.submit(h, 'script', action='write', source="print(1/0)")
+        self.assertTrue(r['data']['check']['valid'])
+        self.assertEqual(h.world.compute.status(ACTOR)['steps_used'], 0)
+
+    def test_write_and_patch_automatically_report_validation(self):
+        h = self.host()
+        view = StockView({'language': 'zh-CN'}, presentation=h.presentation)
+        player = h.player(ACTOR)
+        schema = next(t for t in player.actions() if t['function']['name'] == 'script')
+        self.assertNotIn('check', schema['function']['parameters']['properties']['action']['enum'])
+        view.actions(player.actions())
+        view.rules(player.rules('all'))
+        self.assertNotIn('script(action=check)', view.system())
+        args = {'action': 'write', 'source': 'x = f"{1}"\n'}
+        receipt = player.submit('script', args)
+        self.assertTrue(receipt['ok'])
+        self.assertFalse(receipt['data']['check']['valid'])
+        self.assertIn('自动检查未通过', view.receipt(receipt, args))
+        self.assertEqual(h.world.scripts.status(ACTOR, True)['source'], args['source'])
+        args = {'action': 'patch', 'old': 'f"{1}"', 'new': 'str(1)'}
+        receipt = player.submit('script', args)
+        self.assertTrue(receipt['data']['check']['valid'])
+        self.assertIn('语法检查通过', view.receipt(receipt, args))
+        self.assertEqual(h.world.clock.view(ACTOR)['window_used'], 2)
+        self.assertEqual(h.world.compute.status(ACTOR)['steps_used'], 0)
+
+    def test_pool_tier_raises_per_callback_budget_and_hints(self):
+        h = self.host("def on_tick():\n    while True:\n        pass")
+        self.buy_resource(h, 'pool')
+        h.cycle()
+        error = self.result(h)['error']['message']
+        self.assertIn('100000', error)        # 第 2 档：单次回调 5 万 × 2
+        self.assertIn('kind=pool', error)     # 撞上限时提示买池或多槽
+
+    def test_burst_limit_stops_non_yielding_strategy(self):
+        h = self.host("def on_tick():\n    while True:\n        pass")
+        h.cycle(); r = self.result(h)
+        self.assertEqual(r['status'], 'failed')
+        self.assertEqual(r['steps'], 50000)
+        self.assertIn('budget', r['error']['message'])
+
+    def test_insufficient_cash_purchase_is_atomic(self):
+        h = self.host(); h.world.portfolio.accounts[ACTOR]['cash'] = 1
+        before = deepcopy(h.world.compute.accounts[ACTOR])
+        self.assertFalse(self.submit(h, 'compute', action='buy', kind='research')['ok'])
+        self.assertEqual(before, h.world.compute.accounts[ACTOR])
+        self.assertEqual(h.world.portfolio.accounts[ACTOR]['cash'], 1)
+
+    def test_new_round_resets_paid_tiers_and_keeps_sources(self):
+        h = self.host(); self.buy_resource(h, 'slot'); self.buy_resource(h, 'pool')
+        self.write(h, 'print(1)', 'research')
+        h.cycle()
+        s = h.world.compute.status(ACTOR)
+        self.assertEqual((s['pool'], s['slots']), (1, 1))
+        self.assertEqual(s['research_runs_left'], 3)
+        self.assertEqual(h.world.scripts.rows[ACTOR]['research']['source'], 'print(1)')
+
+    def test_resource_usage_survives_save(self):
+        h = self.host(); self.buy_resource(h, 'pool'); h.cycle()
+        h.world.compute.consume(ACTOR, 1234, 5)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'s.json'; h.save(path)
+            loaded = GameHost.load(path, config())
+            self.assertEqual(h.world.compute.status(ACTOR), loaded.world.compute.status(ACTOR))
+
+    def test_briefing_reports_compute_and_research_output(self):
+        h = self.host(BUY); self.research(h, "print('研究结果')")
+        text = StockView({'language':'zh-CN'}).stock_briefing(h.player(ACTOR).observe())
+        self.assertIn('算力池', text)
+        self.assertIn('研究槽', text)
+        h.cycle()
+        text = StockView({'language':'zh-CN'}).stock_briefing(h.player(ACTOR).observe())
+        self.assertIn('总财富', text)
+
+    def test_invalid_trade_and_resource_amounts_rejected(self):
+        h = self.host(); m = self.open(h)
+        for quantity in (0, -1, True, 1.5):
+            with self.subTest(quantity=quantity), self.assertRaises(ValueError):
+                m.place(h.world, ACTOR, 'buy', 'shanhai', quantity)
+        for amount in (0, -1, True, float('nan'), float('inf')):
+            with self.subTest(amount=amount), self.assertRaises(ValueError):
+                h.world.portfolio.borrow(ACTOR, amount)
+
+    def test_intelligence_charges_and_returns_requested_snapshot(self):
+        h = self.host(actors=2)
+        other = 'stock:player1'
+        h.world.portfolio.borrow(other, 10000)
+        account = h.world.portfolio.accounts[other]
+        account['positions']['shanhai'] = dict(quantity=30, cost=1260)
+        account['cash'] -= 1260
+        r = self.submit(h, 'intel', action='steal', target=other)
+        self.assertTrue(r['ok'], r)
+        report = r['data']; snapshot = report['snapshot']
+        self.assertEqual((report['round'], report['tick'], report['phase']), (1, 0, 'pre'))
+        self.assertEqual(snapshot['cash'], 108740)
+        self.assertEqual(snapshot['debt'], 10000)
+        self.assertEqual(snapshot['positions'][0]['quantity'], 30)
+        self.assertNotIn('avg_cost', snapshot['positions'][0])
+        self.assertNotIn('scripts', snapshot)
+        book = h.world.portfolio.holdings(ACTOR)
+        self.assertEqual(book['wealth'], 99000)
+        self.assertEqual(book['intelligence_expenses'], 1000)
+        self.assertEqual(book['compute_expenses'], 0)
+
+    def test_intelligence_is_a_frozen_private_report(self):
+        h = self.host(actors=2)
+        other = 'stock:player1'
+        report = self.submit(h, 'intel', action='steal', target=other)['data']
+        h.world.portfolio.borrow(other, 5000)
+        mine = h.player(ACTOR).observe()['facts']['intel_status']['reports']
+        self.assertEqual(mine[0], report)
+        self.assertEqual(mine[0]['snapshot']['debt'], 0)
+        self.assertFalse(h.player(other).observe()['facts']['intel_status']['reports'])
+
+    def test_intel_source_steals_deterministic_fragment(self):
+        h = self.host(actors=2)
+        other = 'stock:player1'
+        source = ''.join(f'value_{i} = {i}\n' for i in range(30))
+        h.world.scripts.write(other, source, '1')
+        r = self.submit(h, 'intel', action='source', target=other)
+        self.assertTrue(r['ok'], r)
+        report = r['data']; frag = report['fragment']
+        self.assertEqual(report['kind'], 'source')
+        self.assertEqual((frag['slot'], frag['revision'], frag['total_lines']), ('1', 1, 30))
+        lines = source.splitlines()
+        self.assertEqual(frag['code'].splitlines(),
+                         lines[frag['start_line'] - 1: frag['start_line'] - 1 + 6])
+        book = h.world.portfolio.holdings(ACTOR)
+        self.assertEqual((book['wealth'], book['intelligence_expenses']), (97500, 2500))
+        # 同种子同行动顺序：片段逐字一致。
+        replay = GameHost.new(config(actors=2))
+        replay.world.scripts.write(other, source, '1')
+        r2 = replay.player(ACTOR).submit('intel', {'action': 'source', 'target': other})
+        self.assertTrue(r2['ok'])
+        self.assertEqual(r2['data']['fragment'], frag)
+        # 重复偷取推进序号并再次扣费。
+        second = self.submit(h, 'intel', action='source', target=other)
+        self.assertTrue(second['ok'])
+        self.assertEqual(second['data']['id'], report['id'] + 1)
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['intelligence_expenses'], 5000)
+
+    def test_intel_source_rejects_empty_background_and_script_launch(self):
+        h = self.host(actors=2)
+        self.assertFalse(self.submit(h, 'intel', action='source', target='stock:player1')['ok'])
+        self.assertEqual(h.world.portfolio.accounts[ACTOR]['cash'], 100000)  # 无码可偷不扣费
+        for target in (ACTOR, MAKER, CLEARING):
+            with self.subTest(target=target):
+                self.assertFalse(self.submit(h, 'intel', action='source', target=target)['ok'])
+        r = self.research(h, "api.call('stock:intelligence','source',target='stock:player1')")
+        self.assertFalse(r['ok'])
+        h.world.scripts.write('stock:player1', 'x = 1\n', '1')
+        self.assertTrue(self.submit(h, 'intel', action='source', target='stock:player1')['ok'])
+        r = self.research(h, "print(api.call('stock:intelligence','status')['reports'][-1]['kind'])")
+        self.assertTrue(r['ok'], r)
+        self.assertEqual(r['data']['output'], 'source\n')
+        text = StockView({'language': 'zh-CN'}).stock_briefing(h.player(ACTOR).observe())
+        self.assertIn('偷到', text)
+        self.assertIn('x = 1', text)
+
+    def test_intelligence_cannot_target_self_background_or_unknown(self):
+        h = self.host()
+        for target in (ACTOR, MAKER, CLEARING, 'stock:unknown'):
+            with self.subTest(target=target):
+                self.assertFalse(self.submit(h, 'intel', action='steal', target=target)['ok'])
+                self.assertEqual(h.world.portfolio.accounts[ACTOR]['cash'], 100000)
+
+    def test_poor_spy_gets_no_report_or_debit(self):
+        h = self.host(actors=2)
+        h.world.portfolio.accounts[ACTOR]['cash'] = 1
+        self.assertFalse(self.submit(h, 'intel', action='steal', target='stock:player1')['ok'])
+        self.assertFalse(h.world.intelligence.status(ACTOR)['reports'])
+        self.assertEqual(h.world.portfolio.accounts[ACTOR]['cash'], 1)
+
+    def test_script_cannot_launch_spy_but_can_read_purchased_report(self):
+        h = self.host(actors=2)
+        self.submit(h, 'intel', action='steal', target='stock:player1')
+        r = self.research(h, "print(api.call('stock:intelligence','status')['reports'][0]['snapshot']['cash'])")
+        self.assertTrue(r['ok'], r)
+        self.assertEqual(r['data']['output'], '100000.0\n')
+        self.write(h, "api.call('stock:intelligence','steal',target='stock:player1')", 'research')
+        self.assertFalse(self.submit(h, 'script', action='run', slot='research')['ok'])
+        self.assertEqual(len(h.world.intelligence.status(ACTOR)['reports']), 1)
+
+    def test_private_account_cannot_be_read_by_forged_api_arguments(self):
+        h = self.host(actors=2)
+        r = self.research(h, "api.call('stock:portfolio','holdings',actor='stock:player1')")
+        self.assertFalse(r['ok'])
+        r = self.research(h, "api.call('stock:portfolio','intelligence_snapshot',target='stock:player1')")
+        self.assertFalse(r['ok'])
+
+    def test_intelligence_survives_save_and_resume(self):
+        h = self.host(actors=2)
+        self.submit(h, 'intel', action='steal', target='stock:player1')
+        h.cycle()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'s.json'; h.save(path)
+            loaded = GameHost.load(path, config(actors=2))
+            self.assertEqual(h.world.intelligence.status(ACTOR), loaded.world.intelligence.status(ACTOR))
+
+    def test_research_charges_only_when_it_actually_runs(self):
+        h = self.host()
+        self.assertFalse(self.submit(h, 'script', action='run', slot='research')['ok'])
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], 100000)
+        self.write(h, 'print(1)', 'research')
+        self.assertTrue(self.submit(h, 'script', action='run', slot='research')['ok'])
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['cash'], 99800)
+
+    def test_failed_state_is_not_committed_but_valid_previous_state_remains(self):
+        h = self.host()
+        self.research(h, "state['good']=1")
+        r = self.research(h, "state['good']=2\nprint(missing)")
+        self.assertFalse(r['ok'])
+        self.assertEqual(h.world.scripts.rows[ACTOR]['research']['state'], {'good': 1})
+
+    def test_rejected_trade_does_not_erase_earlier_successful_action(self):
+        h = self.host(BUY + "api.call('stock:market','sell',symbol='shanhai',quantity=99999)\n")
+        h.cycle()
+        self.assertEqual(self.result(h)['status'], 'failed')
+        self.assertEqual(h.world.portfolio.position_of(ACTOR)['shares']['shanhai'], 10)
+
+    def test_declared_rules_and_model_briefing_are_current(self):
+        h = self.host()
+        text = json.dumps(h.player(ACTOR).rules('all'), ensure_ascii=False)
+        self.assertIn('PAMS', text); self.assertIn('商业谍报', text)
+        self.assertIn('research', text); self.assertIn('4000000', text)
+
+    def test_llm_client_receives_new_tools_and_budget_facts(self):
+        class Backend:
+            def chat_turn(self, messages, tools, cfg, on_retry=None):
+                self.messages, self.tools = messages, tools
+                return {'content':'完成规划', 'tool_calls':[dict(id='1', type='function',
+                    function=dict(name='end_turn', arguments=json.dumps({'summary':'等待交易'})))]}, {'hit':0,'miss':0}
+            def complete_text(self, *args, **kwargs): return '等待交易。', {'hit':0,'miss':0}
+        h = self.host(); backend = Backend()
+        StockClient({'language':'zh-CN'}, backend=backend).play(h.player(ACTOR))
+        names = {t['function']['name'] for t in backend.tools}
+        self.assertTrue({'compute', 'intel', 'script'} <= names)
+        self.assertIn('算力池', json.dumps(backend.messages, ensure_ascii=False))
+
+    def test_borrow_supply_public_snapshot_equal_with_same_tick_reservations(self):
+        source = "def on_tick():\n    c=api.call('stock:clock','snapshot')\n    print(api.call('stock:market','quotes')[0]['borrow_available'])\n    if c['tick']==0:\n        api.call('stock:market','short',symbol='shanhai',quantity=10)\n"
+        h = self.host(source, actors=2); h.cycle()
+        a = self.result(h)['output']
+        b = h.world.scripts.status('stock:player1')['result']['output']
+        self.assertEqual(a, b)
+        self.assertTrue(a.startswith('5000\n'), a)
+
+    def test_unfilled_extreme_quotes_cannot_pump_wealth(self):
+        h = self.host(); m = self.open(h)
+        m.place(h.world, ACTOR, 'buy', 'shanhai', 10); m.advance(1)
+        before = h.world.portfolio.holdings(ACTOR)['wealth']
+        m.cancel_actor(MAKER)
+        m.place(h.world, ACTOR, 'sell', 'shanhai', 1, 1000000)
+        m.place(h.world, ACTOR, 'buy', 'shanhai', 1, 1)
+        m.advance(2)
+        self.assertEqual(h.world.portfolio.holdings(ACTOR)['wealth'], before)
+
+    def test_realized_pnl_includes_entry_and_exit_fees(self):
+        h = self.host(); m = self.open(h)
+        m.place(h.world, ACTOR, 'buy', 'shanhai', 10); m.advance(1)
+        m.place(h.world, ACTOR, 'sell', 'shanhai', 10); m.advance(2)
+        book = h.world.portfolio.holdings(ACTOR)
+        self.assertAlmostEqual(book['realized_pnl'], book['cash']-100000, places=2)
+
+    def test_illiquid_clearing_freezes_and_normal_cover_can_repair(self):
+        h = self.host(); m = self.open(h)
+        m.place(h.world, ACTOR, 'short', 'shanhai', 100); m.advance(1)
+        p = h.world.portfolio
+        p.accounts[ACTOR]['cash'] = 100*m.price_of('shanhai')+1000
+        p.accounts[CLEARING]['positions']['shanhai']['quantity'] = 0
+        p.risk_check(1)
+        self.assertTrue(p.holdings(ACTOR)['risk_frozen'])
+        with self.assertRaisesRegex(ValueError, '冻结'):
+            m.place(h.world, ACTOR, 'buy', 'qingzhou', 1)
+        m.place(h.world, ACTOR, 'cover', 'shanhai', 100); m.advance(2)
+        self.assertFalse(p.holdings(ACTOR)['risk_frozen'])
+        self.assertFalse(p.holdings(ACTOR)['positions'])
+
+    def test_out_of_range_deferred_order_rejected_before_acceptance(self):
+        h = self.host(); m = self.open(h)
+        for value in (1e308, .001, True):
+            with self.subTest(price=value), self.assertRaises(ValueError):
+                m.place(h.world, ACTOR, 'buy', 'shanhai', 1, value)
+
+    def test_system_id_cannot_be_used_as_player(self):
+        cfg = config(); cfg['nations'][0]['id'] = MAKER
+        with self.assertRaisesRegex(ValueError, 'reserved'):
+            GameHost.new(cfg)
+
+    def test_resumed_script_requests_and_fills_remain_audited(self):
+        h = self.host(); h.cycle()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'s.json'; h.save(path)
+            loaded = GameHost.load(path, config())
+            loaded.world.clock.session_ticks = 200
+            loaded.clients[ACTOR].scripts['2'] = BUY
+            loaded.cycle()
+            actions = [row['action'] for row in loaded.audit]
+            self.assertIn('buy', actions)
+            self.assertIn('stock_fill', actions)
+
+    def test_check_hints_explain_sandbox_workarounds(self):
+        h = self.host()
+        for source, needle in (
+            ('x = f"{1+1}"\n', '+ 拼接'),
+            ('best = sorted([], key=lambda r: r)\n', 'key='),
+            ('s = {i for i in range(3)}\n', '列表推导'),
+            ('s = set()\ns.add(1)\n', 'list'),
+        ):
+            with self.subTest(needle=needle):
+                r = self.submit(h, 'script', action='write', source=source)
+                self.assertTrue(r['ok'])
+                error = r['data']['check'].get('error') or {}
+                self.assertIn('改法', error.get('message', ''))
+                self.assertIn(needle, error['message'])
+
+    def test_execution_error_also_carries_hint(self):
+        h = self.host()
+        r = self.research(h, 'x = f"{api}"\n')
+        self.assertFalse(r['ok'])
+        self.assertIn('改法', r['data']['error']['message'])
+
+    def test_advertised_key_pattern_actually_runs(self):
+        source = ("def on_tick():\n"
+                  "    rows = api.call('stock:market', 'quotes')\n"
+                  "    def chg(r): return r['change_pct']\n"
+                  "    top = sorted(rows, key=chg, reverse=True)[0]\n"
+                  "    print('top ' + top['symbol'] + ' ' + str(top['price']))\n"
+                  "    api.call('stock:clock', 'sleep', ticks=200)\n")
+        h = self.host(source)
+        h.cycle()
+        self.assertEqual(self.result(h)['status'], 'effective')
+        self.assertTrue(self.result(h)['output'].startswith('top '))
+
+    def test_day_report_fact_and_briefing_show_last_session(self):
+        h = self.host(BUY)
+        h.cycle()
+        report = h.player(ACTOR).observe()['facts']['day_report']
+        self.assertEqual((report['orders'], report['fills'], report['bought_quantity']), (1, 1, 10))
+        self.assertGreater(report['bought_amount'], 0)
+        self.assertEqual(report['statuses'].get('filled'), 1)
+        h.clients[ACTOR].scripts['2'] = BUY
+        h.cycle()
+        text = StockView({'language': 'zh-CN'}).stock_briefing(h.player(ACTOR).observe())
+        self.assertIn('执行回执', text)
+        self.assertIn('买入10股', text)
+        self.assertIn('最新消息', text)
+        # Morning after two sessions: the calendar must point at upcoming reports.
+        quotes = {row['symbol']: row for row in h.world.market.quotes(ACTOR)}
+        self.assertEqual(quotes['shanhai']['next_report_round'], 8)    # offset 1 reports again at seq 6
+        self.assertEqual(quotes['qingzhou']['next_report_round'], 9)   # offset 2 already reported round 2
+        self.assertEqual(quotes['yundu']['next_report_round'], 3)      # offset 3 reports today
+        self.assertEqual(quotes['yundu']['report_tick'], round(200*.2))
+        self.assertIsNone(quotes['shanhai']['report_tick'])
+
+    def test_settlement_is_quiet_for_observer_but_full_in_audit(self):
+        h = self.host(BUY)
+        seen = []
+        h.cycle(on_result=lambda actor, action, args, receipt: seen.append(action))
+        self.assertNotIn('buy', seen)
+        self.assertNotIn('stock_fill', seen)
+        self.assertEqual(seen.count('settlement'), 1)
+        actions = [row['action'] for row in h.audit]
+        self.assertIn('buy', actions)
+        self.assertIn('stock_fill', actions)
+        row = next(r for r in h.audit if r['action'] == 'settlement')
+        text = row['receipt']['data']['text']
+        self.assertIn('槽1 effective', text)
+        self.assertIn('委托1笔（成交）', text)
+        self.assertIn('成交1笔，买10股/卖0股', text)
+        self.assertIn('财富', text)
+
+    def test_rest_days_skip_trading_slots_but_allow_research_and_resume_on_open(self):
+        h = self.host()
+        self.write(h, "state['runs']=state.get('runs',0)+1\n")
+        h.world.clock.round = 33
+        h.cycle()
+        prior = deepcopy(self.result(h))
+        self.assertEqual(prior['period'], 33)
+        self.assertEqual(h.world.scripts.rows[ACTOR]['1']['state']['runs'], 1)
+        seen = []
+        for day in (34, 35):
+            self.assertFalse(h.world.clock.trading_day())
+            if day == 35:
+                research = self.research(h, "print('休市研究')\n")
+                self.assertTrue(research['ok'])
+                self.assertIn('休市研究', research['data']['output'])
+            h.cycle(on_result=lambda actor, action, args, receipt: seen.append((action, receipt)))
+            self.assertEqual(self.result(h), prior)
+            self.assertEqual(h.world.scripts.rows[ACTOR]['1']['state']['runs'], 1)
+        settlements = [receipt for action, receipt in seen if action == 'settlement']
+        self.assertEqual([r['period'] for r in settlements], [34, 35])
+        for receipt in settlements:
+            self.assertIn('休市，交易槽未运行', receipt['data']['text'])
+            self.assertNotIn('委托', receipt['data']['text'])
+        briefing = StockView({'language': 'zh-CN'}).stock_briefing(h.player(ACTOR).observe())
+        self.assertIn('最近一次脚本（第 33 回合）', briefing)
+        h.cycle()
+        self.assertEqual(self.result(h)['period'], 36)
+        self.assertEqual(h.world.scripts.rows[ACTOR]['1']['state']['runs'], 2)
+
+    def test_observer_labels_delayed_trading_and_rest_settlements_with_their_own_round(self):
+        from mp_run import Observer
+
+        h = self.host()
+        h.world.clock.round = 5
+        h.clients[ACTOR].scripts.update({'5': "print('交易日')\n", '6': "print('休市日')\n"})
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            observer = Observer(h, Path(tmp) / 'journal.md')
+            for day in (5, 6):
+                h.cycle(on_result=observer.result)
+                self.assertEqual(h.clock(), day + 1)
+                observer.flush(ACTOR)
+            journal = observer.path.read_text(encoding='utf-8')
+        self.assertIn('[5·行动] 量化0 ◇ settlement → round：5', journal)
+        self.assertIn('[6·行动] 量化0 ◇ settlement → round：6', journal)
+        self.assertNotIn('[6·行动] 量化0 ◇ settlement → round：5', journal)
+        self.assertNotIn('[7·行动] 量化0 ◇ settlement → round：6', journal)
+
+    def test_ipo_lists_new_stock_on_published_schedule(self):
+        h = self.host(); h.world.clock.round = 9   # trading day 7
+        m = self.open(h)
+        expected = m.dynamics.ipo_order()[0]['symbol']
+        self.assertEqual(len(m.stocks), 11)
+        m.place(h.world, ACTOR, 'buy', expected, 10); m.advance(1)
+        row = next(r for r in m.quotes(ACTOR) if r['symbol'] == expected)
+        self.assertEqual(row['borrow_available'], 5000)
+        self.assertTrue(any(n['kind'] == 'ipo' for n in row['news']))
+        self.assertEqual(h.world.portfolio.position_of(ACTOR)['shares'][expected], 10)
+        pool = h.player(ACTOR).observe()['facts']['pool']
+        self.assertIn(expected, pool['universe'])
+        self.assertEqual(len(pool['universe']), 11)
+        self.assertTrue(pool['next_listings'])       # 3 candidates still queued
+
+    def test_collapsed_stock_gets_warning_then_delisted_with_buyback(self):
+        h = self.host(); m = self.open(h)
+        symbol = 'yundu'
+        m.place(h.world, ACTOR, 'buy', symbol, 100); m.advance(1)
+        m.settle(h.world, 1)
+        crash = round(m.close[symbol] * .2, 2)
+        m.close[symbol] = crash                      # overnight collapse
+        # Collapse on trading days 2-5 → warning at round 8; review is 5 trading
+        # days later = round 15 (13 and 14 are rest days); still collapsed → delist.
+        for round_number in range(2, 16):
+            h.world.clock.round = round_number
+            m.round = round_number
+            m.settle(h.world, round_number)
+        self.assertNotIn(symbol, m.stocks)
+        self.assertNotIn(symbol, h.world.portfolio.position_of(ACTOR)['shares'])
+        book = h.world.portfolio.holdings(ACTOR)
+        self.assertLess(book['realized_pnl'], 0)     # bought high, bought back at a discount
+        proceeds = [f for f in m.fills(ACTOR) if f['execution_id'].startswith('15:delist')]
+        self.assertEqual(sum(f['quantity'] for f in proceeds), 100)
+        self.assertLess(proceeds[0]['price'], crash + 1e-9)  # at or below the crashed close
+        self.assertEqual(m.pool['notices'][-1]['kind'], 'delist')
+        h.world.clock.round = 15 + 3; m.round = 15 + 3   # next trading day after the rest days
+        h.runtime.object_call(h.world, 'stock:market', 'open_session')
+        m.advance(1)                                      # notices publish at tick 1
+        self.assertTrue(any(n['kind'] == 'delist' and n['symbol'] == symbol for n in m.news))
+        self.assertNotIn(symbol, {r['symbol'] for r in m.quotes(ACTOR)})
+
+    def test_company_shock_changes_personality_and_survives_save(self):
+        h = self.host(); m = self.open(h)
+        before = dict(m.stocks['shanhai'])
+        m.dynamics._shock('shanhai', 120)
+        after = m.stocks['shanhai']
+        self.assertNotEqual(before, after)
+        event = next(n for n in m.news if n['kind'] == 'shock')
+        self.assertEqual(event['symbol'], 'shanhai')
+        self.assertTrue(event['effect'])
+        h.cycle()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'s.json'; h.save(path)
+            loaded = GameHost.load(path, config())
+            self.assertEqual(loaded.world.market.stocks['shanhai'], h.world.market.stocks['shanhai'])
+            self.assertEqual(loaded.world.market.pool['ipo_index'], h.world.market.pool['ipo_index'])
+
+    def test_stream_watchdogs_skip_alarm_in_worker_threads(self):
+        """并发规划把 LLM 调用放进工作线程：SIGALRM 看门狗必须静默降级，不能炸。"""
+        import threading
+        import types
+        from clients import provider
+        calls = []
+        fake = types.SimpleNamespace(
+            SIGALRM=14, ITIMER_REAL=0,
+            signal=lambda *a: calls.append('signal'),
+            setitimer=lambda *a: calls.append('setitimer'))
+        def run_both():
+            with provider.stream_timeout(.5, .2) as clock:
+                clock.kick()
+            with provider.hard_timeout(.5, 'x'):
+                pass
+        with patch.object(provider.os, 'name', 'posix'),                 patch.object(provider, 'signal', fake):
+            run_both()                           # 主线程：照常上弦
+            self.assertIn('signal', calls)
+            calls.clear()
+            worker = threading.Thread(target=run_both)
+            worker.start(); worker.join()
+        self.assertEqual(calls, [])              # 工作线程：空转，不装 signal
+
+    def test_concurrent_planning_overlaps_client_waiting(self):
+        import time
+        from mods.stock import client as stock_client
+        original = stock_client.ReplayClient.play
+        def slow(self, player, **kwargs):
+            time.sleep(.3)
+            return original(self, player, **kwargs)
+        with patch.object(stock_client.ReplayClient, 'play', slow):
+            h = GameHost.new(config(actors=3, seed=5))
+            h.world.clock.session_ticks = 200
+            started = time.perf_counter()
+            h.cycle()
+            elapsed = time.perf_counter() - started
+        self.assertLess(elapsed, .85)          # serial would need >= .9s
+        self.assertEqual(len([r for r in h.audit if r['action'] == 'end_turn']), 3)
+
+    def test_concurrent_planning_keeps_world_deterministic(self):
+        cfg = config(actors=3, seed=5)
+        first = GameHost.new(cfg)
+        second = GameHost.new(cfg)
+        first.cycle()
+        second.cycle()
+        self.assertEqual(first.runtime.save_mod_state(first.world),
+                         second.runtime.save_mod_state(second.world))
+
+    def test_planning_workers_one_restores_serial_cycle(self):
+        cfg = config(actors=2, seed=5)
+        cfg['planning_workers'] = 1
+        h = GameHost.new(cfg)
+        h.cycle()
+        self.assertEqual(len([r for r in h.audit if r['action'] == 'end_turn']), 2)
+        self.assertTrue(h._boundary)
+
+    def test_old_market_save_without_dynamics_is_rejected(self):
+        h = self.host(); h.cycle()
+        legacy = h.world.market.to_save()
+        legacy.pop('dynamics')
+        with self.assertRaisesRegex(ValueError, '动力学'):
+            h.world.market.restore(legacy)
+
+    def test_background_agents_split_the_float(self):
+        h = self.host(); m = self.open(h)
+        from mods.stock.market import BACKGROUND, FLOW, NOISE
+        shares = h.world.portfolio.position_of
+        total = sum(shares(a)['shares']['shanhai'] for a in BACKGROUND)
+        self.assertEqual(total, m.float_shares)
+        self.assertIn(NOISE, h.world.portfolio.accounts)
+        self.assertTrue(all(h.world.portfolio.accounts[a]['background'] for a in BACKGROUND))
+
+    def test_depth_and_calendar_vary_per_stock(self):
+        h = self.host(); m = self.open(h)
+        thin = m.backend.depth('yundu')['asks'][0][1]
+        deep = m.backend.depth('hongfan')['asks'][0][1]
+        self.assertEqual((thin, deep), (50, 140))
+        quotes = {row['symbol']: row for row in m.quotes(ACTOR)}
+        self.assertEqual(quotes['shanhai']['next_report_round'], 1)   # offset 1 on day 1
+        self.assertEqual(quotes['qingzhou']['next_report_round'], 2)  # offset 2
+        self.assertEqual(quotes['shanhai']['report_tick'], round(200*.2))
+        self.assertIsNone(quotes['qingzhou']['report_tick'])
+
+    def test_news_are_staggered_with_kinds_and_earnings_calendar(self):
+        h = self.host(); m = self.open(h)
+        for tick in range(1, 68): m.advance(tick)
+        for row in m.quotes(ACTOR):
+            self.assertTrue(row['news'], row['symbol'])
+            self.assertTrue(all(n['tick'] <= 67 for n in row['news']))
+        for tick in range(68, 201): m.advance(tick)
+        rows = {row['symbol']: row for row in m.quotes(ACTOR)}
+        for symbol, row in rows.items():
+            kinds = {n['kind'] for n in row['news']}
+            self.assertTrue(kinds <= {'market', 'wire', 'earnings', 'shock'}, kinds)
+            self.assertTrue(any(n['kind'] == 'wire' for n in row['news']))
+            if symbol in ('shanhai', 'hongfan'):
+                self.assertEqual(row['news'][0]['kind'], 'earnings')  # report day, tick 40
+            else:
+                self.assertTrue(any(n['kind'] == 'market' for n in row['news']))  # wire at 67
+                self.assertLessEqual(row['news'][0]['tick'], 67)      # a shock may land earlier
+        reporting = {s for s, row in rows.items()
+                     if any(n['kind'] == 'earnings' for n in row['news'])}
+        self.assertEqual(reporting, {'shanhai', 'hongfan'})
+
+    def test_same_seed_replays_and_different_seed_diverges(self):
+        cfg = config(seed=7)
+        first = GameHost.new(cfg); first.world.clock.session_ticks = 200; first.cycle()
+        second = GameHost.new(cfg); second.world.clock.session_ticks = 200; second.cycle()
+        self.assertEqual(first.runtime.save_mod_state(first.world),
+                         second.runtime.save_mod_state(second.world))
+        other = GameHost.new(config(seed=8)); other.world.clock.session_ticks = 200; other.cycle()
+        self.assertNotEqual(first.world.market.close, other.world.market.close)
+
+    def test_fundamentals_move_and_persist_across_days(self):
+        h = self.host(); m = self.open(h)
+        start = dict(m.fundamental)
+        for tick in range(1, 201): m.advance(tick)
+        self.assertNotEqual(start, m.fundamental)
+        end_of_day = dict(m.fundamental)
+        m.settle(h.world, 1)
+        self.assertEqual(m.fundamental, end_of_day)
+        self.assertEqual(m.state, m.CLOSED)
+
+
+    def test_round_tool_reports_final_round_and_rounds_left(self):
+        cfg = config(); cfg['max_turns'] = 3
+        h = GameHost.new(cfg)
+        data = self.submit(h, 'round')['data']
+        self.assertEqual(data['final_round'], 3)
+        self.assertEqual(data['rounds_left'], 2)
+        self.assertFalse(data['is_final_round'])
+
+    def test_final_round_liquidates_positions_repays_loans_and_ranks_by_cash(self):
+        cfg = config(actors=2); cfg['max_turns'] = 3
+        h = GameHost.new(cfg)
+        self.submit(h, 'script', action='write', source=BUY, slot='1')
+        self.submit(h, 'bank', action='borrow', amount=10000)
+        h.cycle(); h.cycle()          # 第 3 回合到点：清算，不再行动
+        self.assertTrue(h.finished())
+        for actor in h.actors():
+            account = h.world.portfolio.accounts[actor]
+            self.assertIsNotNone(account['final_cash'])
+            self.assertIsNotNone(account['final_rank'])
+            self.assertEqual(h.world.portfolio.holdings(actor)['positions'], [])
+        self.assertEqual(h.world.portfolio.accounts[ACTOR]['debt'], 0)
+        ranks = sorted(h.world.portfolio.accounts[a]['final_rank'] for a in h.actors())
+        self.assertEqual(ranks, [1, 2])
+        first = max(h.actors(), key=lambda a: h.world.portfolio.accounts[a]['final_cash'])
+        self.assertEqual(h.world.portfolio.accounts[first]['final_rank'], 1)
+
+
+if __name__ == '__main__': unittest.main()
