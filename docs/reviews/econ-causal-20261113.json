@@ -1,0 +1,1387 @@
+{
+  "actor": "scenario:n0",
+  "accepted": false,
+  "results": {
+    "bc20-prior05": {
+      "path": "archive/previews/econ-causal-20261113/bc20-prior05/result.json",
+      "sha256": "cf2115ff928e70bda571191f35f991cddef8407678d5448f69dd88e8bebac515",
+      "start": 0,
+      "end": 150,
+      "policy_sha256": "d3309b41d62a75badd4f31f4a52dd1ddd79118785680455d014b562dd8d32bf9",
+      "arguments": {
+        "checkpoint": "/tmp/bc20-last.pt",
+        "out": "archive/previews/econ-causal-20261113/bc20-prior05",
+        "seed": 8102,
+        "size": 24,
+        "swap": true,
+        "turns": 150,
+        "mode": "greedy",
+        "rng": 0,
+        "device": "cpu",
+        "threads": 1,
+        "prior": 0.5,
+        "load": null,
+        "save_at": [
+          40,
+          80
+        ],
+        "focal": "scenario:n0",
+        "intervention": null,
+        "alternative": null
+      },
+      "total_S": 29158.468908512612,
+      "initial_S": {
+        "scenario:n0": 0,
+        "scenario:n1": 0,
+        "scenario:n2": 0,
+        "scenario:n3": 0,
+        "scenario:n4": 0,
+        "scenario:n5": 0,
+        "scenario:n6": 0,
+        "scenario:n7": 0
+      },
+      "countries": {
+        "scenario:n0": {
+          "S": 11098.016906129733,
+          "increment": 11098.016906129733,
+          "tail_mean": 114.27210746781314,
+          "army": 50,
+          "buildings": 100,
+          "actions_since_start": {
+            "build": 99,
+            "recruit": 80
+          },
+          "capacity": 8,
+          "demand": 7,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n2": {
+          "S": 4924.425059936138,
+          "increment": 4924.425059936138,
+          "tail_mean": 28.1218662742752,
+          "army": 17,
+          "buildings": 56,
+          "actions_since_start": {
+            "build": 55,
+            "recruit": 54
+          },
+          "capacity": 8,
+          "demand": 4,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n4": {
+          "S": 8422.14560952529,
+          "increment": 8422.14560952529,
+          "tail_mean": 67.66897985654349,
+          "army": 33,
+          "buildings": 46,
+          "actions_since_start": {
+            "build": 45,
+            "recruit": 70
+          },
+          "capacity": 10,
+          "demand": 10,
+          "tail_grid_short_turns": 6
+        },
+        "scenario:n6": {
+          "S": 4713.881332921452,
+          "increment": 4713.881332921452,
+          "tail_mean": 23.51239152589147,
+          "army": 14,
+          "buildings": 41,
+          "actions_since_start": {
+            "build": 40,
+            "recruit": 42
+          },
+          "capacity": 8,
+          "demand": 5,
+          "tail_grid_short_turns": 0
+        }
+      },
+      "focal": {
+        "S": 11098.016906129733,
+        "increment": 11098.016906129733,
+        "tail_mean": 114.27210746781314,
+        "army": 50,
+        "buildings": 100,
+        "actions_since_start": {
+          "build": 99,
+          "recruit": 80
+        },
+        "capacity": 8,
+        "demand": 7,
+        "tail_grid_short_turns": 0
+      }
+    },
+    "bc20-resume80-heartbeat": {
+      "path": "archive/previews/econ-causal-20261113/bc20-resume80-heartbeat/result.json",
+      "sha256": "02c3656794ebfe73024de5ed25bc22b01ac4d6e3b150637b09449f4d50bd1e2c",
+      "start": 80,
+      "end": 150,
+      "policy_sha256": "f428fc20b9bc4d0c02e02e4d9f315bedd2256a5bccf8fc0e5e75ce5ac6ea2f32",
+      "arguments": {
+        "checkpoint": "/tmp/bc20-last.pt",
+        "out": "archive/previews/econ-causal-20261113/bc20-resume80-heartbeat",
+        "seed": 8102,
+        "size": 24,
+        "swap": true,
+        "turns": 150,
+        "mode": "greedy",
+        "rng": 0,
+        "device": "cpu",
+        "threads": 1,
+        "prior": null,
+        "load": "archive/previews/econ-causal-20261113/bc20-greedy/boundary-080.json",
+        "save_at": [],
+        "focal": "scenario:n0",
+        "intervention": null,
+        "alternative": null
+      },
+      "total_S": 29158.468908512612,
+      "initial_S": {
+        "scenario:n0": 3577.6034056318767,
+        "scenario:n1": 3699.6498293126792,
+        "scenario:n2": 3087.7286293505567,
+        "scenario:n3": 2016.9975502568454,
+        "scenario:n4": 3770.8848889714764,
+        "scenario:n5": 2236.238210544814,
+        "scenario:n6": 3136.267283145935,
+        "scenario:n7": 76.01836852193003
+      },
+      "countries": {
+        "scenario:n0": {
+          "S": 11098.016906129733,
+          "increment": 7520.413500497856,
+          "tail_mean": 114.27210746781314,
+          "army": 50,
+          "buildings": 100,
+          "actions_since_start": {
+            "recruit": 46,
+            "build": 35
+          },
+          "capacity": 8,
+          "demand": 7,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n2": {
+          "S": 4924.425059936138,
+          "increment": 1836.6964305855809,
+          "tail_mean": 28.1218662742752,
+          "army": 17,
+          "buildings": 56,
+          "actions_since_start": {
+            "build": 15,
+            "recruit": 25
+          },
+          "capacity": 8,
+          "demand": 4,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n4": {
+          "S": 8422.14560952529,
+          "increment": 4651.260720553814,
+          "tail_mean": 67.66897985654349,
+          "army": 33,
+          "buildings": 46,
+          "actions_since_start": {
+            "recruit": 34,
+            "build": 15
+          },
+          "capacity": 10,
+          "demand": 10,
+          "tail_grid_short_turns": 6
+        },
+        "scenario:n6": {
+          "S": 4713.881332921452,
+          "increment": 1577.6140497755168,
+          "tail_mean": 23.51239152589147,
+          "army": 14,
+          "buildings": 41,
+          "actions_since_start": {
+            "recruit": 13,
+            "build": 14
+          },
+          "capacity": 8,
+          "demand": 5,
+          "tail_grid_short_turns": 0
+        }
+      },
+      "focal": {
+        "S": 11098.016906129733,
+        "increment": 7520.413500497856,
+        "tail_mean": 114.27210746781314,
+        "army": 50,
+        "buildings": 100,
+        "actions_since_start": {
+          "recruit": 46,
+          "build": 35
+        },
+        "capacity": 8,
+        "demand": 7,
+        "tail_grid_short_turns": 0
+      }
+    },
+    "p80-bc": {
+      "path": "archive/previews/econ-causal-20261113/p80-bc/result.json",
+      "sha256": "16a347cf67d76134536b6a2af037f79ea71de5b5edc8dd718add40a81dcc37c1",
+      "start": 80,
+      "end": 150,
+      "policy_sha256": "e5bc9125c643f8fd9912d1bdbd7c62036c93840444a4db2d24839540c10f5d03",
+      "arguments": {
+        "checkpoint": "/content/ppo-t4/round-000006/candidate.pt",
+        "out": "/content/econ-causal-20261113/p80-bc",
+        "seed": 8102,
+        "size": 24,
+        "swap": true,
+        "turns": 150,
+        "mode": "greedy",
+        "rng": 0,
+        "device": "cpu",
+        "threads": 1,
+        "prior": null,
+        "load": "/content/econ-causal-20261113/r6-greedy/boundary-080.json",
+        "save_at": [],
+        "focal": "scenario:n0",
+        "intervention": "bc",
+        "alternative": "/content/initial.pt"
+      },
+      "total_S": 27194.162459268533,
+      "initial_S": {
+        "scenario:n0": 3349.526901324505,
+        "scenario:n1": 3190.3509676841677,
+        "scenario:n2": 2781.995424781395,
+        "scenario:n3": 2118.7826738030035,
+        "scenario:n4": 4343.34644758097,
+        "scenario:n5": 1716.6320674321282,
+        "scenario:n6": 4072.0732312881905,
+        "scenario:n7": 76.09019226283891
+      },
+      "countries": {
+        "scenario:n0": {
+          "S": 5993.061925794529,
+          "increment": 2643.535024470024,
+          "tail_mean": 21.777241317895278,
+          "army": 5,
+          "buildings": 210,
+          "actions_since_start": {
+            "recruit": 15,
+            "build": 125
+          },
+          "capacity": 10,
+          "demand": 41,
+          "tail_grid_short_turns": 50
+        },
+        "scenario:n2": {
+          "S": 3477.155240513769,
+          "increment": 695.1598157323742,
+          "tail_mean": 12.689684115927967,
+          "army": 4,
+          "buildings": 98,
+          "actions_since_start": {
+            "build": 40,
+            "recruit": 8
+          },
+          "capacity": 8,
+          "demand": 3,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n4": {
+          "S": 10764.489335145607,
+          "increment": 6421.142887564637,
+          "tail_mean": 115.3056206337938,
+          "army": 33,
+          "buildings": 88,
+          "actions_since_start": {
+            "build": 49,
+            "recruit": 35
+          },
+          "capacity": 14,
+          "demand": 14,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n6": {
+          "S": 6959.455957814629,
+          "increment": 2887.3827265264385,
+          "tail_mean": 43.63216648568037,
+          "army": 11,
+          "buildings": 60,
+          "actions_since_start": {
+            "build": 25,
+            "recruit": 15
+          },
+          "capacity": 8,
+          "demand": 5,
+          "tail_grid_short_turns": 0
+        }
+      },
+      "focal": {
+        "S": 5993.061925794529,
+        "increment": 2643.535024470024,
+        "tail_mean": 21.777241317895278,
+        "army": 5,
+        "buildings": 210,
+        "actions_since_start": {
+          "recruit": 15,
+          "build": 125
+        },
+        "capacity": 10,
+        "demand": 41,
+        "tail_grid_short_turns": 50
+      }
+    },
+    "p80-corrective": {
+      "path": "archive/previews/econ-causal-20261113/p80-corrective/result.json",
+      "sha256": "f5932a075702ca614132dfe0dbb50cac62bdaf6f38ab05fcbd8d662816bacff4",
+      "start": 80,
+      "end": 150,
+      "policy_sha256": "e5bc9125c643f8fd9912d1bdbd7c62036c93840444a4db2d24839540c10f5d03",
+      "arguments": {
+        "checkpoint": "/content/ppo-t4/round-000006/candidate.pt",
+        "out": "/content/econ-causal-20261113/p80-corrective",
+        "seed": 8102,
+        "size": 24,
+        "swap": true,
+        "turns": 150,
+        "mode": "greedy",
+        "rng": 0,
+        "device": "cpu",
+        "threads": 1,
+        "prior": null,
+        "load": "/content/econ-causal-20261113/r6-greedy/boundary-080.json",
+        "save_at": [],
+        "focal": "scenario:n0",
+        "intervention": "bc",
+        "alternative": "/content/econ-causal-20261113/corrective/best.pt"
+      },
+      "total_S": 26626.14045607764,
+      "initial_S": {
+        "scenario:n0": 3349.526901324505,
+        "scenario:n1": 3190.3509676841677,
+        "scenario:n2": 2781.995424781395,
+        "scenario:n3": 2118.7826738030035,
+        "scenario:n4": 4343.34644758097,
+        "scenario:n5": 1716.6320674321282,
+        "scenario:n6": 4072.0732312881905,
+        "scenario:n7": 76.09019226283891
+      },
+      "countries": {
+        "scenario:n0": {
+          "S": 6152.610715225748,
+          "increment": 2803.083813901243,
+          "tail_mean": 34.910457077978336,
+          "army": 10,
+          "buildings": 175,
+          "actions_since_start": {
+            "recruit": 19,
+            "build": 90
+          },
+          "capacity": 22,
+          "demand": 24,
+          "tail_grid_short_turns": 45
+        },
+        "scenario:n2": {
+          "S": 3252.0524778244803,
+          "increment": 470.0570530430855,
+          "tail_mean": 8.185847674067473,
+          "army": 2,
+          "buildings": 111,
+          "actions_since_start": {
+            "build": 53,
+            "recruit": 5
+          },
+          "capacity": 8,
+          "demand": 3,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n4": {
+          "S": 10457.45618147566,
+          "increment": 6114.10973389469,
+          "tail_mean": 115.69848404206667,
+          "army": 30,
+          "buildings": 78,
+          "actions_since_start": {
+            "build": 39,
+            "recruit": 32
+          },
+          "capacity": 16,
+          "demand": 14,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n6": {
+          "S": 6764.021081551749,
+          "increment": 2691.947850263559,
+          "tail_mean": 39.96146445902488,
+          "army": 9,
+          "buildings": 56,
+          "actions_since_start": {
+            "build": 21,
+            "recruit": 15
+          },
+          "capacity": 8,
+          "demand": 5,
+          "tail_grid_short_turns": 0
+        }
+      },
+      "focal": {
+        "S": 6152.610715225748,
+        "increment": 2803.083813901243,
+        "tail_mean": 34.910457077978336,
+        "army": 10,
+        "buildings": 175,
+        "actions_since_start": {
+          "recruit": 19,
+          "build": 90
+        },
+        "capacity": 22,
+        "demand": 24,
+        "tail_grid_short_turns": 45
+      }
+    },
+    "p80-power": {
+      "path": "archive/previews/econ-causal-20261113/p80-power/result.json",
+      "sha256": "f90207a78451db661efa5abe64e67e6a97572c290e690f460e053bf8fa4d41f3",
+      "start": 80,
+      "end": 150,
+      "policy_sha256": "e5bc9125c643f8fd9912d1bdbd7c62036c93840444a4db2d24839540c10f5d03",
+      "arguments": {
+        "checkpoint": "/content/ppo-t4/round-000006/candidate.pt",
+        "out": "/content/econ-causal-20261113/p80-power",
+        "seed": 8102,
+        "size": 24,
+        "swap": true,
+        "turns": 150,
+        "mode": "greedy",
+        "rng": 0,
+        "device": "cpu",
+        "threads": 1,
+        "prior": null,
+        "load": "/content/econ-causal-20261113/r6-greedy/boundary-080.json",
+        "save_at": [],
+        "focal": "scenario:n0",
+        "intervention": "power",
+        "alternative": null
+      },
+      "total_S": 26695.545335216368,
+      "initial_S": {
+        "scenario:n0": 3349.526901324505,
+        "scenario:n1": 3190.3509676841677,
+        "scenario:n2": 2781.995424781395,
+        "scenario:n3": 2118.7826738030035,
+        "scenario:n4": 4343.34644758097,
+        "scenario:n5": 1716.6320674321282,
+        "scenario:n6": 4072.0732312881905,
+        "scenario:n7": 76.09019226283891
+      },
+      "countries": {
+        "scenario:n0": {
+          "S": 6767.768987253297,
+          "increment": 3418.242085928792,
+          "tail_mean": 44.611356076155246,
+          "army": 10,
+          "buildings": 184,
+          "actions_since_start": {
+            "build": 99,
+            "recruit": 20
+          },
+          "capacity": 16,
+          "demand": 29,
+          "tail_grid_short_turns": 39
+        },
+        "scenario:n2": {
+          "S": 3141.1796779988363,
+          "increment": 359.18425321744144,
+          "tail_mean": 6.017913813039295,
+          "army": 2,
+          "buildings": 112,
+          "actions_since_start": {
+            "build": 54,
+            "recruit": 3
+          },
+          "capacity": 8,
+          "demand": 3,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n4": {
+          "S": 10282.47518336309,
+          "increment": 5939.128735782121,
+          "tail_mean": 116.18085618242164,
+          "army": 32,
+          "buildings": 85,
+          "actions_since_start": {
+            "build": 46,
+            "recruit": 36
+          },
+          "capacity": 14,
+          "demand": 14,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n6": {
+          "S": 6504.121486601145,
+          "increment": 2432.0482553129546,
+          "tail_mean": 34.90098852172505,
+          "army": 9,
+          "buildings": 61,
+          "actions_since_start": {
+            "build": 26,
+            "recruit": 7
+          },
+          "capacity": 8,
+          "demand": 5,
+          "tail_grid_short_turns": 0
+        }
+      },
+      "focal": {
+        "S": 6767.768987253297,
+        "increment": 3418.242085928792,
+        "tail_mean": 44.611356076155246,
+        "army": 10,
+        "buildings": 184,
+        "actions_since_start": {
+          "build": 99,
+          "recruit": 20
+        },
+        "capacity": 16,
+        "demand": 29,
+        "tail_grid_short_turns": 39
+      }
+    },
+    "p80-prior0-focal": {
+      "path": "archive/previews/econ-causal-20261113/p80-prior0-focal/result.json",
+      "sha256": "e7fb39ff9e41fa66ba5906aa5a2ab1f828cc6e6d3f9336acb00356977f567460",
+      "start": 80,
+      "end": 150,
+      "policy_sha256": "e5bc9125c643f8fd9912d1bdbd7c62036c93840444a4db2d24839540c10f5d03",
+      "arguments": {
+        "checkpoint": "/content/ppo-t4/round-000006/candidate.pt",
+        "out": "/content/econ-causal-20261113/p80-prior0-focal",
+        "seed": 8102,
+        "size": 24,
+        "swap": true,
+        "turns": 150,
+        "mode": "greedy",
+        "rng": 0,
+        "device": "cpu",
+        "threads": 1,
+        "prior": null,
+        "load": "/content/econ-causal-20261113/r6-greedy/boundary-080.json",
+        "save_at": [],
+        "focal": "scenario:n0",
+        "intervention": "bc",
+        "alternative": "/content/econ-causal-20261113/r6-prior0.pt"
+      },
+      "total_S": 20529.25918692365,
+      "initial_S": {
+        "scenario:n0": 3349.526901324505,
+        "scenario:n1": 3190.3509676841677,
+        "scenario:n2": 2781.995424781395,
+        "scenario:n3": 2118.7826738030035,
+        "scenario:n4": 4343.34644758097,
+        "scenario:n5": 1716.6320674321282,
+        "scenario:n6": 4072.0732312881905,
+        "scenario:n7": 76.09019226283891
+      },
+      "countries": {
+        "scenario:n0": {
+          "S": 4375.4055535838725,
+          "increment": 1025.8786522593673,
+          "tail_mean": 5.194297405493526,
+          "army": 2,
+          "buildings": 168,
+          "actions_since_start": {
+            "recruit": 6,
+            "build": 83
+          },
+          "capacity": 10,
+          "demand": 57,
+          "tail_grid_short_turns": 50
+        },
+        "scenario:n2": {
+          "S": 3078.951826344608,
+          "increment": 296.95640156321315,
+          "tail_mean": 4.765498608358103,
+          "army": 3,
+          "buildings": 112,
+          "actions_since_start": {
+            "build": 54,
+            "recruit": 4
+          },
+          "capacity": 8,
+          "demand": 3,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n4": {
+          "S": 7035.62707114196,
+          "increment": 2692.2806235609905,
+          "tail_mean": 43.098956983353325,
+          "army": 12,
+          "buildings": 104,
+          "actions_since_start": {
+            "build": 65,
+            "recruit": 18
+          },
+          "capacity": 16,
+          "demand": 28,
+          "tail_grid_short_turns": 27
+        },
+        "scenario:n6": {
+          "S": 6039.274735853207,
+          "increment": 1967.2015045650164,
+          "tail_mean": 24.694436391372,
+          "army": 9,
+          "buildings": 61,
+          "actions_since_start": {
+            "build": 26,
+            "recruit": 7
+          },
+          "capacity": 8,
+          "demand": 5,
+          "tail_grid_short_turns": 0
+        }
+      },
+      "focal": {
+        "S": 4375.4055535838725,
+        "increment": 1025.8786522593673,
+        "tail_mean": 5.194297405493526,
+        "army": 2,
+        "buildings": 168,
+        "actions_since_start": {
+          "recruit": 6,
+          "build": 83
+        },
+        "capacity": 10,
+        "demand": 57,
+        "tail_grid_short_turns": 50
+      }
+    },
+    "p80-save_for_power": {
+      "path": "archive/previews/econ-causal-20261113/p80-save_for_power/result.json",
+      "sha256": "a6c7785a462b8f30bba3cec7a1637b1f925a6eef3e9549a5ae47b19e83435740",
+      "start": 80,
+      "end": 150,
+      "policy_sha256": "e5bc9125c643f8fd9912d1bdbd7c62036c93840444a4db2d24839540c10f5d03",
+      "arguments": {
+        "checkpoint": "/tmp/ppo-t4-mirror/round-000006/candidate.pt",
+        "out": "archive/previews/econ-causal-20261113/p80-save_for_power",
+        "seed": 8102,
+        "size": 24,
+        "swap": true,
+        "turns": 150,
+        "mode": "greedy",
+        "rng": 0,
+        "device": "cpu",
+        "threads": 1,
+        "prior": null,
+        "load": "archive/previews/econ-causal-20261113/r6-greedy-local/boundary-080.json",
+        "save_at": [],
+        "save_every": 10,
+        "focal": "scenario:n0",
+        "intervention": "save_for_power",
+        "alternative": null
+      },
+      "total_S": 29008.267125375914,
+      "initial_S": {
+        "scenario:n0": 3349.526901324505,
+        "scenario:n1": 3190.3509676841677,
+        "scenario:n2": 2781.995424781395,
+        "scenario:n3": 2118.7826738030035,
+        "scenario:n4": 4343.34644758097,
+        "scenario:n5": 1716.6320674321282,
+        "scenario:n6": 4072.0732312881905,
+        "scenario:n7": 76.09019226283891
+      },
+      "countries": {
+        "scenario:n0": {
+          "S": 13902.770001665092,
+          "increment": 10553.243100340587,
+          "tail_mean": 187.32279999528117,
+          "army": 43,
+          "buildings": 114,
+          "actions_since_start": {
+            "recruit": 46,
+            "build": 29
+          },
+          "capacity": 18,
+          "demand": 16,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n2": {
+          "S": 3383.123096995296,
+          "increment": 601.127672213901,
+          "tail_mean": 10.863054035577825,
+          "army": 3,
+          "buildings": 106,
+          "actions_since_start": {
+            "build": 48,
+            "recruit": 5
+          },
+          "capacity": 8,
+          "demand": 3,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n4": {
+          "S": 5727.8795878657,
+          "increment": 1384.5331402847305,
+          "tail_mean": 12.447652238480696,
+          "army": 0,
+          "buildings": 112,
+          "actions_since_start": {
+            "build": 73,
+            "recruit": 10
+          },
+          "capacity": 12,
+          "demand": 15,
+          "tail_grid_short_turns": 50
+        },
+        "scenario:n6": {
+          "S": 5994.494438849826,
+          "increment": 1922.4212075616356,
+          "tail_mean": 25.109341200328892,
+          "army": 5,
+          "buildings": 76,
+          "actions_since_start": {
+            "build": 41,
+            "recruit": 7
+          },
+          "capacity": 8,
+          "demand": 5,
+          "tail_grid_short_turns": 0
+        }
+      },
+      "focal": {
+        "S": 13902.770001665092,
+        "increment": 10553.243100340587,
+        "tail_mean": 187.32279999528117,
+        "army": 43,
+        "buildings": 114,
+        "actions_since_start": {
+          "recruit": 46,
+          "build": 29
+        },
+        "capacity": 18,
+        "demand": 16,
+        "tail_grid_short_turns": 0
+      }
+    },
+    "p80-teacher": {
+      "path": "archive/previews/econ-causal-20261113/p80-teacher/result.json",
+      "sha256": "6c681319ee004072a66b27a0e172128fa995049d69189bb818a90472864e65fb",
+      "start": 80,
+      "end": 150,
+      "policy_sha256": "e5bc9125c643f8fd9912d1bdbd7c62036c93840444a4db2d24839540c10f5d03",
+      "arguments": {
+        "checkpoint": "/tmp/ppo-t4-mirror/round-000006/candidate.pt",
+        "out": "archive/previews/econ-causal-20261113/p80-teacher",
+        "seed": 8102,
+        "size": 24,
+        "swap": true,
+        "turns": 150,
+        "mode": "greedy",
+        "rng": 0,
+        "device": "cpu",
+        "threads": 1,
+        "prior": null,
+        "load": "archive/previews/econ-causal-20261113/r6-greedy-local/boundary-080.json",
+        "save_at": [],
+        "save_every": 10,
+        "focal": "scenario:n0",
+        "intervention": "teacher",
+        "alternative": null
+      },
+      "total_S": 28917.861657104535,
+      "initial_S": {
+        "scenario:n0": 3349.526901324505,
+        "scenario:n1": 3190.3509676841677,
+        "scenario:n2": 2781.995424781395,
+        "scenario:n3": 2118.7826738030035,
+        "scenario:n4": 4343.34644758097,
+        "scenario:n5": 1716.6320674321282,
+        "scenario:n6": 4072.0732312881905,
+        "scenario:n7": 76.09019226283891
+      },
+      "countries": {
+        "scenario:n0": {
+          "S": 9753.598437624973,
+          "increment": 6404.071536300467,
+          "tail_mean": 97.78042914158493,
+          "army": 38,
+          "buildings": 265,
+          "actions_since_start": null,
+          "capacity": 50,
+          "demand": 49,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n2": {
+          "S": 3488.316432979735,
+          "increment": 706.3210081983402,
+          "tail_mean": 11.66792025335033,
+          "army": 4,
+          "buildings": 96,
+          "actions_since_start": {
+            "build": 38,
+            "recruit": 8
+          },
+          "capacity": 8,
+          "demand": 3,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n4": {
+          "S": 9490.178052450554,
+          "increment": 5146.831604869584,
+          "tail_mean": 97.51711866578698,
+          "army": 36,
+          "buildings": 86,
+          "actions_since_start": {
+            "build": 47,
+            "recruit": 39
+          },
+          "capacity": 14,
+          "demand": 14,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n6": {
+          "S": 6185.768734049274,
+          "increment": 2113.6955027610834,
+          "tail_mean": 26.847145646654152,
+          "army": 9,
+          "buildings": 64,
+          "actions_since_start": {
+            "build": 29,
+            "recruit": 13
+          },
+          "capacity": 8,
+          "demand": 5,
+          "tail_grid_short_turns": 0
+        }
+      },
+      "focal": {
+        "S": 9753.598437624973,
+        "increment": 6404.071536300467,
+        "tail_mean": 97.78042914158493,
+        "army": 38,
+        "buildings": 265,
+        "actions_since_start": null,
+        "capacity": 50,
+        "demand": 49,
+        "tail_grid_short_turns": 0
+      }
+    },
+    "r6-greedy": {
+      "path": "archive/previews/econ-causal-20261113/r6-greedy/result.json",
+      "sha256": "f13ff86b9199646fc0cc8eeb3a127bd3c7ea562921a42f112e087c07bbf436b1",
+      "start": 0,
+      "end": 150,
+      "policy_sha256": "e5bc9125c643f8fd9912d1bdbd7c62036c93840444a4db2d24839540c10f5d03",
+      "arguments": {
+        "checkpoint": "/content/ppo-t4/round-000006/candidate.pt",
+        "out": "/content/econ-causal-20261113/r6-greedy",
+        "seed": 8102,
+        "size": 24,
+        "swap": true,
+        "turns": 150,
+        "mode": "greedy",
+        "rng": 0,
+        "device": "cpu",
+        "threads": 1,
+        "prior": null,
+        "load": null,
+        "save_at": [
+          20,
+          40,
+          60,
+          80,
+          100
+        ],
+        "focal": "scenario:n0",
+        "intervention": null,
+        "alternative": null
+      },
+      "total_S": 20529.25918692365,
+      "initial_S": {
+        "scenario:n0": 0,
+        "scenario:n1": 0,
+        "scenario:n2": 0,
+        "scenario:n3": 0,
+        "scenario:n4": 0,
+        "scenario:n5": 0,
+        "scenario:n6": 0,
+        "scenario:n7": 0
+      },
+      "countries": {
+        "scenario:n0": {
+          "S": 4375.4055535838725,
+          "increment": 4375.4055535838725,
+          "tail_mean": 5.194297405493526,
+          "army": 2,
+          "buildings": 168,
+          "actions_since_start": {
+            "build": 167,
+            "recruit": 35
+          },
+          "capacity": 10,
+          "demand": 57,
+          "tail_grid_short_turns": 50
+        },
+        "scenario:n2": {
+          "S": 3078.951826344608,
+          "increment": 3078.951826344608,
+          "tail_mean": 4.765498608358103,
+          "army": 3,
+          "buildings": 112,
+          "actions_since_start": {
+            "build": 111,
+            "recruit": 30
+          },
+          "capacity": 8,
+          "demand": 3,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n4": {
+          "S": 7035.62707114196,
+          "increment": 7035.62707114196,
+          "tail_mean": 43.098956983353325,
+          "army": 12,
+          "buildings": 104,
+          "actions_since_start": {
+            "build": 103,
+            "recruit": 51
+          },
+          "capacity": 16,
+          "demand": 28,
+          "tail_grid_short_turns": 27
+        },
+        "scenario:n6": {
+          "S": 6039.274735853207,
+          "increment": 6039.274735853207,
+          "tail_mean": 24.694436391372,
+          "army": 9,
+          "buildings": 61,
+          "actions_since_start": {
+            "build": 60,
+            "recruit": 40
+          },
+          "capacity": 8,
+          "demand": 5,
+          "tail_grid_short_turns": 0
+        }
+      },
+      "focal": {
+        "S": 4375.4055535838725,
+        "increment": 4375.4055535838725,
+        "tail_mean": 5.194297405493526,
+        "army": 2,
+        "buildings": 168,
+        "actions_since_start": {
+          "build": 167,
+          "recruit": 35
+        },
+        "capacity": 10,
+        "demand": 57,
+        "tail_grid_short_turns": 50
+      }
+    },
+    "r6-prior0": {
+      "path": "archive/previews/econ-causal-20261113/r6-prior0/result.json",
+      "sha256": "6ca872f0338e35fb914a6149b9f2de54cd59ec3fd0f74cde451873c9ee9455d0",
+      "start": 0,
+      "end": 150,
+      "policy_sha256": "85bebdb6c918d039121470ecbf19bc0d23f45e8face70d4add58185e53647413",
+      "arguments": {
+        "checkpoint": "/tmp/ppo-t4-mirror/round-000006/candidate.pt",
+        "out": "archive/previews/econ-causal-20261113/r6-prior0",
+        "seed": 8102,
+        "size": 24,
+        "swap": true,
+        "turns": 150,
+        "mode": "greedy",
+        "rng": 0,
+        "device": "cpu",
+        "threads": 1,
+        "prior": 0.0,
+        "load": null,
+        "save_at": [
+          40,
+          80
+        ],
+        "focal": "scenario:n0",
+        "intervention": null,
+        "alternative": null
+      },
+      "total_S": 31036.409423794554,
+      "initial_S": {
+        "scenario:n0": 0,
+        "scenario:n1": 0,
+        "scenario:n2": 0,
+        "scenario:n3": 0,
+        "scenario:n4": 0,
+        "scenario:n5": 0,
+        "scenario:n6": 0,
+        "scenario:n7": 0
+      },
+      "countries": {
+        "scenario:n0": {
+          "S": 8075.396633038007,
+          "increment": 8075.396633038007,
+          "tail_mean": 71.69267480668871,
+          "army": 22,
+          "buildings": 178,
+          "actions_since_start": {
+            "build": 177,
+            "recruit": 55
+          },
+          "capacity": 14,
+          "demand": 14,
+          "tail_grid_short_turns": 32
+        },
+        "scenario:n2": {
+          "S": 3912.2819986129134,
+          "increment": 3912.2819986129134,
+          "tail_mean": 12.355440036163582,
+          "army": 2,
+          "buildings": 95,
+          "actions_since_start": {
+            "build": 94,
+            "recruit": 35
+          },
+          "capacity": 8,
+          "demand": 3,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n4": {
+          "S": 11824.434015431632,
+          "increment": 11824.434015431632,
+          "tail_mean": 132.98975737923166,
+          "army": 24,
+          "buildings": 90,
+          "actions_since_start": {
+            "build": 89,
+            "recruit": 55
+          },
+          "capacity": 16,
+          "demand": 13,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n6": {
+          "S": 7224.296776712001,
+          "increment": 7224.296776712001,
+          "tail_mean": 45.952247398901456,
+          "army": 8,
+          "buildings": 70,
+          "actions_since_start": {
+            "build": 69,
+            "recruit": 47
+          },
+          "capacity": 8,
+          "demand": 5,
+          "tail_grid_short_turns": 0
+        }
+      },
+      "focal": {
+        "S": 8075.396633038007,
+        "increment": 8075.396633038007,
+        "tail_mean": 71.69267480668871,
+        "army": 22,
+        "buildings": 178,
+        "actions_since_start": {
+          "build": 177,
+          "recruit": 55
+        },
+        "capacity": 14,
+        "demand": 14,
+        "tail_grid_short_turns": 32
+      }
+    },
+    "r6-resume80-heartbeat": {
+      "path": "archive/previews/econ-causal-20261113/r6-resume80-heartbeat/result.json",
+      "sha256": "fe84fa692703e13effb0d3e194ce5807d81f9f341e85abd63f9bf0ffe14e6696",
+      "start": 80,
+      "end": 150,
+      "policy_sha256": "e5bc9125c643f8fd9912d1bdbd7c62036c93840444a4db2d24839540c10f5d03",
+      "arguments": {
+        "checkpoint": "/tmp/ppo-t4-mirror/round-000006/candidate.pt",
+        "out": "archive/previews/econ-causal-20261113/r6-resume80-heartbeat",
+        "seed": 8102,
+        "size": 24,
+        "swap": true,
+        "turns": 150,
+        "mode": "greedy",
+        "rng": 0,
+        "device": "cpu",
+        "threads": 1,
+        "prior": null,
+        "load": "archive/previews/econ-causal-20261113/r6-greedy-local/boundary-080.json",
+        "save_at": [],
+        "focal": "scenario:n0",
+        "intervention": null,
+        "alternative": null
+      },
+      "total_S": 20529.25918692365,
+      "initial_S": {
+        "scenario:n0": 3349.526901324505,
+        "scenario:n1": 3190.3509676841677,
+        "scenario:n2": 2781.995424781395,
+        "scenario:n3": 2118.7826738030035,
+        "scenario:n4": 4343.34644758097,
+        "scenario:n5": 1716.6320674321282,
+        "scenario:n6": 4072.0732312881905,
+        "scenario:n7": 76.09019226283891
+      },
+      "countries": {
+        "scenario:n0": {
+          "S": 4375.4055535838725,
+          "increment": 1025.8786522593673,
+          "tail_mean": 5.194297405493526,
+          "army": 2,
+          "buildings": 168,
+          "actions_since_start": {
+            "recruit": 6,
+            "build": 83
+          },
+          "capacity": 10,
+          "demand": 57,
+          "tail_grid_short_turns": 50
+        },
+        "scenario:n2": {
+          "S": 3078.951826344608,
+          "increment": 296.95640156321315,
+          "tail_mean": 4.765498608358103,
+          "army": 3,
+          "buildings": 112,
+          "actions_since_start": {
+            "build": 54,
+            "recruit": 4
+          },
+          "capacity": 8,
+          "demand": 3,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n4": {
+          "S": 7035.62707114196,
+          "increment": 2692.2806235609905,
+          "tail_mean": 43.098956983353325,
+          "army": 12,
+          "buildings": 104,
+          "actions_since_start": {
+            "build": 65,
+            "recruit": 18
+          },
+          "capacity": 16,
+          "demand": 28,
+          "tail_grid_short_turns": 27
+        },
+        "scenario:n6": {
+          "S": 6039.274735853207,
+          "increment": 1967.2015045650164,
+          "tail_mean": 24.694436391372,
+          "army": 9,
+          "buildings": 61,
+          "actions_since_start": {
+            "build": 26,
+            "recruit": 7
+          },
+          "capacity": 8,
+          "demand": 5,
+          "tail_grid_short_turns": 0
+        }
+      },
+      "focal": {
+        "S": 4375.4055535838725,
+        "increment": 1025.8786522593673,
+        "tail_mean": 5.194297405493526,
+        "army": 2,
+        "buildings": 168,
+        "actions_since_start": {
+          "recruit": 6,
+          "build": 83
+        },
+        "capacity": 10,
+        "demand": 57,
+        "tail_grid_short_turns": 50
+      }
+    },
+    "r6-sample0": {
+      "path": "archive/previews/econ-causal-20261113/r6-sample0/result.json",
+      "sha256": "c9c0a004651b0ae2d218054f48cbd9d83872b0e4e0286bda44c5904cf6b44aea",
+      "start": 0,
+      "end": 150,
+      "policy_sha256": "e5bc9125c643f8fd9912d1bdbd7c62036c93840444a4db2d24839540c10f5d03",
+      "arguments": {
+        "checkpoint": "/content/ppo-t4/round-000006/candidate.pt",
+        "out": "/content/econ-causal-20261113/r6-sample0",
+        "seed": 8102,
+        "size": 24,
+        "swap": true,
+        "turns": 150,
+        "mode": "sample",
+        "rng": 0,
+        "device": "cpu",
+        "threads": 1,
+        "prior": null,
+        "load": null,
+        "save_at": [
+          20,
+          40,
+          60,
+          80,
+          100
+        ],
+        "focal": "scenario:n0",
+        "intervention": null,
+        "alternative": null
+      },
+      "total_S": 26500.47546765251,
+      "initial_S": {
+        "scenario:n0": 0,
+        "scenario:n1": 0,
+        "scenario:n2": 0,
+        "scenario:n3": 0,
+        "scenario:n4": 0,
+        "scenario:n5": 0,
+        "scenario:n6": 0,
+        "scenario:n7": 0
+      },
+      "countries": {
+        "scenario:n0": {
+          "S": 8042.2526120212315,
+          "increment": 8042.2526120212315,
+          "tail_mean": 79.96370186623551,
+          "army": 29,
+          "buildings": 184,
+          "actions_since_start": {
+            "build": 183,
+            "recruit": 59
+          },
+          "capacity": 12,
+          "demand": 7,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n2": {
+          "S": 4385.604351470919,
+          "increment": 4385.604351470919,
+          "tail_mean": 12.086912620422764,
+          "army": 4,
+          "buildings": 88,
+          "actions_since_start": {
+            "build": 87,
+            "recruit": 35
+          },
+          "capacity": 8,
+          "demand": 4,
+          "tail_grid_short_turns": 0
+        },
+        "scenario:n4": {
+          "S": 6116.229787782566,
+          "increment": 6116.229787782566,
+          "tail_mean": 25.797175787424056,
+          "army": 6,
+          "buildings": 47,
+          "actions_since_start": {
+            "build": 46,
+            "recruit": 33
+          },
+          "capacity": 8,
+          "demand": 9,
+          "tail_grid_short_turns": 50
+        },
+        "scenario:n6": {
+          "S": 7956.388716377797,
+          "increment": 7956.388716377797,
+          "tail_mean": 58.12357141910941,
+          "army": 18,
+          "buildings": 81,
+          "actions_since_start": {
+            "build": 80,
+            "recruit": 47
+          },
+          "capacity": 8,
+          "demand": 7,
+          "tail_grid_short_turns": 0
+        }
+      },
+      "focal": {
+        "S": 8042.2526120212315,
+        "increment": 8042.2526120212315,
+        "tail_mean": 79.96370186623551,
+        "army": 29,
+        "buildings": 184,
+        "actions_since_start": {
+          "build": 183,
+          "recruit": 59
+        },
+        "capacity": 12,
+        "demand": 7,
+        "tail_grid_short_turns": 0
+      }
+    }
+  },
+  "checks": {
+    "final_results": {
+      "complete_150_cases": [
+        "r6-greedy",
+        "r6-sample0",
+        "p80-bc",
+        "p80-power",
+        "p80-corrective",
+        "p80-prior0-focal",
+        "p80-teacher",
+        "p80-save_for_power"
+      ],
+      "all_periods_present": true,
+      "all_S_nondecreasing": true,
+      "feature_contract_verified": true,
+      "all_focal_prior0_decisions_equal_baseline": true,
+      "recovery_boundary_sha256": "dacee3f878467c80989a0e8838eea3d9bbe43fb6fc4389ba420a18d2d442c5ec"
+    },
+    "platform_control": {
+      "r6_local_vs_colab_exact": true,
+      "country_periods": 280,
+      "periods": 70,
+      "bc_prior0_vs_prior05_exact": true,
+      "boundary80_modules_sha256": "9cda9191d03af65fe6c4252654e499a19ee8f5fd8b83a29c7a422c98d3a267b9",
+      "checked_country_fields": [
+        "S",
+        "army",
+        "buildings",
+        "energy",
+        "failures",
+        "kinds",
+        "land"
+      ],
+      "excluded": "per-process action counters reset at load; world and client economic state are preserved"
+    },
+    "checkpoints": {
+      "prior_weights_bit_identical": true,
+      "prior_config_delta": {
+        "exec_prior_weight": [
+          0.5,
+          0.0
+        ]
+      },
+      "corrective_architecture_identical": true,
+      "parameters": 1037607,
+      "corrective_objective": {
+        "type": "diagnostic_teacher_correction",
+        "train_seeds": [
+          910072
+        ],
+        "valid_seeds": [
+          910080
+        ],
+        "epochs": 1,
+        "lr": 1e-05,
+        "opening_weight": 1.0,
+        "mobilization_weight": 1.0,
+        "selection": "validation classification loss; not S promotion"
+      },
+      "corrective_sha256": "3e5daac8ff1f852af7c331a71db0049fa0a99b8fc18d2570b1ebbdacc1a7095c",
+      "prior_sha256": "46aa6f73fa4289737faf5504b957fc52770302d3223aa0510f5fd883fd50a964"
+    },
+    "reward_ledger": {
+      "round": 9,
+      "worlds": 8,
+      "decisions": 9050,
+      "raw_rewards_times_scale": 202432.30347454856,
+      "formal_consumption": 202432.3034745486,
+      "error": -2.9103830456733704e-11
+    }
+  }
+}
