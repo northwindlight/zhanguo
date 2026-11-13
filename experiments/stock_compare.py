@@ -30,6 +30,12 @@ def drawdown(values, initial=100000):
     return round(result, 4)
 
 
+def receipt_data(receipt):
+    """Query receipts may contain lists, scalars or null instead of objects."""
+    data = receipt.get('data')
+    return data if isinstance(data, dict) else {}
+
+
 def extract(save):
     raw = save.read_bytes()
     data = json.loads(raw)
@@ -48,7 +54,7 @@ def extract(save):
         edits = [r for r in own if r['action'] == 'script' and
                  r['arguments'].get('action') in {'write', 'patch'}]
         bad_checks = [r for r in edits if
-                      ((r['receipt'].get('data') or {}).get('check') or {}).get('valid') is False]
+                      (receipt_data(r['receipt']).get('check') or {}).get('valid') is False]
         research = [r for r in own if r['action'] == 'script' and
                     r['arguments'].get('action') == 'run' and
                     r['arguments'].get('slot', '1') == 'research']
@@ -67,7 +73,7 @@ def extract(save):
         examples = []
         for r in calls:
             receipt = r['receipt']
-            check = ((receipt.get('data') or {}).get('check') or {})
+            check = (receipt_data(receipt).get('check') or {})
             if receipt.get('ok') is False or check.get('valid') is False:
                 error = check.get('error')
                 message = (error.get('message') if isinstance(error, dict) else str(error)) if error else receipt.get('message', '')
@@ -86,7 +92,7 @@ def extract(save):
                       tool_actions=len(calls), rejected_tool_actions=sum(r['receipt'].get('ok') is False for r in calls),
                       script_edits=len(edits), failed_auto_checks=len(bad_checks),
                       research_runs=len(research),
-                      research_failures=sum((r['receipt'].get('data') or {}).get('status') == 'failed' or r['receipt'].get('ok') is False for r in research),
+                      research_failures=sum(receipt_data(r['receipt']).get('status') == 'failed' or r['receipt'].get('ok') is False for r in research),
                       trading_slot_runs=len(slots), trading_slot_failures=sum(s['status'] == 'failed' for s in slots),
                       final_script_bytes=sum(len(s['source'].encode()) for s in scripts.values()),
                       final_script_revisions=sum(s['revision'] for s in scripts.values()),
