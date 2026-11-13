@@ -13,7 +13,7 @@
 #   其余参数原样透传给 mp_run.py（如 --save 自定存档）
 #
 # 依赖策略：LLM 接入为标准库原生实现（2026-10-24 起，无 openai SDK），
-# v14联合规划需要NumPy/SciPy；minigame离线示例仍可零依赖运行。
+# v14 联合规划需要 NumPy/SciPy，stock 需要 PAMS；minigame 离线示例可零依赖运行。
 set -e
 cd "$(dirname "$0")"
 
@@ -68,7 +68,10 @@ if [ "$MODE" = "check" ]; then
     exec "$CHECK_PY" mp_run.py --config "$CONFIG_PATH" --check-config
 fi
 
-# ---- 项目虚拟环境包含v14候选规则AI的联合规划依赖 ----
+# ---- 项目虚拟环境包含 v14 联合规划依赖，stock 另需 PAMS ----
+NEED_STOCK=0
+if python3 -c 'import json,sys; from pathlib import Path; sys.exit(0 if Path(json.load(open(sys.argv[1])).get("mods", "")).name == "mods.stock.toml" else 1)' "$CONFIG_PATH"; then NEED_STOCK=1; fi
+
 if [ "$OFFLINE" = "0" ]; then
     if [ ! -x ".venv/bin/python" ]; then
         echo "[初始化] 创建虚拟环境 .venv（仅首次）…"
@@ -85,6 +88,13 @@ elif [ -x ".venv/bin/python" ]; then
 else
     # 纯标准库发行版：不必装任何东西
     PY=python3
+fi
+
+if [ "$NEED_STOCK" = "1" ] && ! "$PY" -c 'from importlib.metadata import version; import pams; assert version("pams") == "0.3.0"' >/dev/null 2>&1; then
+    echo "[初始化] 安装模拟股市后端（requirements-stock.txt）…"
+    if ! "$PY" -m pip install -i "$PIP_MIRROR" --timeout 60 -r requirements-stock.txt; then
+        "$PY" -m pip install --timeout 60 -r requirements-stock.txt
+    fi
 fi
 
 echo "[启动] 战国·多国 AI 对战（看海模式：终端实时流 + mp_journal.md）…"

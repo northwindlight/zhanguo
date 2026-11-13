@@ -60,9 +60,10 @@ APITimeoutError / RateLimitError / 裸 APIError），统一走 `EndpointError.st
 
 两套都走 SIGALRM：它能**打断阻塞中的读**（"流卡住了"正是要抓这个）。
 Windows 没有 SIGALRM——旧代码在函数入口裸用 `signal.SIGALRM`，本机一进 LLM 回合
-就 AttributeError 炸掉整局（2026-09-12 修）；现在按 console.py 的 os.name 分支惯例降级：
-`stream_timeout` 空转、`hard_timeout` 空转，**只靠 urlopen 的 socket 级 timeout
-+ 提供方重试**（流式那边传的是 `timeout=ttft`：它管连接、响应头与**每一次读**，
+就 AttributeError 炸掉整局（2026-09-12 修）；stock 2.x 并发规划后 LLM 调用又进了
+工作线程，signal 只能在主线程安装（2026-10-25 修）——现在按 os.name 与线程双重
+判断降级：`stream_timeout` 空转、`hard_timeout` 空转，**只靠 urlopen 的 socket 级
+timeout + 提供方重试**（流式那边传的是 `timeout=ttft`：它管连接、响应头与**每一次读**，
 首字对得上，流内停滞会宽到 180s 才判死，已知差异；三条提供方在这点上行为一致）。
 
 Anthropic 那一路（`provider="anthropic"`，2026-10-01 接线）
@@ -141,6 +142,7 @@ import json
 import os
 import re
 import signal
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -201,8 +203,18 @@ def is_fatal(e: Exception) -> bool:
     return code is not None and 400 <= code < 500 and code != 429
 
 
+def _alarm_supported() -> bool:
+    """SIGALRM 看门狗只在「POSIX 且主线程」可用。
+
+    signal 只能在主线程安装；stock 2.x 的并发规划把 LLM 调用放进工作线程，
+    非主线程与 Windows 一样降级为「空转 + urlopen 的 socket 级 timeout 兜底」。
+    """
+    return (os.name != "nt" and hasattr(signal, "SIGALRM")
+            and threading.current_thread() is threading.main_thread())
+
+
 def hard_timeout(seconds: float, label: str):
-    """上下文管理器：POSIX 下 arm SIGALRM 硬超时；Windows/无 SIGALRM 平台空转。
+    """上下文管理器：POSIX 主线程下 arm SIGALRM 硬超时；Windows/无 SIGALRM/工作线程空转。
     handler 装了必卸（恢复 prev），alarm 只在 with 块内生效——不会打断块外的
     工具执行/引擎结算。"""
 
@@ -212,7 +224,7 @@ def hard_timeout(seconds: float, label: str):
 
         def __enter__(self):
             self.prev = None
-            if os.name == "nt" or not hasattr(signal, "SIGALRM"):
+            if not _alarm_supported():
                 return self
             self.prev = signal.signal(signal.SIGALRM, self._raise)
             signal.setitimer(signal.ITIMER_REAL, seconds)
@@ -239,7 +251,8 @@ class stream_timeout:
     砍在半路，而且砍掉＝整局终止。
 
     POSIX 用 SIGALRM：它能**打断阻塞中的读**，正是"流卡住了"要抓的那种情形；
-    没有 SIGALRM 的平台（Windows）**空转**——那里只有 SDK 自带的 timeout 兜底，
+    没有 SIGALRM 可用的平台/线程（Windows，以及 stock 并发规划下的工作线程——
+    signal 只允许主线程安装）**空转**——那里只有 SDK 自带的 timeout 兜底，
     见 `_stream_once` 里传的 `timeout=`（首字对得上，流内停滞则宽到首字那个数才判死）。
     """
 
@@ -253,8 +266,8 @@ class stream_timeout:
 
     def __enter__(self):
         self._prev = None
-        if os.name == "nt" or not hasattr(signal, "SIGALRM"):
-            return self                        # Windows：空转，只有 SDK timeout 兜底
+        if not _alarm_supported():
+            return self                        # Windows/工作线程：空转，只有 socket timeout 兜底
         self._prev = signal.signal(signal.SIGALRM, self._fire)
         signal.setitimer(signal.ITIMER_REAL, self.first)
         return self

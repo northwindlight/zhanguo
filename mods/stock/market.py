@@ -1,0 +1,681 @@
+"""Interactive PAMS exchange, factor fundamentals and next-tick orders."""
+from copy import deepcopy
+import math
+import random
+
+from engine.runtime import GameMod, ModError, RuleSection, Stage
+from .backend import PamsBook
+from .dynamics import (Dynamics, REPORT_CYCLE, DELIST_COLLAPSE,
+                       DELIST_TRIGGER_DAYS, DELIST_REVIEW_DAYS, DELIST_DISCOUNT, POOL_FLOOR)
+from .stocks import STOCKS
+
+OPEN = ('accepted', 'partially_filled')
+MAKER = 'stock:market-maker'
+CLEARING = 'stock:clearing-bank'
+FLOW = 'stock:value-trader'
+NOISE = 'stock:noise-flow'
+BACKGROUND = (MAKER, FLOW, NOISE, CLEARING)
+
+
+class Market:
+    PRE, SESSION, CLOSED = 'pre', 'session', 'closed'
+
+    def __init__(self, parameters):
+        self.parameters = dict(parameters)
+        self.commission = parameters['Commission']
+        self.float_shares = parameters['FloatShares']
+        self.seed = 0
+        self.stocks = {r['symbol']: dict(r) for r in STOCKS}
+        self.close = {s: r['anchor'] for s, r in self.stocks.items()}
+        self.opening = dict(self.close)
+        self.fundamental = dict(self.close)
+        self.transient = {s: 0.0 for s in self.stocks}
+        self.history = {s: [p] * 20 for s, p in self.close.items()}
+        self.last_path = {s: [] for s in self.stocks}
+        self.path = {s: [] for s in self.stocks}
+        # 整局保留的盘中采样：每 ~200 tick 一个点，研究槽和普通脚本都能查。
+        self.samples = {s: [] for s in self.stocks}
+        self.last_open = dict(self.close)
+        self.last_depth = {s: dict(bids=[], asks=[]) for s in self.stocks}
+        self.news = []
+        self.orders = {}
+        self.live = {}
+        self.pending = {}
+        self.last_fills = []
+        self.actor_fills = {}
+        self.seq = 1
+        self.trade_seq = 1
+        self.state = self.PRE
+        self.backend = None
+        self.dynamics = None
+        # 股票池状态：新股池进度、退市监视与公告队列；随存档持久。
+        self.pool = dict(ipo_index=0, risk={}, warnings={}, notices=[])
+        self.tick = 0
+        self.round = 1
+        self.recorder = None
+        self._public_cache = None
+        self._world = None
+
+    def bind_state(self, world, key):
+        if self._world is not None and self._world is not world:
+            raise ModError('market 已绑定到别的世界')
+        self._world = world
+        return self
+
+    def _port(self, method, *args):
+        return self._world.runtime.object_call(self._world, 'stock:portfolio', method, *args)
+
+    def _clock(self, method, *args):
+        return self._world.runtime.object_call(self._world, 'stock:clock', method, *args)
+
+    def reseed(self, seed):
+        self.seed = seed
+        self.dynamics = Dynamics(self)
+        self.pool = dict(ipo_index=0, risk={}, warnings={}, notices=[])
+        base = self.float_shares // len(BACKGROUND)
+        for index, actor in enumerate(BACKGROUND):
+            quantity = base + (self.float_shares - base * len(BACKGROUND) if actor == CLEARING else 0)
+            shares = {s: dict(quantity=quantity, cost=p * quantity) for s, p in self.close.items()}
+            self._port('open_account', actor, actor, True, 100000000.0, shares)
+
+    def name_of(self, symbol): return self.stocks.get(symbol, {}).get('name', symbol)
+    def borrow_limit(self, symbol): return self.parameters['BorrowShares']
+    def price_of(self, symbol, actor=None, tick=None):
+        if symbol not in self.stocks:
+            raise ValueError('没有这只股票')
+        if self.state == self.SESSION:
+            return self.backend.mark(symbol, self.close[symbol])
+        return self.close[symbol]
+
+    def catalog(self):
+        report = self.dynamics.next_report if self.dynamics else (lambda s, r=None: None)
+        upcoming = self._clock('period')
+        return [dict(symbol=s, name=r['name'], sector=r['sector'],
+                     report_cycle_days=REPORT_CYCLE, next_report_round=report(s, upcoming))
+                for s, r in self.stocks.items()]
+
+    def sample_interval(self):
+        """盘中采样间隔：每天 100 个点，够看走势又不会把存档撑爆。"""
+        return max(1, self._clock('slices') // 100)
+
+    def ticks_of(self, symbol, limit=200, round_number=None):
+        """逐笔采样历史（整局保留）；可按回合过滤，limit 上限 2000。"""
+        rows = self.samples.get(symbol)
+        if rows is None:
+            raise ValueError('股票不存在')
+        if type(limit) is not int or not 1 <= limit <= 2000:
+            raise ValueError('limit 必须是 1～2000 的整数')
+        if round_number is not None:
+            if type(round_number) is not int or not 1 <= round_number <= self.round:
+                raise ValueError('round 必须是 1～当前回合的整数')
+            rows = [row for row in rows if row['round'] == round_number]
+        return deepcopy(rows[-limit:])
+
+    def history_of(self, symbol, limit=30):
+        if symbol not in self.history or type(limit) is not int or not 1 <= limit <= 256:
+            raise ValueError('股票不存在，或历史条数不是 1～256 的整数')
+        return list(self.history[symbol][-limit:])
+
+    def quotes(self, actor=None):
+        if self._public_cache is not None:
+            return deepcopy(self._public_cache)
+        return self._quotes()
+
+    def freeze_public(self):
+        self._public_cache = self._quotes()
+
+    def _quotes(self):
+        result = []
+        for symbol, stock in self.stocks.items():
+            price = self.price_of(symbol)
+            history = self.history[symbol]
+            depth = self.backend.depth(symbol) if self.state == self.SESSION else self.last_depth[symbol]
+            ma = {f'ma{n}': round(sum(history[-n:]) / n, 4) if len(history) >= n else None
+                  for n in (5, 10, 20)}
+            returns = [history[i]/history[i-1]-1 for i in range(max(1, len(history)-10), len(history))]
+            mean = sum(returns)/len(returns) if returns else 0
+            volatility = (sum((r-mean)**2 for r in returns)/len(returns))**.5 if returns else 0
+            upcoming = self._clock('period')
+            next_report = self.dynamics.next_report(symbol, upcoming) if self.dynamics else None
+            result.append(dict(symbol=symbol, name=stock['name'], sector=stock['sector'],
+                price=price, prev_close=self.close[symbol], change_pct=price/self.close[symbol]-1,
+                open=self.opening[symbol] if self.state == self.SESSION else self.last_open[symbol],
+                path=list(self.path[symbol] if self.state == self.SESSION else self.last_path[symbol]),
+                tick=self.tick if self.state == self.SESSION else 0, **ma,
+                momentum_5=history[-1]/history[-5]-1, volatility=round(volatility, 6),
+                commission_rate=self.commission, float_shares=self.float_shares,
+                anchor=stock['anchor'], report_cycle_days=REPORT_CYCLE, next_report_round=next_report,
+                report_tick=self.dynamics.report_tick if next_report == upcoming else None,
+                delist_review_round=self.pool['warnings'].get(symbol),
+                depth=depth, borrow_available=max(0, self.borrow_limit(symbol)-self._port('short_used', symbol)),
+                news=deepcopy([n for n in self.news if n['symbol'] == symbol][-20:])))
+        return result
+
+    def fee_of(self, amount): return round(amount * self.commission, 2)
+    def execution_price(self, symbol, side, quantity, actor=None):
+        return round(self.price_of(symbol) * (1-.001 if side in ('sell', 'short') else 1.001), 4)
+    def sell_quote(self, symbol, quantity, actor=None):
+        price = self.execution_price(symbol, 'sell', quantity)
+        amount = round(price*quantity, 2)
+        return dict(symbol=symbol, price=price, amount=amount, fee=self.fee_of(amount))
+
+    def open_session(self):
+        self.round = self._clock('period')
+        self._port('begin_day', self.round)
+        self.tick = 0
+        self.orders, self.pending, self.last_fills = {}, {}, []
+        self.live = {}
+        self._public_cache = None
+        listing = self.dynamics.today_listing()
+        if listing is not None:
+            self._list_stock(listing)
+        self.backend = PamsBook(self.stocks, self.close, f'{self.seed}|{self.round}')
+        self.opening = dict(self.close)
+        self.path = {s: [p] for s, p in self.close.items()}
+        self.samples = {s: [] for s in self.stocks}
+        self.state = self.SESSION
+        self.dynamics.open_session()
+        self._quote_maker()
+
+    def _list_stock(self, candidate):
+        """Inject a new listing before the order book is built for the day."""
+        symbol = candidate['symbol']
+        self.stocks[symbol] = dict(candidate)
+        anchor = candidate['anchor']
+        self.close[symbol] = self.opening[symbol] = self.fundamental[symbol] = anchor
+        self.transient[symbol] = 0.0
+        self.history[symbol] = [anchor] * 20
+        self.path[symbol] = [anchor]
+        self.last_path[symbol] = []
+        self.last_open[symbol] = anchor
+        self.last_depth[symbol] = dict(bids=[], asks=[])
+        base = self.float_shares // len(BACKGROUND)
+        for actor in BACKGROUND:
+            self._port('list_shares', actor, symbol, base, anchor)
+        self.pool['ipo_index'] += 1
+        self.pool['listing_today'] = symbol
+
+    def _quote_maker(self):
+        self.cancel_actor(MAKER)
+        positions = self._port('position_of', MAKER)
+        spread_mult = self.dynamics.spread_mult()
+        base = self.float_shares // len(BACKGROUND)
+        for symbol, meta in self.stocks.items():
+            current = self.price_of(symbol)
+            inventory = positions['shares'].get(symbol, 0)
+            bias = max(-.015, min(.015, (base-inventory)/max(1, base) * .04))
+            weight = .30 * meta['converge']
+            centre = (1-weight) * current + weight * self.dynamics.effective(symbol)
+            centre *= 1+bias
+            depth = max(10, round(self.parameters['DepthShares'] * meta['liq']))
+            spread = self.parameters['Spread'] * meta['spread'] * spread_mult
+            for level in range(1, 4):
+                for side, sign in (('buy', -1), ('sell', 1)):
+                    price = round(max(.05, centre * (1 + sign * spread * level)), 2)
+                    try:
+                        order = self._place(MAKER, side, symbol, depth, price, background=True)
+                        self._deliver(order)
+                    except ValueError:
+                        continue  # Finite maker cash/inventory; no fabricated liquidity.
+
+    def _value_flow(self):
+        # This agent reacts only to the same already-public news. Its trades
+        # turn gradual quote discovery into real, finite-cash executions.
+        for symbol, meta in self.stocks.items():
+            price = self.price_of(symbol)
+            gap = self.dynamics.effective(symbol)/price-1
+            if abs(gap) < .004: continue
+            side = 'buy' if gap > 0 else 'sell'
+            quantity = max(1, round(self.parameters['FlowShares'] * meta['liq']))
+            try:
+                order = self._place(FLOW, side, symbol, quantity, background=True)
+                self._deliver(order)
+            except ValueError:
+                continue
+
+    def _noise_flow(self):
+        # Deterministic liquidity/momentum flow: chases recent moves or takes
+        # the other side at random, through real orders with real impact.
+        rng = random.Random(f'{self.seed}|noise|{self.round}|{self.tick}')
+        picks = rng.sample(sorted(self.stocks), rng.randint(1, 3))
+        positions = self._port('position_of', NOISE)
+        base = self.float_shares // len(BACKGROUND)
+        for symbol in picks:
+            meta = self.stocks[symbol]
+            path = self.path[symbol]
+            if len(path) >= 3 and rng.random() < .45:
+                side = 'buy' if path[-1] > path[-3] else 'sell'
+            else:
+                side = rng.choice(('buy', 'sell'))
+            held = positions['shares'].get(symbol, 0)
+            if held > base * 1.4: side = 'sell'
+            elif held < base * .6: side = 'buy'
+            quantity = max(1, round(rng.randint(25, 85) * meta['liq']))
+            if rng.random() < .2: quantity = round(quantity * 2.2)
+            try:
+                order = self._place(NOISE, side, symbol, quantity, background=True)
+                self._deliver(order)
+            except ValueError:
+                continue
+
+    def advance(self, tick):
+        if tick != self.tick + 1:
+            raise ModError('市场必须在一条共同时间线上逐 tick 推进')
+        self.tick = tick
+        self._public_cache = None
+        self._clock('set_tick', tick)
+        total = self._clock('slices')
+        changed = self.dynamics.step(tick, total)
+        self.backend.advance({s: self.dynamics.effective(s) for s in self.stocks})
+        if self.parameters['NoiseEnabled'] and tick % self.parameters['NoiseInterval'] == 0:
+            self._noise_flow()
+        if tick % self.parameters['QuoteInterval'] == 0 or changed:
+            self._quote_maker()
+            changed = True
+        if tick % self.parameters['FlowInterval'] == 0 or changed:
+            self._value_flow()
+            changed = True
+        self.news = self.news[-160:]
+        batch = self.pending.pop(tick, [])
+        for kind, item in batch:
+            if kind == 'cancel': self._cancel_now(item)
+        actors = sorted({o['actor'] for kind, o in batch if kind == 'order'})
+        if actors:
+            shift = (self.round + tick) % len(actors)
+            actors = actors[shift:] + actors[:shift]
+        for actor in actors:
+            for kind, item in batch:
+                if kind == 'order' and item['actor'] == actor and item['status'] in OPEN:
+                    self._deliver(item)
+                    changed = True
+        if tick % max(1, total//20) == 0:
+            for symbol in self.stocks:
+                self.path[symbol].append(self.price_of(symbol))
+        if tick % self.sample_interval() == 0:
+            for symbol in self.stocks:
+                self.samples[symbol].append(dict(round=self.round, tick=tick,
+                                                 price=self.price_of(symbol)))
+        if changed:
+            self._port('risk_check', self.round)
+
+    def day_summary(self, actor):
+        """Compact feedback for the last settled session: own fills and orders."""
+        period = self.round
+        prefix = f'{period}:'
+        bought = sold = fills_count = 0
+        bought_amount = sold_amount = fees = 0.0
+        for f in self.fills(actor):
+            if not f['execution_id'].startswith(prefix):
+                continue
+            fills_count += 1
+            fees += f['fee']
+            if f['side'] in ('buy', 'cover'):
+                bought += f['quantity']; bought_amount += f['amount']
+            else:
+                sold += f['quantity']; sold_amount += f['amount']
+        statuses = {}
+        day_orders = 0
+        for order in self.order_history(actor):
+            if order['placed_round'] != period:
+                continue
+            day_orders += 1
+            statuses[order['status']] = statuses.get(order['status'], 0) + 1
+        return dict(round=period, orders=day_orders, statuses=statuses, fills=fills_count,
+                    bought_quantity=bought, sold_quantity=sold,
+                    bought_amount=round(bought_amount, 2), sold_amount=round(sold_amount, 2),
+                    fees=round(fees, 2))
+
+    def _place(self, actor, side, symbol, quantity, price=None, background=False):
+        if self.state != self.SESSION or not self._clock('trading_day'):
+            raise ValueError('当前未开盘或今天休市，不能买卖')
+        if side not in ('buy', 'sell', 'short', 'cover') or symbol not in self.stocks:
+            raise ValueError('股票或买卖方向无效')
+        if type(quantity) is not int or not 1 <= quantity <= 1000000:
+            raise ValueError('数量必须是1～1000000的整数')
+        if not background and len(self.pending_orders(actor)) >= 64:
+            raise ValueError('本账户未完成委托上限为64笔')
+        is_market = price is None
+        if price is not None and (type(price) not in (int, float) or not math.isfinite(price)
+                                  or not .01 <= price <= 1000000000):
+            raise ValueError('限价必须在0.01～1000000000之间')
+        if price is None:
+            depth = self.backend.depth(symbol)
+            ladder = depth['asks'] if side in ('buy', 'cover') else depth['bids']
+            if not ladder:
+                raise ValueError('对手方没有报价')
+            price = ladder[0][0] * (1.02 if side in ('buy', 'cover') else .98)
+        price = max(.01, round(price, 2))
+        order = dict(id=self.seq, actor=actor, agent_id=0 if background else 1,
+                     symbol=symbol, name=self.name_of(symbol), side=side, quantity=quantity,
+                     remaining=quantity, filled_quantity=0, fill_price=None, amount=0.0, fee=0.0,
+                     price=price, limit_price=price, kind='market' if is_market else 'limit',
+                     status='accepted', reason='', placed_round=self.round,
+                     placed_tick=self.tick, effective_tick=self.tick+1,
+                     background=background)
+        self._port('reserve', actor, order, self.commission)
+        self.seq += 1
+        self.orders[order['id']] = order
+        self.live.setdefault(actor, set()).add(order['id'])
+        return order
+
+    def place(self, world, actor, side, symbol, quantity, price=None):
+        order = self._place(actor, side, symbol, quantity, price)
+        self.pending.setdefault(self.tick+1, []).append(('order', order))
+        return deepcopy(order)
+
+    def _deliver(self, order):
+        buying = order['side'] in ('buy', 'cover')
+        for ident in tuple(self.live.get(order['actor'], ())):
+            resting = self.orders[ident]
+            if (resting['id'] != order['id'] and resting['actor'] == order['actor']
+                    and resting['symbol'] == order['symbol'] and resting['status'] in OPEN
+                    and resting['id'] in self.backend.native
+                    and (resting['side'] in ('buy', 'cover')) != buying
+                    and (order['limit_price'] >= resting['limit_price'] if buying
+                         else order['limit_price'] <= resting['limit_price'])):
+                self._cancel_now(order, 'rejected', '禁止本账户跨槽自成交')
+                return
+        logs = self.backend.submit(order)
+        symbol = order['symbol']
+        for log in logs:
+            trade_id = f'{self.round}:{self.trade_seq}'
+            self.trade_seq += 1
+            for native_id, leg in ((log.buy_order_id, 'b'), (log.sell_order_id, 's')):
+                target = self.orders[self.backend.order_id(symbol, native_id)]
+                target['filled_quantity'] += log.volume
+                target['remaining'] -= log.volume
+                amount = round(log.price*log.volume, 2)
+                fee = 0 if target['background'] else self.fee_of(amount)
+                target['amount'] = round(target['amount'] + amount, 2)
+                target['fee'] = round(target['fee'] + fee, 2)
+                target['fill_price'] = round(target['amount']/target['filled_quantity'], 4)
+                target['status'] = 'filled' if target['remaining'] == 0 else 'partially_filled'
+                if target['remaining'] == 0:
+                    self.live[target['actor']].discard(target['id'])
+                fill = dict(execution_id=trade_id+':'+leg, order_id=target['id'],
+                            actor=target['actor'], side=target['side'], symbol=symbol,
+                            name=self.name_of(symbol), quantity=log.volume, price=log.price,
+                            amount=amount, fee=fee, tick=self.tick,
+                            remaining=target['remaining'])
+                self._port('execute', fill, target['remaining'])
+                self.last_fills.append(fill)
+                if len(self.last_fills) > 4096: del self.last_fills[:1024]
+                book = self.actor_fills.setdefault(target['actor'], [])
+                book.append(fill)
+                if len(book) > 2000: del book[:500]
+                if self.recorder and not target['background']:
+                    self.recorder(target['actor'], 'stock_fill', {}, fill)
+        if order['kind'] == 'market' and order['status'] in OPEN:
+            self._cancel_now(order, 'expired', '保护限价内剩余数量无法成交，市价单剩余部分到期')
+
+    def _cancel_now(self, order, status='cancelled', reason='玩家撤单'):
+        if order['status'] not in OPEN:
+            return
+        if order['id'] in self.backend.native:
+            self.backend.cancel(order)
+        self._port('release', order['actor'], order['id'])
+        self.live[order['actor']].discard(order['id'])
+        order.update(status=status, reason=reason)
+
+    def cancel(self, world, actor, order_id):
+        order = self.orders.get(order_id)
+        if order is None or order['actor'] != actor:
+            raise ValueError('没有本账户的该笔委托')
+        if order['status'] not in OPEN:
+            raise ValueError('委托已完成，不能撤单')
+        # A cancellation queued before order delivery cancels the submission too.
+        self.pending.setdefault(self.tick+1, []).append(('cancel', order))
+        return dict(order_id=order_id, status='cancel_requested', effective_tick=self.tick+1)
+
+    def cancel_actor(self, actor):
+        for ident in sorted(self.live.get(actor, ())):
+            self._cancel_now(self.orders[ident])
+
+    def pending_orders(self, actor=None):
+        ids = self.live.get(actor, ()) if actor is not None else set().union(*self.live.values())
+        return [deepcopy(self.orders[i]) for i in sorted(ids)]
+
+    def order_history(self, actor):
+        return [deepcopy(o) for o in self.orders.values() if o['actor'] == actor][-100:]
+
+    def fills(self, actor=None):
+        if actor is None:
+            return [deepcopy(f) for f in self.last_fills]
+        return [deepcopy(f) for f in self.actor_fills.get(actor, ())]
+
+    def liquidate(self, actor, side, symbol, quantity):
+        price = self.execution_price(symbol, side, quantity)
+        amount = round(price*quantity, 2)
+        fee = self.fee_of(amount)
+        bank = self._port('position_of', CLEARING)
+        if side == 'sell' and bank['cash'] < amount:
+            raise ValueError('清算银行现金不足')
+        if side == 'cover' and bank['shares'].get(symbol, 0) < quantity:
+            raise ValueError('清算银行股票不足')
+        ident = f'{self.round}:liquidation:{self.trade_seq}'
+        self.trade_seq += 1
+        fill = dict(execution_id=ident, actor=actor, side=side, symbol=symbol,
+                    quantity=quantity, price=price, amount=amount, fee=fee)
+        self._port('execute', fill, 0)
+        opposite = 'buy' if side == 'sell' else 'sell'
+        self._port('execute', dict(fill, execution_id=ident+':bank', actor=CLEARING,
+                                   side=opposite, fee=0), 0)
+        if self.recorder: self.recorder(actor, 'stock_liquidation', {}, fill)
+        return fill
+
+    def final_close(self, actor, side, symbol, quantity):
+        """最终清算专用：不经过订单簿和清算银行，按最后价平仓并照收佣金。
+
+        终局必须有确定的成交口径，不能因为盘口没量或清算银行没货而让成绩悬空。
+        """
+        price = self.execution_price(symbol, side, quantity)
+        amount = round(price * quantity, 2)
+        fee = self.fee_of(amount)
+        ident = f'{self.round}:final:{self.trade_seq}'
+        self.trade_seq += 1
+        fill = dict(execution_id=ident, actor=actor, side=side, symbol=symbol,
+                    quantity=quantity, price=price, amount=amount, fee=fee)
+        self._port('execute', fill, 0)
+        if self.recorder: self.recorder(actor, 'stock_final_close', {}, fill)
+        return fill
+
+    def settle(self, world, round_number, trading_day=True):
+        self._public_cache = None
+        if self.state == self.SESSION:
+            for symbol in self.stocks:
+                self.close[symbol] = self.price_of(symbol)
+                self.last_depth[symbol] = self.backend.depth(symbol)
+            for order in list(self.orders.values()):
+                self._cancel_now(order, 'expired', '收盘，Day 委托到期')
+        for symbol in self.stocks:
+            self.history[symbol].append(self.close[symbol])
+            self.last_path[symbol] = list(self.path[symbol])
+            self.last_open[symbol] = self.opening[symbol]
+        self.pending = {}
+        self.state = self.CLOSED
+        if self._clock('trading_day'):
+            self._pool_surveillance()
+        self._clock('close_session')
+        return self.fills()
+
+    # -- 股票池：公开规则的退市监视（收盘价对比发行价锚，全部输入公开） --------
+    def _pool_surveillance(self):
+        for symbol in list(self.stocks):
+            collapsed = self.close[symbol] < self.stocks[symbol]['anchor'] * DELIST_COLLAPSE
+            if collapsed:
+                self.pool['risk'][symbol] = self.pool['risk'].get(symbol, 0) + 1
+            else:
+                self.pool['risk'].pop(symbol, None)
+            review = self.pool['warnings'].get(symbol)
+            if review is not None:
+                if self.round >= review:
+                    self._pool_review(symbol, collapsed)
+                continue
+            if (self.pool['risk'].get(symbol, 0) == DELIST_TRIGGER_DAYS
+                    and len(self.stocks) > POOL_FLOOR):
+                due = self.dynamics.trading_round_after(self.round, DELIST_REVIEW_DAYS)
+                self.pool['warnings'][symbol] = due
+                self._notice(symbol, 'delist-risk',
+                             f'退市风险警示：连续{DELIST_TRIGGER_DAYS}个交易日收盘低于发行锚价的'
+                             f'{DELIST_COLLAPSE:.0%}，第{due}回合复核，届时仍低于则退市')
+
+    def _pool_review(self, symbol, collapsed):
+        self.pool['warnings'].pop(symbol, None)
+        self.pool['risk'].pop(symbol, None)
+        if not collapsed:
+            self._notice(symbol, 'risk-clear', '摘牌解除：复核日收复发行锚价阈值，退市风险消除')
+            return
+        if len(self.stocks) <= POOL_FLOOR:
+            due = self.dynamics.trading_round_after(self.round, DELIST_REVIEW_DAYS)
+            self.pool['warnings'][symbol] = due
+            self._notice(symbol, 'defer', f'退市暂缓：股票池已到下限{POOL_FLOOR}只，第{due}回合再次复核')
+            return
+        self._delist(symbol)
+
+    def _notice(self, symbol, kind, headline):
+        self.pool['notices'].append(dict(round=self.round + 1, symbol=symbol,
+                                         kind=kind, headline=headline))
+
+    def _delist(self, symbol):
+        price = self.close[symbol]
+        for actor, quantity in self._port('holders', symbol):
+            side = 'sell' if quantity > 0 else 'cover'
+            rate = 1 - DELIST_DISCOUNT if quantity > 0 else 1 + DELIST_DISCOUNT
+            deal = round(price * rate, 2)
+            ident = f'{self.round}:delist:{self.trade_seq}'
+            self.trade_seq += 1
+            fill = dict(execution_id=ident, actor=actor, side=side, symbol=symbol,
+                        quantity=abs(quantity), price=deal,
+                        amount=round(deal * abs(quantity), 2), fee=0.0)
+            self._port('execute', fill, 0)
+            opposite = 'buy' if side == 'sell' else 'sell'
+            self._port('execute', dict(fill, execution_id=ident + ':bank', actor=CLEARING,
+                                       side=opposite, fee=0.0), 0)
+            self.last_fills.append(fill)
+            book = self.actor_fills.setdefault(actor, [])
+            book.append(fill)
+            if len(book) > 2000: del book[:500]
+        for store in (self.stocks, self.close, self.opening, self.fundamental, self.transient,
+                      self.history, self.path, self.last_path, self.last_open, self.last_depth):
+            store.pop(symbol, None)
+        self.pool['risk'].pop(symbol, None)
+        self._notice(symbol, 'delist',
+                     f'退市摘牌：按收盘价{DELIST_DISCOUNT:.0%}折价（空头溢价）场外回购全部持仓，'
+                     '该股即日起不再交易')
+
+    def pool_view(self):
+        """Public pool digest: universe, upcoming listings, active warnings."""
+        upcoming = self.dynamics.next_listing() if self.dynamics else None
+        listings = []
+        if upcoming:
+            candidate, round_no = upcoming
+            listings.append(dict(symbol=candidate['symbol'], name=candidate['name'],
+                                 sector=candidate['sector'], anchor=candidate['anchor'],
+                                 round=round_no))
+        return dict(universe=sorted(self.stocks), next_listings=listings,
+                    delist_warnings=[dict(symbol=s, review_round=r)
+                                     for s, r in sorted(self.pool['warnings'].items())])
+
+    def prepare_next_day(self, world, round_number, flow=None, trading_day=True):
+        self.state = self.PRE
+        self.backend = None
+        self.orders = {i: o for i, o in self.orders.items() if not o['background']}
+
+    def to_save(self):
+        if self.state == self.SESSION or self.pending:
+            raise ValueError('市场只允许在完整交易日边界保存')
+        return dict(engine=PamsBook.version, dynamics=2, seed=self.seed, close=dict(self.close),
+                    opening=dict(self.opening), fundamental=dict(self.fundamental),
+                    stocks=deepcopy(self.stocks), pool=deepcopy(self.pool),
+                    history=deepcopy(self.history), samples=deepcopy(self.samples),
+                    last_path=deepcopy(self.last_path),
+                    last_open=dict(self.last_open), last_depth=deepcopy(self.last_depth),
+                    news=deepcopy(self.news), orders=deepcopy(list(self.orders.values())),
+                    fills=deepcopy(self.last_fills[-2000:]),
+                    actor_fills=deepcopy({a: f[-500:] for a, f in self.actor_fills.items()
+                                          if a not in BACKGROUND}),
+                    seq=self.seq, trade_seq=self.trade_seq,
+                    state=self.state, round=self.round)
+
+    def restore(self, state):
+        if (state.get('engine') != PamsBook.version or state.get('dynamics') != 2
+                or state.get('state') == self.SESSION):
+            raise ValueError('不支持的市场后端、动力学版本或非边界存档')
+        self.seed = state['seed']
+        self.dynamics = Dynamics(self)
+        for key in ('close', 'opening', 'fundamental', 'history', 'samples',
+                    'last_path', 'last_open', 'last_depth', 'news'):
+            setattr(self, key, deepcopy(state[key]))
+        self.stocks = {symbol: dict(row) for symbol, row in state['stocks'].items()}
+        self.transient = {s: 0.0 for s in self.stocks}
+        self.pool = deepcopy(state['pool'])
+        self.orders = {o['id']: deepcopy(o) for o in state['orders']}
+        self.live = {}
+        self.last_fills = deepcopy(state['fills'])
+        self.actor_fills = deepcopy(state['actor_fills'])
+        self.seq, self.trade_seq, self.state, self.round = state['seq'], state['trade_seq'], state['state'], state['round']
+        self.path = {s: [] for s in self.stocks}
+        self.pending, self.backend = {}, None
+        self._public_cache = None
+
+
+class MarketAPI:
+    def __init__(self, world): self.world = world
+    def quotes(self, actor): return self.world.market.quotes(actor)
+    def history(self, actor, symbol, limit=30): return self.world.market.history_of(symbol, limit)
+    def ticks(self, actor, symbol, limit=200, round=None): return self.world.market.ticks_of(symbol, limit, round)
+    def catalog(self, actor): return self.world.market.catalog()
+    def pool(self, actor): return self.world.market.pool_view()
+    def orders(self, actor): return self.world.market.order_history(actor)
+    def fills(self, actor): return self.world.market.fills(actor)
+    def day_summary(self, actor): return self.world.market.day_summary(actor)
+    def buy(self, actor, symbol, quantity, price=None): return self.world.market.place(self.world, actor, 'buy', symbol, quantity, price)
+    def sell(self, actor, symbol, quantity, price=None): return self.world.market.place(self.world, actor, 'sell', symbol, quantity, price)
+    def short(self, actor, symbol, quantity, price=None): return self.world.market.place(self.world, actor, 'short', symbol, quantity, price)
+    def cover(self, actor, symbol, quantity, price=None): return self.world.market.place(self.world, actor, 'cover', symbol, quantity, price)
+    def cancel(self, actor, order_id): return self.world.market.cancel(self.world, actor, order_id)
+
+
+class MarketMod(GameMod):
+    def mixins(self): return ()
+    def initialize_world(self, world): world.market = Market(self.declaration['Parameters'])
+    def objects(self, world): return {'stock:market': world.market}
+    def save_state(self, world): return world.market.to_save()
+    def load_state(self, world, state): world.market.restore(state)
+    def player_api(self, world): return MarketAPI(world)
+    def stages(self):
+        return (Stage('stock.market.settle', self._settle, hook='market.settlement', after=('stock.python.run',)),
+                Stage('stock.market.prepare', self._prepare, hook='market.settlement', after=('stock.portfolio.settle',)))
+    def _settle(self, world, changes): changes['fills'] = world.market.settle(world, world.clock.period())
+    def _prepare(self, world, changes): world.market.prepare_next_day(world, world.clock.period())
+    def rule_sections(self, world=None):
+        return (RuleSection('PAMS 交互市场',
+            '市场用 PAMS 0.3.0 订单簿撮合，买卖改变盘口与后续成交；同批匹配按统一清算价成交。'
+            '每个交易日20000逻辑tick，计算机尽快运行，不等待现实20分钟。'
+            '同tick公共快照一致，委托和撤单最早下一tick生效；市价单有2%价格保护，未成交量到期。'
+            'price参数可指定限价，Day限价单可部分成交，收盘撤销；orders/fills只返回自己的委托和成交。'
+            '价格由有限资金与库存的背景做市者、基本面代理、噪声流及玩家委托共同形成。'
+            '基本面受市场与行业因子驱动，波动有平静和风暴状态；每只股票的波动、贝塔、消息敏感度、'
+            '价格吸收速度和盘口流动性都不同（见quotes的volatility与depth）。'
+            '公开消息六类：市场快讯（宏观，全行业按贝塔传导）、公司快讯（盘中错峰发布）、'
+            '定期财报（每5个交易日一轮，日程公开见next_report_round，内容事先未知）、'
+            '公司事件（监管/突破/事故/做市/政策，会永久改变该股的波动率、贝塔、流动性等个性，'
+            '变化随新闻公开）与上市/退市公告。'
+            '股票池是动态的：新股按种子排定的日程陆续挂牌（pool()公布下一只的名称、行业、发行价'
+            '与回合，首只在第7个交易日，之后每6个交易日一只，初始10只+候选4只）；'
+            '退市规则公开可算：收盘价连续5个交易日低于发行锚价（见quotes的anchor）的35%发风险警示，'
+            '再5个交易日复核，仍低于则按收盘价5%折价（空头溢价）场外强制回购后摘牌；股票池下限8只。'
+            '退市股票从行情消失，脚本引用会报"没有这只股票"，请用pool()或quotes核对最新名单。'
+            'quotes() 每只股票返回：symbol 代码、name 名称、sector 行业、anchor 发行锚价、price 最新价、'
+            'prev_close 昨收、change_pct 涨跌幅、open 今开、path 今天已走过的价格序列（约 20 点）、tick 当前 tick、'
+            'ma5/ma10/ma20 均线、momentum_5 近5点动量、volatility 近10点波动率、commission_rate 佣金率、'
+            'float_shares 流通股、depth 盘口 {bids/asks 各档价位与数量}、borrow_available 可借券数、'
+            'report_cycle_days/next_report_round/report_tick 财报日程、delist_review_round 退市复核、'
+            'news 该股最近消息。catalog() 只给代码/名称/行业。历史全部保留、随时可查：'
+            'history(symbol, limit=30，最多256) 返回每天收盘价，从旧到新；'
+            'ticks(symbol, limit=200，最多2000，round=可选回合号) 返回盘中采样（每 200 tick 一点、每天约 100 点，整局保留），'
+            '每点 {round, tick, price}。orders()/fills()/day_summary() 只返回自己的委托、成交与昨日回执。'
+            'quotes 不含种子、未来消息或未来价格。'
+            '可用buy/sell开平多头，short/cover开平空头；做空受借券、保证金和借券费约束。',
+            ('行情', 'PAMS', '交易', '做空', '财报', '上市', '退市', '股票池', '订单'),
+            '交互撮合、因子动力学与动态股票池', system=True),)
