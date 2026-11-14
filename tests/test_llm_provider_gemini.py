@@ -80,6 +80,25 @@ class GeminiTests(unittest.TestCase):
     def test_endpoint_version_is_not_duplicated(self):
         self.assertEqual(endpoint(cfg(base_url='https://example.test/proxy/v1beta/')), ('https://example.test/proxy', 'v1beta'))
 
+    def test_legacy_transcript_is_opt_in_and_never_rewrites_native_parts(self):
+        messages = []
+        for i in range(4):
+            messages += [{'role': 'assistant', 'tool_calls': [{'id': str(i), 'function': {'name': 'query', 'arguments': '{"panel":"market"}'}}]},
+                         {'role': 'tool', 'tool_call_id': str(i), 'content': f'完整结果{i}'}]
+        messages += [{'role': 'assistant', 'content': '', 'tool_calls': [{'id': 'native', 'function': {'name': 'query', 'arguments': '{}'}}],
+                      context.REPLAY_KEY: {'provider': 'gemini', 'model': 'gemini-test', 'parts': [
+                          {'function_call': {'id': 'native', 'name': 'query', 'args': {}}, 'thought_signature': 'c2ln'}]}},
+                     {'role': 'tool', 'tool_call_id': 'native', 'content': 'new'}]
+        original = json.dumps(messages)
+        _, normal = contents(messages, cfg())
+        self.assertIsNotNone(normal[0].parts[0].function_call)
+        _, converted = contents(messages, cfg(gemini_legacy_tool_batches=2))
+        self.assertIn('历史工具调用 0 query', converted[0].parts[0].text)
+        self.assertIn('完整结果0', converted[1].parts[0].text)
+        self.assertIsNotNone(converted[4].parts[0].function_call)
+        self.assertEqual(converted[-2].parts[0].thought_signature, b'sig')
+        self.assertEqual(json.dumps(messages), original)
+
     def test_malformed_empty_and_incomplete_streams_are_errors(self):
         for chunks in ([{'candidates': [{'finishReason': 'MALFORMED_FUNCTION_CALL'}]}],
                        [{'candidates': [{'finishReason': 'STOP'}]}],

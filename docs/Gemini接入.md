@@ -22,6 +22,8 @@
 
 响应中的原生Part、每个Part的思考签名和函数调用关联一起保存在既有客户端回放记录中。并行调用的结果按调用顺序组装，签名不合并、不借用其他模型的签名。旧协议存档没有Gemini原生签名时，对其历史函数调用使用Google文档中的迁移标记；不会把历史动作改成新的实际执行。
 
+若某个兼容服务无法接受大量旧协议工具帧，可显式设置 `gemini_legacy_tool_batches: 2`：将较早的旧协议工具往返完整转录为历史文本，保留最近两个旧批次作为原生工具结构；新SDK产生的Part和签名始终原样回放。默认值0不转录，不截断或修改磁盘存档。
+
 配置 `ctx_old_reasoning=strip` 时，旧思考摘要移出请求，但保留函数调用Part本身的签名。异常结束、空响应、缺失完成帧或不完整工具调用均报错并遵循既有重试策略，不把它们当作有效行动次数。记忆压缩保留工具声明但禁止调用，并显式关闭思考。
 
 参考：[Google Python SDK](https://github.com/googleapis/python-genai)、[Gemini函数调用](https://ai.google.dev/gemini-api/docs/function-calling)、[思考签名](https://ai.google.dev/gemini-api/docs/thought-signatures)。
