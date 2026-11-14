@@ -480,5 +480,8 @@
   "content.native:high-mountain": "High mountains",
   "content.native:ocean": "Ocean",
   "atlas.terrain.native:high-mountain": "high mountains (impassable)",
-  "atlas.terrain.native:ocean": "ocean (impassable)"
+  "atlas.terrain.native:ocean": "ocean (impassable)",
+  "console.settlement_start": "—— Turn {period} settlement ——",
+  "console.settlement_line": "[{period}·settlement] {actor} ◇ {caption} → {result}",
+  "console.settlement_line_bare": "[{period}·settlement] {actor} ◇ {result}"
 }

@@ -390,5 +390,13 @@
   "tools.cancel_build_order.description": "Cancel an unstarted construction_queue id for a full refund. Rejects work already started; use demolish for that. Cancel castle levels from highest down.",
   "tools.construction_queue.description": "Read all owned pending and active construction orders: ids, sites, order, blocking reasons, locked prices and refunds. No coordinates; never advances work.",
   "tools.recruitment_queue.description": "Read all owned recruitment orders: ids, sites, kind, total/spawned/pending counts, blocking reasons and remaining refunds. No coordinates; never advances work.",
-  "tools.march_orders.description": "Read owned unit itineraries: remaining move/attack nodes, waiting reasons, healing state and public routes. Unknown paths return no hidden cells. Read-only; does not advance orders."
+  "tools.march_orders.description": "Read owned unit itineraries: remaining move/attack nodes, waiting reasons, healing state and public routes. Unknown paths return no hidden cells. Read-only; does not advance orders.",
+  "tool.build.started_prepaid": "{name} #{id} started at {place}; uses prepaid materials {costs}, no new charge",
+  "tool.recruit.started_prepaid": "Created {count} new units: {units}; uses prepaid materials, no new charge",
+  "tool.manual.caption": "Read {title}",
+  "tool.manual.title.basics": "Basics",
+  "tool.manual.title.economics": "Economics",
+  "tool.manual.title.war": "Warfare",
+  "tool.manual.title.strategy": "Strategy",
+  "tool.manual.title.manual": "Game manual"
 }

@@ -87,6 +87,9 @@ class ToolLayer:
     def action_name(self, action, args):
         """Resolve the chosen umbrella action for presentation consumers."""
         canonical = self._canonical(action)
+        if canonical=='query' and isinstance((args or {}).get('panel'),str):
+            panel=args['panel']
+            return self._canonical('view' if panel=='map' else panel)
         inner = (args or {}).get('action') if canonical in self._commands else None
         target = self._commands.get(canonical, {}).get(inner) if isinstance(inner, str) else None
         return self._canonical(target) if target else canonical

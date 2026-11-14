@@ -375,5 +375,13 @@
   "atlas.footer": "国土 {own} 块 · 视野内 {seen} 格（非自家 {other}）；他国地块与军队只是可见子集，全国总量未知，未见不等于没有。",
   "brief.army_head": "【军队】本国全量／他国仅当前可见",
   "tool.terrain.blocked": "{name}：不可通行、占领或建造，无资源、无野人",
-  "tool.move_impassable": "不可通行"
+  "tool.move_impassable": "不可通行",
+  "tool.build.started_prepaid": "{name} #{id} 在{place}已开工；使用已预付材料 {costs}，本次不再扣款",
+  "tool.recruit.started_prepaid": "已生成 {count} 支新军：{units}；使用已预付材料，本次不再扣款",
+  "tool.manual.caption": "阅读《{title}》",
+  "tool.manual.title.basics": "基础指南",
+  "tool.manual.title.economics": "经济学手册",
+  "tool.manual.title.war": "战争手册",
+  "tool.manual.title.strategy": "战略手册",
+  "tool.manual.title.manual": "游戏说明书"
 }

@@ -501,5 +501,8 @@
   "content.native:high-mountain": "高山",
   "content.native:ocean": "海洋",
   "atlas.terrain.native:high-mountain": "高山（不可逾越）",
-  "atlas.terrain.native:ocean": "海洋（不可穿越）"
+  "atlas.terrain.native:ocean": "海洋（不可穿越）",
+  "console.settlement_start": "—— 第 {period} 回合统一结算 ——",
+  "console.settlement_line": "[{period}·结算] {actor} ◇ {caption} → {result}",
+  "console.settlement_line_bare": "[{period}·结算] {actor} ◇ {result}"
 }

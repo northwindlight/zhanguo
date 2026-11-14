@@ -171,6 +171,9 @@ def _demolish(args, receipt, actor, ctx):
 
 def _queue_receipt(args, receipt, actor, ctx):
     data=receipt['data']
+    if receipt.get('automatic')=='production_queue' and 'costs' in data:
+        return ctx.text('tool.build.started_prepaid',name=ctx.label('content',data['kind']),
+                        id=data['id'],place=ctx.pos(data,args,actor),costs=ctx.resources(data['costs']))
     return ctx.label('content',data['kind'])+f' #{data["id"]} · '+('已开工' if data['status']=='construction' else '已加入待建队列')+'；预付 '+ctx.resources(data['paid'])
 
 

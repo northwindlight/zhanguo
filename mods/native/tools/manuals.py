@@ -23,4 +23,5 @@ def _manual(data, args, actor, ctx):
 
 PANELS = {'manual': _manual}
 RECEIPTS = {'manual': lambda args, receipt, actor, ctx: (receipt.get('data') or {}).get('body')}
-CAPTIONS = {}
+CAPTIONS = {'manual':lambda args,actor,receipt,ctx:ctx.text('tool.manual.caption',
+    title=ctx.text.resolve('tool.manual.title.'+str(args.get('doc','manual')),str(args.get('doc','manual'))))}

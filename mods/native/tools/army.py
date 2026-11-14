@@ -436,6 +436,9 @@ CAPTIONS = {name: _caption(name) for name in ('recruit', 'move', 'retreat', 'att
 
 def _queued_recruit(args, receipt, actor, ctx):
     row=receipt['data']
+    if receipt.get('automatic')=='production_queue' and isinstance(row,list):
+        units='、'.join(ctx.label('content',unit['kind'])+'#'+str(unit['id']) for unit in row)
+        return ctx.text('tool.recruit.started_prepaid',count=len(row),units=units)
     return ctx.label('content',row['kind'])+f' #{row["id"]} · 待生成 {row["remaining"]}/{row["count"]} 支；预付 '+ctx.resources(row['paid'])
 
 

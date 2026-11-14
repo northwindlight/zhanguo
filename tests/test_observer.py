@@ -28,6 +28,98 @@ class TestObserver(unittest.TestCase):
         if experimental:cfg['mods']='mods.experimental.toml'
         return cfg
 
+    def test_pending_receipts_survive_actor_extinction_and_cycle_save(self):
+        cfg=self.cfg()
+        for nation in cfg['nations']:nation['client']='rule'
+        h=GameHost.new(cfg);actor='s:c'
+        for client in h.clients.values():client.play=lambda player,**kwargs:[]
+        with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()):
+            root=Path(directory);observer=Observer(h,root/'journal.md')
+            observer.ui.console.remember(h.player(actor).observe())
+            receipt=h.player(actor).submit('query',{'panel':'market'})
+            self.assertTrue(receipt['ok'])
+            observer.pending[actor]=[('query',{'panel':'market'},receipt)]
+            capital=next(b for b in h.world.buildings.snapshot().instances
+                         if h.world.buildings.site(b.site).owner==actor)
+            h.world.buildings.demolish(actor,capital.id)
+            h.cycle()
+            self.assertNotIn(actor,h.actors())
+            with self.assertRaises(ValueError):h.player(actor)
+            before=h.to_save()
+            for queued in list(observer.pending):observer.flush(queued)
+            self.assertEqual(h.to_save(),before)
+            self.assertNotIn(actor,observer.pending)
+            text=observer.path.read_text(encoding='utf-8')
+            self.assertIn('[0·行动] 楚',text)
+            self.assertNotIn('[1·行动] 楚',text)
+            self.assertIn('市场',text)
+            save=root/'session.json';h.save(save)
+            restored=GameHost.load(save,cfg)
+            self.assertEqual(restored.to_save(),h.to_save())
+
+    def test_settlement_receipts_do_not_start_a_second_actor_turn(self):
+        cfg=self.cfg()
+        for nation in cfg['nations']:nation['client']='rule'
+        h=GameHost.new(cfg);actor='s:q'
+        with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()):
+            observer=Observer(h,Path(directory)/'journal.md')
+            receipt=h.player(actor).submit('query',{'panel':'market'})
+            receipt={**receipt,'automatic':'production_queue'}
+            before=h.to_save()
+            observer.result(actor,'query',{'panel':'market'},receipt)
+            observer.result(actor,'query',{'panel':'market'},receipt)
+            text=observer.path.read_text()
+            self.assertEqual(text.count('第 0 回合统一结算'),1)
+            self.assertNotIn('### 第 0 回合 · 秦 行动',text)
+            self.assertIn('[0·结算] 秦',text)
+            self.assertIsNone(observer.current_actor)
+            self.assertEqual(before,h.to_save())
+
+    def test_completed_cycle_is_saved_before_observer_event_failure(self):
+        cfg=self.cfg();cfg['max_turns']=2
+        for nation in cfg['nations']:nation['client']='rule'
+        original=Observer.events
+        def fail_after_cycle(observer,*,period=None):
+            if period is not None:raise ValueError('observer-event-fixture')
+            return original(observer,period=period)
+        with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()),patch('sys.stdin',io.StringIO('')):
+            root=Path(directory);cfg.update(save=str(root/'save.json'),journal=str(root/'journal.md'))
+            path=root/'config.json';path.write_text(json.dumps(cfg,ensure_ascii=False))
+            with patch.object(Observer,'events',fail_after_cycle):
+                self.assertEqual(run(['--config',str(path)]),1)
+            restored=GameHost.load(root/'save.json',cfg)
+            self.assertEqual(restored.clock(),1)
+
+    def test_query_captions_use_the_selected_panel_and_manual_title(self):
+        h=GameHost.new(self.cfg());actor='s:q';ui=h.ui.console
+        ui.remember(h.player(actor).observe())
+        for args,expected in (({'panel':'market'},'市场'),({'panel':'land'},'国土'),
+                              ({'panel':'manual','doc':'economics'},'阅读《经济学手册》')):
+            with self.subTest(args=args):
+                receipt=h.player(actor).submit('query',args)
+                self.assertTrue(receipt['ok'])
+                text=ui.action(0,actor,'query',args,receipt,{actor:'秦'})
+                self.assertIn(expected,text.split('→')[0])
+                self.assertNotIn('query panel=',text)
+
+    def test_automatic_build_and_recruit_receipts_describe_actual_start(self):
+        h=GameHost.new(self.cfg());actor='s:q';ui=h.ui.console
+        ui.remember(h.player(actor).observe())
+        site=h.world.nations.sites(actor)[0]
+        build={'api':1,'actor':actor,'action':'build','period':0,'ok':True,'status':'effective',
+               'code':None,'message':'','automatic':'production_queue',
+               'data':{'id':900,'owner':actor,'site':site.id,'kind':'native:farm','period':0,
+                       'costs':[['native:gold',20],['native:wood',15]]}}
+        args={'kind':'native:farm','x':site.position[0],'y':site.position[1]}
+        text=ui.action(0,actor,'build',args,build,{actor:'秦'})
+        self.assertIn('[0·结算]',text);self.assertIn('已开工',text)
+        self.assertIn('20金 15木',text);self.assertIn('本次不再扣款',text)
+        self.assertNotIn('已加入待建',text)
+        recruit={**build,'action':'military','data':[{'id':901,'owner':actor,'kind':'native:infantry'}]}
+        text=ui.action(0,actor,'military',{'action':'recruit','kind':'native:infantry','count':1},recruit,{actor:'秦'})
+        self.assertIn('已生成 1 支新军',text);self.assertIn('步兵#901',text)
+        self.assertIn('本次不再扣款',text);self.assertNotIn('待生成',text)
+
     def test_overview_contains_current_state_without_replaying_messages_or_reports(self):
         h=GameHost.new(self.cfg());state=h.observer_snapshot();state['period']=5
         for sampled in (3,4,5):

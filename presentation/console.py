@@ -81,10 +81,12 @@ class ConsoleUI(ReceiptPresentation):
         caption=self.call_caption(action,args,actor,receipt)
         result=self.receipt_body(action,args,receipt,actor)
         actor_name=names.get(actor,actor)
+        deferred=receipt.get('automatic') in ('production_queue','auto_trades','diplomacy_finish')
+        line_key='console.settlement_line' if deferred else 'console.action_line'
         # 回执正文已经以同样的措辞开头时不再重复一遍（原先会出现「◇ 卖出 石油×1 → 卖出 石油×1，实收…」）。
         if caption and result.startswith(caption):
-            return self.text('console.action_line_bare',period=period,actor=actor_name,result=result)
-        return self.text('console.action_line',period=period,actor=actor_name,
+            return self.text(line_key+'_bare',period=period,actor=actor_name,result=result)
+        return self.text(line_key,period=period,actor=actor_name,
             caption=caption,result=result)
     def event(self,row,names):
         # 行动回执的正文自带「[回合·行动] 国 ◇ …」抬头，再套一层事件前缀会写成

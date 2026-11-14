@@ -75,6 +75,7 @@ class Observer:
         # 看海时最常问的两件事：现在是谁在行动、他为什么这么做。
         # (period,actor) 作键：同一国跨回合连续行动时也要重新打抬头。
         self.current_actor=None;self.started_at=0;self.show_thinking='brief';self.last_thinking=''
+        self.settlement_period=None
         # 完整思考另存一份：日志只保留结论和回执，免得一局几千行全是内心戏。
         self.thoughts=Path(journal_path).with_suffix('.thoughts.md')
     def names(self):return {a:r['name'] for a,r in self.host.roster.items()}
@@ -143,10 +144,19 @@ class Observer:
         to_journal(self.path,clipped);echo_line(text)
     def notice(self,text,head=False):panel_note(self.path,text,head)
     def result(self,actor,action,arguments,receipt):
-        self.actor_start(actor)
+        deferred=receipt.get('automatic') in ('production_queue','auto_trades','diplomacy_finish')
+        if deferred:
+            period=receipt.get('period',self.host.clock())
+            if self.settlement_period!=period:
+                self.settlement_period=period
+                clear=getattr(CONSOLE,'clear_panel',None)
+                if callable(clear):clear()
+                self.line(self.ui.text('console.settlement_start',period=period))
+        else:self.actor_start(actor)
         self.pending.setdefault(actor,[]).append((action,arguments,receipt))
         if self.host.clients[actor].kind=='rule':
             self.flush(actor)
+            if deferred:return
             if action=='end_turn' and receipt['ok']:self.actor_finish(actor)
             try:
                 if not self.host.player(actor).action_state().get('can_act'):self.actor_finish(actor)
@@ -155,7 +165,11 @@ class Observer:
         # Closing here would make on_call restart the clock and report 0.0s.
     def flush(self,actor):
         remember=getattr(self.ui.console,'remember',None)
-        if callable(remember):remember(self.host.player(actor).observe())
+        # Settlement may eliminate an actor whose final receipts are still queued.
+        # Keep rendering those receipts with the cached labels; an extinct actor
+        # no longer has a player view and must not be queried for one.
+        if callable(remember) and actor in self.host.actors():
+            remember(self.host.player(actor).observe())
         for action,args,receipt in self.pending.pop(actor,[]):
             # Settlement receipts may be flushed after the clock advances.
             period=receipt.get('period')
@@ -458,10 +472,12 @@ def run(argv=None):
             observer.show_overview()
             host.cycle(on_result=observer.result,emit=observer.model_output,
                        head=observer.context_head,on_call=observer.on_call)
+            # A completed cycle is durable before any observer formatting runs.
+            # Display failures must not roll back already settled world state.
+            host.save(save_path)
             report_faults(host,observer,ui,journal_path)
             for actor in list(observer.pending):observer.flush(actor)
             observer.events(period=host.clock()-1);ending=observer.snapshot() if callable(getattr(host,'observer_snapshot',None)) else None
-            host.save(save_path)
             if isinstance(ending,dict) and ending.get('map'):
                 map_path=journal_path.with_suffix('.map.txt')
                 map_path.write_text(ui.observer_map(ending),encoding='utf-8')
