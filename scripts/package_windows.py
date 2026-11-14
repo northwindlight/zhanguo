@@ -138,6 +138,16 @@ def stage_solver(bundle, cache):
         if not any(target.rglob('*')):raise ValueError('Solver license missing: '+name)
 
 
+def stage_distribution_license(metadata, target):
+    target.mkdir(parents=True, exist_ok=True)
+    for source in metadata.iterdir():
+        if source.name.lower() == 'licenses' and source.is_dir():
+            shutil.copytree(source, target, dirs_exist_ok=True)
+        elif source.name.upper().startswith('LICENSE') and source.is_file():
+            shutil.copy2(source, target/source.name)
+    shutil.copy2(metadata/'METADATA', target/'METADATA.txt')
+
+
 def stage_gemini(bundle, cache):
     """Ship the pinned SDK dependency closure, including Windows native wheels."""
     rows = json.loads((ROOT/'packaging/windows/gemini-wheels.json').read_text(encoding='utf-8'))
@@ -162,11 +172,7 @@ def stage_gemini(bundle, cache):
         metadata = next(runtime.glob(row['name'].replace('-', '_')+'-*.dist-info'))
         (metadata/'direct_url.json').unlink(missing_ok=True)
         target = bundle/'LICENSES'/row['name']
-        target.mkdir(parents=True, exist_ok=True)
-        if (metadata/'licenses').is_dir(): shutil.copytree(metadata/'licenses', target, dirs_exist_ok=True)
-        for source in metadata.glob('LICENSE*'): shutil.copy2(source, target/source.name)
-        # Keep each distribution's version, authors and license metadata as well.
-        shutil.copy2(metadata/'METADATA', target/'METADATA.txt')
+        stage_distribution_license(metadata, target)
 
 
 def stage_sources(bundle, root=ROOT):
