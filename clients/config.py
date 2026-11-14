@@ -8,6 +8,7 @@ TRANSPORT_FIELDS.update({
     'provider':Field((str,),choices=('openai','responses','anthropic','gemini')),
     'gemini_api_version':Field((str,),choices=('v1','v1beta','v1alpha')),
     'gemini_thinking_budget':Field((int,),minimum=-1),
+    'gemini_legacy_tool_batches':Field((int,),minimum=0),
     'thinking':Field((str,),choices=('enabled','disabled','adaptive')),
     'temperature':Field((int,float),minimum=0,maximum=2,nullable=True),
     'max_tokens':Field((int,),minimum=1), 'api_retries':Field((int,),minimum=0),

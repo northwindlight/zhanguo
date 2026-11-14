@@ -35,6 +35,13 @@ def contents(messages, cfg):
     """Keep native response Parts verbatim, and map legacy call/result pairs by ID."""
     _, types = _sdk()
     system, output, names = [], [], {}
+    transcribed = set()
+    keep = int(cfg.get('gemini_legacy_tool_batches') or 0)
+    if keep:
+        legacy = [m for m in messages if m.get('role') == 'assistant' and m.get('tool_calls')
+                  and (m.get(REPLAY_KEY) or {}).get('provider') != 'gemini']
+        for message in legacy[:-keep]:
+            transcribed.update(call['id'] for call in message['tool_calls'])
     for stored in messages:
         message = _map_message(stored, vision=cfg.get('vision', False), renderer=cfg.get('_ui_expand_message'))
         role = message.get('role')
@@ -58,6 +65,9 @@ def contents(messages, cfg):
                     if not isinstance(arguments, dict):
                         raise ValueError('Gemini function arguments must be an object')
                     names[call['id']] = function['name']
+                    if call['id'] in transcribed:
+                        parts.append(types.Part(text=f'[历史工具调用 {call["id"]} {function["name"]}] '+json.dumps(arguments, ensure_ascii=False)))
+                        continue
                     parts.append(types.Part(
                         function_call=types.FunctionCall(id=call['id'], name=function['name'], args=arguments),
                         # Documented migration sentinel, never a replacement for a
@@ -69,6 +79,11 @@ def contents(messages, cfg):
             if ident not in names:
                 raise ValueError('Gemini tool result has no matching function call')
             raw = message.get('content') or ''
+            if ident in transcribed:
+                parts = [types.Part(text=f'[历史工具结果 {ident}] '+(raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)))]
+                if output and output[-1].role == 'user': output[-1].parts.extend(parts)
+                else: output.append(types.Content(role='user', parts=parts))
+                continue
             try:
                 result = json.loads(raw) if isinstance(raw, str) else raw
             except ValueError:
