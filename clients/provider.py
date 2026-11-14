@@ -1658,6 +1658,9 @@ def make_backend(cfg: dict):
         return ResponsesCompat(cfg)
     if prov == "anthropic":
         return AnthropicCompat(cfg)
-    raise ValueError(f"未知 provider：{prov!r}（只有三种：openai / responses / anthropic；"
+    if prov == "gemini":
+        from clients.gemini import GeminiNative
+        return GeminiNative(cfg)
+    raise ValueError(f"未知 provider：{prov!r}（支持 openai / responses / anthropic / gemini；"
                      f"deepseek、ark、vLLM 等 OpenAI 兼容端点一律写 openai）")
 

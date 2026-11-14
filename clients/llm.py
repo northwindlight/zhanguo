@@ -70,6 +70,10 @@ class LLMClient:
             if record.get('version') not in (None,self.version):raise SaveFormatError('Unsupported LLM client state')
             state=LLMState.from_save(record['state']) if isinstance(record.get('state'),dict) else None
         self.cfg=deepcopy(cfg);self.state=state or LLMState();self._backend=backend
+        if backend is None and str(cfg.get('provider') or '').lower() == 'gemini':
+            # Load native SDK extensions before the console's stdin thread starts;
+            # also report a missing SDK during startup/configuration.
+            self._backend=make_backend(self.cfg)
         if ui is None and isinstance(services,dict):ui=services.get('ui')
         if ui is None:
             # Standalone construction (tests, embedding): no mounted UI mod; the

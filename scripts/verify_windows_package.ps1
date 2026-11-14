@@ -22,6 +22,13 @@ $env:OMP_NUM_THREADS = '1'
 $taskSolverProbe = Join-Path $taskOutput 'solver-probe.py'
 @'
 import json, numpy, scipy
+from google import genai
+from google.genai import types
+from clients.gemini import generation_config, contents
+sdk_cfg={'model':'gemini-test','base_url':'http://127.0.0.1:1','api_key':'offline','reasoning_effort':'high'}
+assert generation_config('rules',[],sdk_cfg).thinking_config.thinking_level=='HIGH'
+assert contents([{'role':'user','content':'hello'}],sdk_cfg)[1][0].parts[0].text=='hello'
+assert types.Part(thought_signature='skip_thought_signature_validator').model_dump(mode='json')['thought_signature']=='skip_thought_signature_validator'
 from ruleai.v14.linear import Model
 m=Model()
 x=m.var('x',upper=10,integer=True)
@@ -29,7 +36,7 @@ y=m.var('y',upper=10,integer=True)
 m.limit(2*x+3*y,upper=13)
 r=m.solve(4*x+5*y,time_limit=5)
 assert r.status=='optimal' and abs(r.objective-25)<1e-6, r
-print(json.dumps({'numpy':numpy.__version__,'scipy':scipy.__version__,'objective':r.objective,'status':r.status}))
+print(json.dumps({'numpy':numpy.__version__,'scipy':scipy.__version__,'google_genai':genai.__version__,'objective':r.objective,'status':r.status}))
 '@ | Set-Content -LiteralPath $taskSolverProbe -Encoding utf8NoBOM
 $taskSolverStart = [Diagnostics.ProcessStartInfo]::new((Join-Path $taskBundle 'runtime/python/python.exe'))
 $taskSolverStart.UseShellExecute=$false
