@@ -1,22 +1,27 @@
 # 真实游戏日志与完整存档
 
-这里收录对局提供者实际游玩战国时留下的完整存档和原始日志，公开供研究与参考。其中两局来自旧版单体游戏，`20261018` 局来自 `main` 的 experimental 发行版，另有两局 stock 股票模拟；均非合成测试。
+这里收录对局提供者实际游玩战国时留下的完整存档和原始日志，公开供研究与参考。其中两局来自旧版单体游戏，另两局八国对局来自 `main` 的 experimental 发行版，还有两局 stock 股票模拟；均非合成测试。
 
 | 对局 | 存档回合 | 模型 | 状态 | 存档 | 日志 | 报告 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 八国终局，种子 20260921 | 258 | `qwen3.8flash`、DeepSeek | 已终局，燕为最后存续国家 | [state.json](eight-nations-258/state.json) | [journal.md](eight-nations-258/journal.md) | — |
 | 八国，种子 20261009 | 158 | `qwen3.8flash` | 当前公开快照，日志含之后的未完成回合及调用失败 | [state.json](eight-nations-158/state.json) | [journal.md](eight-nations-158/journal.md) | — |
 | 八国，种子 20261018 | 50 | Gemini 3.8 Flash / DeepSeek V4.1 Flash Free / Qwen 3.8 Flash | 第 50 回合结算后中断；**effort 不对称，非模型对照** | [state.json.gz](eight-nations-20261018/state.json.gz) | [journal.md](eight-nations-20261018/journal.md) | [report.md](eight-nations-20261018/report.md) |
+| 八国 Qwen / DeepSeek 长局，种子 20261018 | 120 边界（119 已结算） | 四国 Qwen 3.8 Flash / 四国 DeepSeek V4.1 Flash Free | 未终局；第120回合历史交接期间中断 | [session.json.gz](eight-nations-dq-120/session.json.gz) | [后段日志](eight-nations-dq-120/journal.md.gz) / [回退前日志](eight-nations-dq-120/journal-before-rollback.md.gz) | [归档说明与局面](eight-nations-dq-120/README.md) |
 | 股票模拟，种子 2026111303 | 60 | 四席 Gemini 4 Hydrogen High | 已终局，量化丁第一 | [session.json.gz](stock-gemini-hydrogen-20261113/session.json.gz) | [journal.md](stock-gemini-hydrogen-20261113/journal.md) | [结算厅复盘](stock-gemini-hydrogen-20261113/结算厅复盘.md) |
 | 股票模拟，种子 2026111303 | 60 | 四席 Gemini 3.8 Flash High | 已终局，量化乙第一；第48回合额度耗尽后续跑 | [session.json.gz](stock-gemini38-flash-20261114/session.json.gz) | [journal.md](stock-gemini38-flash-20261114/journal.md) | [结算厅复盘](stock-gemini38-flash-20261114/结算厅复盘.md) / [Hydrogen对照](stock-gemini38-flash-20261114/Hydrogen对照评估.md) |
 
-上述三局八国对局均为 24×24 地图，初始国家为秦、魏、韩、赵、燕、齐、楚、周。模型名称由对局提供者说明。258 局确实使用过 DeepSeek，原始存档中部分 `reasoning_signature.model` 为 `deepseek-flash[1m]`；这些字段原样保留。没有整理或推断各国、各回合的完整模型切换表，不能把该局当作单一模型的受控实验。
+上述四局八国对局均为 24×24 地图，初始国家为秦、魏、韩、赵、燕、齐、楚、周。258/158 局的模型名称由对局提供者说明。258 局确实使用过 DeepSeek，原始存档中部分 `reasoning_signature.model` 为 `deepseek-flash[1m]`；这些字段原样保留。没有整理或推断各国、各回合的完整模型切换表，不能把该局当作单一模型的受控实验。
 
 `20261018` 局是 3 Gemini / 3 DeepSeek / 2 Qwen 的混合阵容，且 Gemini 为 `high`、其余为 `low`（`max_tokens` 也不同）；可以描述本局实际表现差异，但不能直接推出相同条件下的总体能力排序。其修订[报告](eight-nations-20261018/report.md)与独立[主观附文](eight-nations-20261018/afterword-model-behavior.md)分开阅读；本地输出及思考档位测量另记于[speed-probe](eight-nations-20261018/speed-probe/README.md)。
+
+`eight-nations-dq-120` 是另开的四国 Qwen / 四国 DeepSeek 长局，均为 `high`，议会审核由 Qwen 承担。经过回退、上下文调整与议会升级；完整结算到第119回合，保存时钟为120。两段日志有重叠及废弃尝试，阅读时以[归档说明](eight-nations-dq-120/README.md)区分。
 
 ## 文件与完整性
 
 每局包含完整 JSON 存档和整份原始文本日志 `journal.md`。文件只改了存放目录与文件名，内容逐字节保留，没有裁剪、重写、补齐回合或修改世界状态。258/158 局直接收录 `state.json`；`20261018` 局的原始存档 107,275,643 B，超过 GitHub 单文件 100 MiB 限制，收录为 `state.json.gz`（14,183,770 B），解压后哈希见该目录 README 与 `manifest.json`。
+
+Qwen / DeepSeek 120边界局的存档和两份日志以 gzip 收录，全部审计文件另附 tar.gz；每个原始文件的哈希、解压与历史版本读档检查见该局目录。
 
 股票局的版本、审计归档与校验方式见 [Hydrogen 对局说明](stock-gemini-hydrogen-20261113/README.md)与 [3.8 Flash 对局说明](stock-gemini38-flash-20261114/README.md)。以下 manifest 与 SHA256SUMS 针对八国记录。
 
@@ -31,8 +36,8 @@ sha256sum -c SHA256SUMS
 
 ## 版本与研究用途
 
-258/158 局的 `version` 为 4，来自现已保存在 [`legacy` 分支](https://github.com/northwindlight/zhanguo/tree/legacy) 的旧版代码体系；`20261018` 局的存档格式为 `zhanguo.session/4`，来自 `main` @ `ec5946c`（0.4.0）的 experimental 发行版 0.8.0。两代格式不互通：旧存档需对照生成它的历史版本研究或续局，不能直接交给当前 `main` 或 experimental 加载；`20261018` 局也不保证能被未来的 `main` 加载。
+258/158 局的 `version` 为 4，来自现已保存在 [`legacy` 分支](https://github.com/northwindlight/zhanguo/tree/legacy) 的旧版代码体系；`20261018` 局的存档格式为 `zhanguo.session/4`，来自 `main` @ `ec5946c`（0.4.0）的 experimental 发行版 0.8.0；Qwen / DeepSeek 120边界局同为 `zhanguo.session/4`，最终对应 `280296c` / experimental 0.15.0。版本契约不互通：各存档需对照生成它的历史版本研究或续局，不能直接交给当前 `main` 加载。
 
 可用这些资料观察长期经济经营、战争、外交、国策修改、工具错误与记忆变化。公开资料保留了真实过程，包含失败与人工干预的可能影响；它们是研究参考材料，不提供标准化排行榜结论。
 
-258/158 局在 main 和 legacy 中各保留一份相同资料；`20261018` 局只存在于 main。没有收录含接入凭据的私人配置；公开资料不包含复现付费模型调用所需的完整接入环境。
+258/158 局在 main 和 legacy 中各保留一份相同资料；其余模块化对局只存在于 main。没有收录含接入凭据的私人配置；公开资料不包含复现付费模型调用所需的完整接入环境。

@@ -1,0 +1,18 @@
+{
+  "source_code": "280296cdd89fda314072ff4d80440ff5b9e3897e",
+  "period": 120,
+  "actors": [
+    "scenario:qin",
+    "scenario:wei",
+    "scenario:han",
+    "scenario:zhao",
+    "scenario:yan",
+    "scenario:qi",
+    "scenario:chu"
+  ],
+  "formal_load": true,
+  "roundtrip_equal": true,
+  "public_archive_extracted_load": true,
+  "public_archive_roundtrip_equal": true,
+  "public_archive_audit_files_verified": 270
+}

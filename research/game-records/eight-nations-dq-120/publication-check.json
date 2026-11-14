@@ -1,0 +1,10 @@
+{
+  "known_configured_credential_matches": 0,
+  "token_pattern_matches": 0,
+  "scanned_source_files": 273,
+  "scanned_source_bytes": 527223809,
+  "audit_json_parse": true,
+  "original_save_and_journal_bytes_preserved": true,
+  "private_configuration_included": false,
+  "live_game_or_models_called": false
+}
