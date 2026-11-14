@@ -118,6 +118,13 @@ class NativeSession(NativeObserver,GridSession):
             tool=self.runtime.tools.get(action)
             if receipt and receipt.get('ok') and action not in BUILTINS and (tool is None or not tool.read_only):
                 self.world.intelligence.capture_maps()
+                if receipt.get('automatic') not in ('production_queue','auto_trades','diplomacy_finish'):
+                    # Unguarded captures already happened during this action.
+                    # Publish them before callbacks; combat/withdrawal events
+                    # still drain through the ordinary settlement stages.
+                    for event in self.world.military.drain_events():
+                        event['details']={**event.get('details',{}),'phase':'action'}
+                        self.world.intelligence.emit(**event)
             return super().record(player,action,arguments,receipt,error)
 
     def finished(self):

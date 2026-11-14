@@ -469,8 +469,17 @@ def _march_orders(data, args, actor, ctx):
     return '\n'.join(lines) or '暂无后续军令'
 
 
+def _queued_march(args, receipt, actor, ctx):
+    data=receipt['data']
+    lines=[f'已更新 {len(data["units"])} 支军队的路线；当前可执行部分已处理，其余按期继续']
+    for row in data.get('started',[]):
+        movement={'ids':[row['aid']],'x':row['position'][0],'y':row['position'][1]}
+        lines.append(_movement_receipt(row['mode'])(movement,{'ok':True,'data':row['receipt']},actor,ctx))
+    return '\n'.join(lines)
+
+
 CAPTIONS.update(queue_orders=lambda args,actor,receipt,ctx:'规划连续军令',
                 cancel_orders=lambda args,actor,receipt,ctx:'取消后续军令',march_orders=lambda args,actor,receipt,ctx:'全国军令路线')
-RECEIPTS.update(queue_orders=lambda args,receipt,actor,ctx:f'已更新 {len(receipt["data"]["units"])} 支军队的路线；当前可执行部分已处理，其余按期继续',
+RECEIPTS.update(queue_orders=_queued_march,
                 cancel_orders=lambda args,receipt,actor,ctx:receipt['data']['message'])
 PANELS['march_orders']=_march_orders

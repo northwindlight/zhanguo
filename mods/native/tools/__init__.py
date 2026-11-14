@@ -95,11 +95,20 @@ class ToolLayer:
         return self._canonical(target) if target else canonical
 
     def caption(self, action, args, actor, receipt, ctx):
-        render = self._captions.get(self.action_name(action, args))
+        name = self.action_name(action, args)
+        render = self._captions.get(name)
         if render is None:
             return None
+        # Audit arguments preserve the player's spelling; captions use the same
+        # declared content aliases as execution (e.g. equip -> equipment).
+        args = dict(args or {})
+        spec = next((spec for spec in (*self._actions, *self._tools) if spec.name == name), None)
+        for key in spec.content_parameters if spec is not None else ():
+            if key in args:
+                try:args[key] = self.runtime.content.resolve(args[key])
+                except ValueError:pass  # Failed calls still show the original input.
         try:
-            return render(args or {}, actor, receipt or {}, ctx)
+            return render(args, actor, receipt or {}, ctx)
         except (KeyError, TypeError, ValueError, AttributeError, IndexError):
             return None
 

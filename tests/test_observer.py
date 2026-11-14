@@ -28,6 +28,161 @@ class TestObserver(unittest.TestCase):
         if experimental:cfg['mods']='mods.experimental.toml'
         return cfg
 
+    def movement_host(self,*,capture=False):
+        h=GameHost.new(self.cfg());actor='s:q'
+        sites=h.world.nations.sites(actor)
+        home=next(s for s in sites if h.world.buildings.count_role(s.id,'capital'))
+        target=next(s for s in sites if s.id!=home.id)
+        seeded=h.world.military.seed(actor,'native:infantry',*home.position)[0]
+        unit=h.world.units.by_id(seeded.id,actor)
+        if capture:h.world.territory.transfer(target.id,None)
+        for client in h.clients.values():client.play=lambda player,**kwargs:[]
+        return h,actor,unit,home,target
+
+    def test_trade_aliases_use_the_canonical_label_without_mutating_arguments(self):
+        h=GameHost.new(self.cfg());actor='s:q';ui=h.ui.console
+        for alias in ('equip','weapons','equipment','native:equipment','装备'):
+            with self.subTest(alias=alias):
+                args={'action':'sell','resource':alias,'quantity':1};before=deepcopy(args)
+                receipt=h.player(actor).submit('economy',args)
+                self.assertTrue(receipt['ok'],receipt)
+                text=ui.action(0,actor,'economy',args,receipt,{actor:'秦'})
+                self.assertIn('◇ 售出 装备×1',text)
+                self.assertNotIn(' → ',text)
+                self.assertEqual(args,before)
+        failed={'ok':False,'message':'unknown','data':None}
+        text=ui.action(0,actor,'economy',{'action':'sell','resource':'unknown-item','quantity':1},failed,{actor:'秦'})
+        self.assertIn('unknown-item',text)
+
+    def test_movement_receipt_is_shown_during_the_action_and_not_replayed(self):
+        h,actor,unit,home,target=self.movement_host()
+        args={'action':'move','ids':[unit.id],'x':target.position[0],'y':target.position[1]}
+        with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()):
+            observer=Observer(h,Path(directory)/'journal.md',resume=True)
+            h.session._callbacks=observer.result
+            receipt=h.player(actor).submit('military',args)
+            self.assertTrue(receipt['ok'],receipt)
+            self.assertEqual((unit.x,unit.y),target.position)
+            text=observer.path.read_text();self.assertIn('[0·行动] 秦',text)
+            self.assertNotIn('结算动态',text)
+            h.cycle();observer.events(period=0)
+            self.assertEqual(observer.path.read_text().count('[0·行动] 秦'),text.count('[0·行动] 秦'))
+
+    def test_immediate_capture_is_published_before_callback_and_shown_once(self):
+        h,actor,unit,home,target=self.movement_host(capture=True)
+        args={'action':'attack','ids':[unit.id],'x':target.position[0],'y':target.position[1]}
+        with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()):
+            observer=Observer(h,Path(directory)/'journal.md',resume=True)
+            h.announce('较早但留到结算的公告')
+            h.session._callbacks=observer.result
+            with patch.object(h.clients[actor],'kind','llm'):
+                receipt=h.player(actor).submit('military',args)
+                self.assertTrue(receipt['data']['occupied'])
+                events=[e for e in h.records()['events'] if e['kind']=='occupation']
+                self.assertEqual(len(events),1)
+                self.assertEqual(events[0]['details']['phase'],'action')
+                self.assertIn(actor,events[0]['recipients'])
+                observer.on_call(actor,0,[receipt]);observer.action_events()
+            text=observer.path.read_text()
+            self.assertEqual(text.count('领土变更：'),1)
+            self.assertNotIn('较早但留到结算的公告',text)
+            self.assertNotIn('结算动态',text)
+            self.assertEqual(h.world.territory.get(target.id).owner,actor)
+            self.assertEqual((unit.x,unit.y),target.position)
+            h.cycle();observer.events(period=0);observer.events(period=0)
+            text=observer.path.read_text()
+            self.assertEqual(text.count('领土变更：'),1)
+            self.assertEqual(text.count('较早但留到结算的公告'),1)
+            self.assertLess(text.index('领土变更：'),text.index('结算动态'))
+            save=Path(directory)/'session.json';h.save(save)
+            restored=GameHost.load(save,self.cfg())
+            self.assertEqual(restored.to_save(),h.to_save())
+            resumed=Observer(restored,observer.path,resume=True)
+            resumed.action_events();resumed.events()
+            self.assertEqual(observer.path.read_text().count('领土变更：'),1)
+
+    def test_automatic_march_capture_is_shown_before_the_next_llm_call(self):
+        h,actor,unit,home,target=self.movement_host(capture=True)
+        unit.update(moved_turn=h.clock())
+        receipt=h.player(actor).submit('military',{'action':'queue_orders','ids':[unit.id],
+            'nodes':[{'mode':'attack','position':list(target.position)}]})
+        self.assertTrue(receipt['ok'],receipt)
+        self.assertEqual((unit.x,unit.y),home.position)
+        h.cycle()
+        with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()):
+            observer=Observer(h,Path(directory)/'journal.md',resume=True)
+            h.session._callbacks=observer.result
+            with patch.object(h.clients[actor],'kind','llm'):
+                self.assertTrue(h.before_actor(h.player(actor)))
+            self.assertEqual((unit.x,unit.y),target.position)
+            text=observer.path.read_text()
+            self.assertIn('[1·行动] 秦',text)
+            self.assertEqual(text.count('领土变更：'),1)
+            self.assertNotIn('结算动态',text)
+            self.assertNotIn(actor,observer.pending)
+
+    def test_initial_march_reports_its_actual_movement_in_the_action_receipt(self):
+        h,actor,unit,home,target=self.movement_host()
+        with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()):
+            observer=Observer(h,Path(directory)/'journal.md',resume=True)
+            h.session._callbacks=observer.result
+            receipt=h.player(actor).submit('military',{'action':'queue_orders','ids':[unit.id],
+                'nodes':[{'mode':'move','position':list(target.position)}]})
+            self.assertTrue(receipt['ok'],receipt)
+            self.assertEqual((unit.x,unit.y),target.position)
+            text=observer.path.read_text()
+            self.assertIn('[0·行动] 秦',text)
+            self.assertIn('已移动至',text)
+            self.assertIn(f'({target.position[0]}, {target.position[1]})',text)
+            self.assertNotIn('结算动态',text)
+
+    def test_retreat_is_an_action_request_until_settlement_actually_moves_it(self):
+        from tests.test_world_domains import TestWorldDomains
+        h,actor,unit,home,target=self.movement_host()
+        TestWorldDomains().declare(h.world,actor,'s:c')
+        h.world.territory.transfer(target.id,'s:c')
+        unit.update(x=target.position[0],y=target.position[1])
+        h.world.military.seed('s:c','native:infantry',*target.position)
+        with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()):
+            observer=Observer(h,Path(directory)/'journal.md',resume=True)
+            h.session._callbacks=observer.result
+            attack=h.player(actor).submit('military',{'action':'attack','ids':[unit.id],
+                'x':target.position[0],'y':target.position[1]})
+            self.assertTrue(attack['ok'],attack)
+            retreat=h.player(actor).submit('military',{'action':'retreat','ids':[unit.id],
+                'x':home.position[0],'y':home.position[1]})
+            self.assertTrue(retreat['ok'],retreat)
+            self.assertEqual((unit.x,unit.y),target.position)
+            self.assertIn('撤退',observer.path.read_text())
+            self.assertFalse(any(e['kind']=='withdrawal' for e in h.records()['events']))
+            h.cycle();observer.events(period=1)
+            self.assertEqual((unit.x,unit.y),home.position)
+            text=observer.path.read_text();self.assertIn('撤至',text)
+            event=next(e for e in h.records()['events'] if e['kind']=='withdrawal')
+            self.assertLess(text.index('结算动态'),text.index(h.ui.console.event(event,observer.names())))
+
+    def test_guarded_capture_stays_at_the_actual_settlement(self):
+        from tests.test_world_domains import TestWorldDomains
+        h,actor,unit,home,target=self.movement_host()
+        TestWorldDomains().declare(h.world,actor,'s:c')
+        h.world.territory.transfer(target.id,'s:c')
+        defender=h.world.military.seed('s:c','native:infantry',*target.position)[0]
+        h.world.units.by_id(defender.id,'s:c').update(hp=1)
+        args={'action':'attack','ids':[unit.id],'x':target.position[0],'y':target.position[1]}
+        with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()):
+            observer=Observer(h,Path(directory)/'journal.md',resume=True)
+            h.session._callbacks=observer.result
+            receipt=h.player(actor).submit('military',args)
+            self.assertTrue(receipt['data']['engaged'],receipt)
+            self.assertNotIn('领土变更：',observer.path.read_text())
+            self.assertEqual(h.world.territory.get(target.id).owner,'s:c')
+            h.cycle();observer.events(period=1)
+            text=observer.path.read_text()
+            self.assertEqual(h.world.territory.get(target.id).owner,actor)
+            self.assertLess(text.index('结算动态'),text.index('领土变更：'))
+            occupation=next(e for e in h.records()['events'] if e['kind']=='occupation')
+            self.assertNotEqual((occupation.get('details') or {}).get('phase'),'action')
+
     def test_pending_receipts_survive_actor_extinction_and_cycle_save(self):
         cfg=self.cfg()
         for nation in cfg['nations']:nation['client']='rule'

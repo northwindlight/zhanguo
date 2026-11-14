@@ -67,6 +67,7 @@ class Observer:
         self.ui=host.ui
         records=host.records()
         self.event=max([0,*[row['id'] for row in records['events']]]) if resume else 0
+        self.action_events_seen=set()
         # Dispatch IDs are allocated before delivery; a delayed spy can arrive
         # after a newer letter. A maximum ID would silently skip that report.
         self.messages_seen={row['id'] for row in records['messages']} if resume else set()
@@ -154,8 +155,11 @@ class Observer:
                 self.line(self.ui.text('console.settlement_start',period=period))
         else:self.actor_start(actor)
         self.pending.setdefault(actor,[]).append((action,arguments,receipt))
-        if self.host.clients[actor].kind=='rule':
+        automatic_march=receipt.get('automatic')=='march_orders'
+        if self.host.clients[actor].kind=='rule' or automatic_march:
             self.flush(actor)
+            self.action_events()
+            if automatic_march:return
             if deferred:return
             if action=='end_turn' and receipt['ok']:self.actor_finish(actor)
             try:
@@ -182,6 +186,7 @@ class Observer:
     def on_call(self,actor,step,receipts):
         self.actor_start(actor)
         self.line(self.ui.text('console.call',actor=self.host.roster[actor]['name'],count=step+1));self.flush(actor)
+        self.action_events()
         if not _commands(self.host,self):self.stop_requested=True
         if any(r.get('action')=='end_turn' and r.get('ok') for r in receipts):self.actor_finish(actor)
         else:
@@ -189,6 +194,16 @@ class Observer:
             try:
                 if not self.host.player(actor).action_state().get('can_act'):self.actor_finish(actor)
             except Exception:pass
+    def action_events(self):
+        # Leave the general cursor untouched: an older announcement may still
+        # be waiting for the boundary while a newer capture is shown now.
+        for event in self.host.records()['events']:
+            detail=event.get('details')
+            if (event['id']>self.event and event['id'] not in self.action_events_seen
+                    and isinstance(detail,dict) and detail.get('phase')=='action'):
+                self.line(self.ui.console.event(event,self.names()))
+                self.action_events_seen.add(event['id'])
+
     def events(self,*,period=None):
         records=self.host.records()
         fresh_events=[]
@@ -197,12 +212,13 @@ class Observer:
             # writes each primary receipt through flush().
             detail=event.get('details')
             mirrored=isinstance(detail,dict) and detail.get('source')=='action_receipt'
-            if event['id']>self.event and not mirrored:fresh_events.append(event)
+            if event['id']>self.event and event['id'] not in self.action_events_seen and not mirrored:fresh_events.append(event)
         messages=[message for message in records['messages'] if message['id'] not in self.messages_seen]
         if period is not None and (fresh_events or messages):
             self.line(self.ui.text('console.round_events',period=period))
         for event in fresh_events:self.line(self.ui.console.event(event,self.names()))
         self.event=max([self.event,*[row['id'] for row in records['events']]])
+        self.action_events_seen.clear()
         for message in messages:
             full=self.ui.console.message(message,self.names())
             to_journal(self.path,full)
