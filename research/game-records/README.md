@@ -19,6 +19,8 @@
 
 ## 文件与完整性
 
+逐回合对照：[Qwen / DeepSeek旧局与Hydrogen本局，第0—33回合八国合计](comparisons/dq-vs-hydrogen-0-33-20261114/README.md)，提供GDP、领土、当期/累计消费及军队对比表、Excel和逐国明细。
+
 每局包含完整 JSON 存档和整份原始文本日志 `journal.md`。文件只改了存放目录与文件名，内容逐字节保留，没有裁剪、重写、补齐回合或修改世界状态。258/158 局直接收录 `state.json`；`20261018` 局的原始存档 107,275,643 B，超过 GitHub 单文件 100 MiB 限制，收录为 `state.json.gz`（14,183,770 B），解压后哈希见该目录 README 与 `manifest.json`。
 
 Qwen / DeepSeek 120边界局的存档和两份日志以 gzip 收录，全部审计文件另附 tar.gz；每个原始文件的哈希、解压与历史版本读档检查见该局目录。
