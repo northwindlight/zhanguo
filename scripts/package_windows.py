@@ -138,10 +138,41 @@ def stage_solver(bundle, cache):
         if not any(target.rglob('*')):raise ValueError('Solver license missing: '+name)
 
 
+def stage_gemini(bundle, cache):
+    """Ship the pinned SDK dependency closure, including Windows native wheels."""
+    rows = json.loads((ROOT/'packaging/windows/gemini-wheels.json').read_text(encoding='utf-8'))
+    wheels = []
+    for row in rows:
+        path = cache/row['filename']
+        if not path.is_file() or digest(path) != row['sha256']:
+            temporary = path.with_suffix('.partial')
+            with urllib.request.urlopen(row['url'], timeout=120) as source, temporary.open('wb') as dest:
+                shutil.copyfileobj(source, dest, 1024*1024)
+            if digest(temporary) != row['sha256']:
+                temporary.unlink()
+                raise ValueError('Gemini wheel SHA-256 mismatch: '+row['filename'])
+            temporary.replace(path)
+        wheels.append(path)
+    runtime = bundle/'runtime/python'
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-index', '--no-deps', '--no-compile',
+        '--platform', 'win_amd64', '--implementation', 'cp', '--python-version', '3.13', '--abi', 'cp313',
+        '--only-binary=:all:', '--target', str(runtime), *map(str, wheels)], check=True)
+    for directory in ('Scripts', 'bin'): shutil.rmtree(runtime/directory, ignore_errors=True)
+    for row in rows:
+        metadata = next(runtime.glob(row['name'].replace('-', '_')+'-*.dist-info'))
+        (metadata/'direct_url.json').unlink(missing_ok=True)
+        target = bundle/'LICENSES'/row['name']
+        target.mkdir(parents=True, exist_ok=True)
+        if (metadata/'licenses').is_dir(): shutil.copytree(metadata/'licenses', target, dirs_exist_ok=True)
+        for source in metadata.glob('LICENSE*'): shutil.copy2(source, target/source.name)
+        # Keep each distribution's version, authors and license metadata as well.
+        shutil.copy2(metadata/'METADATA', target/'METADATA.txt')
+
+
 def stage_sources(bundle, root=ROOT):
     stage_runtime(bundle, root)
     for file in (root / "packaging/windows").iterdir():
-        if file.is_file():
+        if file.is_file() and file.name != 'gemini-wheels.json':
             shutil.copy2(file, bundle / file.name)
     review = bundle / "美术预览"
     shutil.copytree(root / "docs/design/unified-v1", review)
@@ -175,7 +206,8 @@ def stage_sources(bundle, root=ROOT):
 def inspect(bundle):
     required = ["Zhanguo.exe", "Zhanguo.pck", "game/host.py", "game/ui/desktop.py", "game/mods.toml", "game/ui.toml",
                 "runtime/python/python.exe", "runtime/python/python313.dll", "portable.json",
-                "runtime/python/numpy/__init__.py", "runtime/python/scipy/optimize/_milp.py"]
+                "runtime/python/numpy/__init__.py", "runtime/python/scipy/optimize/_milp.py",
+                "runtime/python/google/genai/__init__.py", "game/clients/gemini.py"]
     for name in required:
         if not (bundle / name).is_file():
             raise ValueError("Incomplete bundle: " + name)
@@ -198,6 +230,7 @@ def build(output, cache):
     stage_sources(bundle)
     extract(download("python", cache), bundle / "runtime/python")
     stage_solver(bundle,cache)
+    stage_gemini(bundle,cache)
     # Embedded Python ignores the registry, PATH, user site and PYTHONPATH.
     (bundle / "runtime/python/python313._pth").write_text("python313.zip\n.\n../../game\n", encoding="utf-8")
     godot = tools(cache)

@@ -496,9 +496,10 @@ public partial class MainMenu : Control
             nameEdit.TextChanged += v => profile.Name = v; grid.AddChild(nameEdit);
             grid.AddChild(FieldLabel("provider"));
             var provider = new OptionButton { FocusMode = FocusModeEnum.None };
-            foreach (var p in new[] { "openai", "anthropic" }) provider.AddItem(p);
-            provider.Selected = Math.Max(0, new[] { "openai", "anthropic" }.ToList().IndexOf(profile.Provider));
-            provider.ItemSelected += i => profile.Provider = new[] { "openai", "anthropic" }[(int)i];
+            var protocols = new[] { "openai", "responses", "anthropic", "gemini" };
+            foreach (var p in protocols) provider.AddItem(p);
+            provider.Selected = Math.Max(0, protocols.ToList().IndexOf(profile.Provider));
+            provider.ItemSelected += i => profile.Provider = protocols[(int)i];
             grid.AddChild(provider);
             grid.AddChild(FieldLabel("base_url"));
             var url = new LineEdit { SizeFlagsHorizontal=SizeFlags.ExpandFill, Text = profile.BaseUrl }; url.TextChanged += v => profile.BaseUrl = v; grid.AddChild(url);

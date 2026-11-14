@@ -1,3 +1,4 @@
-# LLM protocols remain standard-library implementations, without an OpenAI SDK.
+# Gemini uses Google's official SDK; other transports remain standard-library based.
+-r requirements-gemini.txt
 # The optional v14 economic planner uses a real MILP solver.
 -r requirements-ruleai.txt

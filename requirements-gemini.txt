@@ -1,0 +1,2 @@
+# Native Gemini transport; install into the project virtual environment.
+google-genai==3.3.0
