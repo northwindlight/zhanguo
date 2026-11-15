@@ -1,0 +1,106 @@
+{
+  "hydrogen": {
+    "量化甲": {
+      "tool_actions": 273,
+      "rejected_tool_actions": 6,
+      "script_edits": 101,
+      "failed_auto_checks": 32,
+      "research_runs": 16,
+      "research_failures": 5,
+      "trading_slot_runs": 43,
+      "trading_slot_failures": 8
+    },
+    "量化乙": {
+      "tool_actions": 312,
+      "rejected_tool_actions": 5,
+      "script_edits": 121,
+      "failed_auto_checks": 5,
+      "research_runs": 0,
+      "research_failures": 0,
+      "trading_slot_runs": 82,
+      "trading_slot_failures": 11
+    },
+    "量化丙": {
+      "tool_actions": 192,
+      "rejected_tool_actions": 3,
+      "script_edits": 53,
+      "failed_auto_checks": 2,
+      "research_runs": 6,
+      "research_failures": 2,
+      "trading_slot_runs": 49,
+      "trading_slot_failures": 12
+    },
+    "量化丁": {
+      "tool_actions": 239,
+      "rejected_tool_actions": 3,
+      "script_edits": 86,
+      "failed_auto_checks": 1,
+      "research_runs": 0,
+      "research_failures": 0,
+      "trading_slot_runs": 81,
+      "trading_slot_failures": 8
+    },
+    "__total__": {
+      "tool_actions": 1016,
+      "rejected_tool_actions": 17,
+      "script_edits": 361,
+      "failed_auto_checks": 40,
+      "research_runs": 22,
+      "research_failures": 7,
+      "trading_slot_runs": 255,
+      "trading_slot_failures": 39
+    }
+  },
+  "flash": {
+    "量化甲": {
+      "tool_actions": 201,
+      "rejected_tool_actions": 0,
+      "script_edits": 22,
+      "failed_auto_checks": 0,
+      "research_runs": 5,
+      "research_failures": 0,
+      "trading_slot_runs": 43,
+      "trading_slot_failures": 7
+    },
+    "量化乙": {
+      "tool_actions": 221,
+      "rejected_tool_actions": 0,
+      "script_edits": 45,
+      "failed_auto_checks": 0,
+      "research_runs": 1,
+      "research_failures": 0,
+      "trading_slot_runs": 43,
+      "trading_slot_failures": 8
+    },
+    "量化丙": {
+      "tool_actions": 219,
+      "rejected_tool_actions": 0,
+      "script_edits": 45,
+      "failed_auto_checks": 0,
+      "research_runs": 5,
+      "research_failures": 0,
+      "trading_slot_runs": 43,
+      "trading_slot_failures": 4
+    },
+    "量化丁": {
+      "tool_actions": 303,
+      "rejected_tool_actions": 0,
+      "script_edits": 52,
+      "failed_auto_checks": 1,
+      "research_runs": 11,
+      "research_failures": 0,
+      "trading_slot_runs": 43,
+      "trading_slot_failures": 6
+    },
+    "__total__": {
+      "tool_actions": 944,
+      "rejected_tool_actions": 0,
+      "script_edits": 164,
+      "failed_auto_checks": 1,
+      "research_runs": 22,
+      "research_failures": 0,
+      "trading_slot_runs": 172,
+      "trading_slot_failures": 25
+    }
+  }
+}

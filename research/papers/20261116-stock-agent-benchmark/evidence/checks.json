@@ -1,0 +1,97 @@
+[
+  {
+    "label": "hydrogen/量化甲 会计恒等式",
+    "ok": true,
+    "detail": "115064.65"
+  },
+  {
+    "label": "hydrogen/量化乙 会计恒等式",
+    "ok": true,
+    "detail": "92808.80"
+  },
+  {
+    "label": "hydrogen/量化丙 会计恒等式",
+    "ok": true,
+    "detail": "97355.33"
+  },
+  {
+    "label": "hydrogen/量化丁 会计恒等式",
+    "ok": true,
+    "detail": "125615.61"
+  },
+  {
+    "label": "flash/量化甲 会计恒等式",
+    "ok": true,
+    "detail": "82070.03"
+  },
+  {
+    "label": "flash/量化乙 会计恒等式",
+    "ok": true,
+    "detail": "83890.71"
+  },
+  {
+    "label": "flash/量化丙 会计恒等式",
+    "ok": true,
+    "detail": "72559.83"
+  },
+  {
+    "label": "flash/量化丁 会计恒等式",
+    "ok": true,
+    "detail": "67332.40"
+  },
+  {
+    "label": "差异分解合计 = 每席平均现金差",
+    "ok": true,
+    "detail": "31247.85 vs 31247.86"
+  },
+  {
+    "label": "量化甲 成交现金流合计 = realized_pnl",
+    "ok": true,
+    "detail": "42725.74 vs 42725.74"
+  },
+  {
+    "label": "量化乙 成交现金流合计 = realized_pnl",
+    "ok": true,
+    "detail": "12385.30 vs 12385.30"
+  },
+  {
+    "label": "量化丙 成交现金流合计 = realized_pnl",
+    "ok": true,
+    "detail": "9997.68 vs 9997.68"
+  },
+  {
+    "label": "量化丁 成交现金流合计 = realized_pnl",
+    "ok": true,
+    "detail": "33967.80 vs 33967.80"
+  },
+  {
+    "label": "量化甲 成交现金流合计 = realized_pnl",
+    "ok": true,
+    "detail": "-5649.97 vs -5649.97"
+  },
+  {
+    "label": "量化乙 成交现金流合计 = realized_pnl",
+    "ok": true,
+    "detail": "530.71 vs 530.71"
+  },
+  {
+    "label": "量化丙 成交现金流合计 = realized_pnl",
+    "ok": true,
+    "detail": "-9720.17 vs -9720.17"
+  },
+  {
+    "label": "量化丁 成交现金流合计 = realized_pnl",
+    "ok": true,
+    "detail": "-2747.60 vs -2747.60"
+  },
+  {
+    "label": "公开消息逐条对齐",
+    "ok": true,
+    "detail": "shared=160, fields={'headline': 160, 'cashflow_change_pct': 160, 'effect': 160}"
+  },
+  {
+    "label": "被动等权持有基准接近",
+    "ok": true,
+    "detail": "{'hydrogen': 31.46, 'flash': 32.46}"
+  }
+]

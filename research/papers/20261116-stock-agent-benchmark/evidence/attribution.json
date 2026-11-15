@@ -1,0 +1,50 @@
+{
+  "per_seat_average_hydrogen": {
+    "final_cash": 107711.1,
+    "realized_pnl": 24769.13,
+    "compute_expenses": 12670.0,
+    "intelligence_expenses": 4375.0,
+    "borrow_fees": 13.03,
+    "interest_paid": 0.0,
+    "max_drawdown_pct": 9.55
+  },
+  "per_seat_average_flash": {
+    "final_cash": 76463.24,
+    "realized_pnl": -4396.76,
+    "compute_expenses": 17390.0,
+    "intelligence_expenses": 1750.0,
+    "borrow_fees": 0.0,
+    "interest_paid": 0.0,
+    "max_drawdown_pct": 23.54
+  },
+  "items": [
+    {
+      "key": "realized_pnl",
+      "label": "交易净盈亏",
+      "per_seat_delta": 29165.89
+    },
+    {
+      "key": "compute_expenses",
+      "label": "算力支出",
+      "per_seat_delta": 4720.0
+    },
+    {
+      "key": "intelligence_expenses",
+      "label": "情报支出",
+      "per_seat_delta": -2625.0
+    },
+    {
+      "key": "borrow_fees",
+      "label": "借券费",
+      "per_seat_delta": -13.03
+    },
+    {
+      "key": "interest_paid",
+      "label": "利息",
+      "per_seat_delta": -0.0
+    }
+  ],
+  "cash_delta": 31247.86,
+  "items_sum": 31247.85,
+  "identity_ok": true
+}

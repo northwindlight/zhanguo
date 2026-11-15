@@ -1,0 +1,119 @@
+{
+  "news": {
+    "counts": {
+      "hydrogen": 160,
+      "flash": 160
+    },
+    "shared": 160,
+    "only_hydrogen": 0,
+    "only_flash": 0,
+    "fields_identical": {
+      "headline": 160,
+      "cashflow_change_pct": 160,
+      "effect": 160
+    },
+    "round_window": {
+      "hydrogen": [
+        53,
+        59
+      ],
+      "flash": [
+        53,
+        59
+      ]
+    }
+  },
+  "price_paths": {
+    "per_symbol": {
+      "shanhai": {
+        "corr": 0.9919,
+        "first_round": 1,
+        "return_hydrogen_pct": -9.18,
+        "return_flash_pct": -9.38
+      },
+      "qingzhou": {
+        "corr": 0.9882,
+        "first_round": 1,
+        "return_hydrogen_pct": -11.16,
+        "return_flash_pct": -10.7
+      },
+      "yundu": {
+        "corr": 0.9669,
+        "first_round": 1,
+        "return_hydrogen_pct": 207.52,
+        "return_flash_pct": 204.95
+      },
+      "changfeng": {
+        "corr": 0.9621,
+        "first_round": 1,
+        "return_hydrogen_pct": 28.05,
+        "return_flash_pct": 28.81
+      },
+      "beiyuan": {
+        "corr": 0.8608,
+        "first_round": 1,
+        "return_hydrogen_pct": 37.43,
+        "return_flash_pct": 44.29
+      },
+      "hongfan": {
+        "corr": 0.9484,
+        "first_round": 1,
+        "return_hydrogen_pct": 9.61,
+        "return_flash_pct": 13.69
+      },
+      "zhongli": {
+        "corr": 0.996,
+        "first_round": 1,
+        "return_hydrogen_pct": -51.7,
+        "return_flash_pct": -51.66
+      },
+      "lanhai": {
+        "corr": 0.9754,
+        "first_round": 1,
+        "return_hydrogen_pct": 22.03,
+        "return_flash_pct": 21.98
+      },
+      "jinhui": {
+        "corr": 0.9833,
+        "first_round": 1,
+        "return_hydrogen_pct": 33.56,
+        "return_flash_pct": 33.89
+      },
+      "taiping": {
+        "corr": 0.9681,
+        "first_round": 1,
+        "return_hydrogen_pct": 48.46,
+        "return_flash_pct": 48.72
+      },
+      "tianhe": {
+        "corr": 0.9982,
+        "first_round": 9,
+        "return_hydrogen_pct": 101.07,
+        "return_flash_pct": 100.49
+      },
+      "moli": {
+        "corr": 0.9654,
+        "first_round": 17,
+        "return_hydrogen_pct": 41.8,
+        "return_flash_pct": 41.29
+      },
+      "xinghai": {
+        "corr": 0.9986,
+        "first_round": 25,
+        "return_hydrogen_pct": 87.03,
+        "return_flash_pct": 86.11
+      },
+      "baiyun": {
+        "corr": 0.9844,
+        "first_round": 33,
+        "return_hydrogen_pct": 32.22,
+        "return_flash_pct": 32.71
+      }
+    },
+    "buy_and_hold_equal_weight_pct": {
+      "hydrogen": 31.46,
+      "flash": 32.46
+    },
+    "median_corr": 0.9793
+  }
+}
