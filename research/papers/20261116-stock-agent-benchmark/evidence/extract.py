@@ -268,7 +268,16 @@ def main():
           f'{total:.2f} vs {cash_delta:.2f}')
 
     # per-symbol cash flows
-    flows = {tag: cash_flows(game) for tag, game in games.items()}
+    flows = {}
+    for tag, game in games.items():
+        per_seat_flows, sides, turnover, fees = cash_flows(game)
+        flows[tag] = (per_seat_flows, sides, turnover, fees)
+        report['behaviour'][tag].update(
+            sides={name: dict(sides[name]) for _, name in SEATS},
+            turnover_by_seat={name: round(turnover[name], 2) for _, name in SEATS},
+            fees_by_seat={name: round(fees[name], 2) for _, name in SEATS},
+            turnover_total=round(sum(turnover.values()), 2),
+            fees_total=round(sum(fees.values()), 2))
     symbols = sorted(set().union(*[set(flows[tag][0][name]) for tag in flows for _, name in SEATS]),
                      key=lambda s: -abs(sum(flows['hydrogen'][0][name].get(s, 0.0)
                                             for _, name in SEATS)

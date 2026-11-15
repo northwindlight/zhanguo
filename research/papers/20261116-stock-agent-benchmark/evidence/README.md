@@ -45,7 +45,7 @@
 | `extract.py` | 全部复算逻辑（标准库，只读） |
 | `seats.json` | 每席终局、逐回合净值、回撤、峰值、恒等式校验 |
 | `attribution.json` | 每席均值与「Hydrogen − Flash」五项分解 |
-| `behaviour.json` | 工具动作、脚本修订/检查失败、研究、交易槽运行/失败（逐席 + 合计） |
+| `behaviour.json` | 工具动作、脚本修订/检查失败、研究、交易槽运行/失败（逐席 + 合计）；成交额/手续费（含终局平仓口径）、买卖/做空/回补笔数（逐席） |
 | `per-symbol-cashflow.csv` | 逐股现金流（两局 × 四席 + 合计 + 差） |
 | `news-and-prices.json` | 公开消息对齐统计、逐股价格相关与区间收益、被动基准 |
 | `checks.json` | 23 项校验结果 |
