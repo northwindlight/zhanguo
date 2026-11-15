@@ -172,8 +172,11 @@ class LLMClient:
             # Reuse the actual request prefix once, without dumping the same
             # replay as JSON again. Compression has its own input/output budget.
             ceiling=min(120000,int(self.cfg.get('ctx_window') or 128000))
-            reserve=int(self.cfg.get('ctx_compact_tokens') or 1500)+ctx.SAFETY_TOKENS
+            compact_limit=int(self.cfg.get('ctx_compact_tokens') or 1500)
             instruction={'role':'user','content':self.ui.text('llm.compact',memory=self.state.long_memory,history=summary)}
+            available=max(compact_limit,min(ceiling//4,ceiling-ctx.SAFETY_TOKENS-ctx.msg_tokens(instruction)))
+            max_compact_limit=min(available,max(compact_limit,int(self.cfg.get('max_tokens') or 16384)))
+            reserve=max_compact_limit+ctx.SAFETY_TOKENS
             budget=max(0,ceiling-reserve-ctx.msg_tokens(instruction))
             prefix=[];pending=set();used=0
             for message in messages:
@@ -192,10 +195,21 @@ class LLMClient:
                     raise ValueError('Compression instruction and output cannot fit the configured window')
                 for attempt in range(1,11):
                     if emit:emit(self.ui.text('llm.compacting',actor=player.actor,attempt=attempt,limit=10))
-                    compressed,stats=self._provider().complete_text(prompt,{**self._request_config(),'max_tokens':int(self.cfg.get('ctx_compact_tokens') or 1500)},tools=[])
+                    request_cfg={**self._request_config(),'ctx_compact_tokens':compact_limit}
+                    provider=self._provider()
+                    complete=getattr(provider,'complete_text_stream',provider.complete_text)
+                    compressed,stats=complete(prompt,request_cfg,tools=[])
                     self._usage(stats)
                     if (isinstance(compressed,str) and len(compressed.strip())>=20
-                        and stats.get('stop_reason') not in ('length','max_tokens')):break
+                        and stats.get('stop_reason') not in ('length','max_tokens','tool_calls','incomplete')):break
+                    if stats.get('stop_reason') in ('incomplete','tool_calls'):raise ValueError('Compression stream incomplete or called a tool')
+                    if stats.get('stop_reason') in ('length','max_tokens'):
+                        if compact_limit >= max_compact_limit:raise ValueError('Compression exhausted output limit')
+                        body_tokens=stats.get('body_tokens_estimate',0)
+                        total_tokens=stats.get('out_tokens',0)
+                        target=int(self.cfg.get('ctx_compact_tokens') or 1500)
+                        inferred=(target*total_tokens//body_tokens) if body_tokens and total_tokens else compact_limit*2
+                        compact_limit=min(max_compact_limit,max(compact_limit+1,compact_limit*2,inferred))
                 else:raise ValueError('Empty, too short, or truncated memory compression after 10 attempts')
             except Exception as exc:
                 # Legacy behavior: compression is optional. Keep the previous
