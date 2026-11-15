@@ -1,0 +1,12 @@
+{
+  "hydrogen": {
+    "path": "D:\\code\\zhanguo\\research\\game-records\\stock-gemini-hydrogen-20261113\\session.json.gz",
+    "gz_sha256": "d24d54656d0326f6c1e4e0963a50b5f4b2cbd200b8f89a0e516b60539fce6786",
+    "json_sha256": "2345b9fd75b08c468d6f076f5aad990d53160bf0793502398faadf236ba4595c"
+  },
+  "flash": {
+    "path": "D:\\code\\zhanguo\\research\\game-records\\stock-gemini38-flash-20261114\\session.json.gz",
+    "gz_sha256": "023463c9dbc43b0566f60a418a19e4271f435ea634cd6ac005f5a892b3a7e06f",
+    "json_sha256": "04e6d461c6c49b4c6629e1cae93ad1af42f1c9bf67bec373aad634bde3e862f0"
+  }
+}

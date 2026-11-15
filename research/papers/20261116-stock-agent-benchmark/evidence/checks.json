@@ -40,6 +40,26 @@
     "detail": "67332.40"
   },
   {
+    "label": "休市日席位槽执行：Hydrogen 64 次 / Flash 0 次",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "label": "两局算力/槽/研究价格均为 0585416 版价目（120/240/480、80/160/320、200）",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "label": "两局解压后 session.json 的 SHA-256 与发布记录一致",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "label": "14 只股票静态参数两局逐字段一致",
+    "ok": true,
+    "detail": "14 symbols"
+  },
+  {
     "label": "差异分解合计 = 每席平均现金差",
     "ok": true,
     "detail": "31247.85 vs 31247.86"

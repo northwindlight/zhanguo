@@ -56,7 +56,8 @@ def load(save: Path):
                     if previous is not None and previous != row:
                         raise SystemExit(f'conflicting audit id {row["id"]} in {member.name}')
                     audit[row['id']] = row
-    return dict(path=str(save), raw=raw, sha256=hashlib.sha256(raw).hexdigest(), data=data, audit=audit)
+    return dict(path=str(save), raw=raw, sha256=hashlib.sha256(raw).hexdigest(),
+                json_sha256=hashlib.sha256(gzip.decompress(raw)).hexdigest(), data=data, audit=audit)
 
 
 def drawdown(values, initial=INITIAL_CASH):
@@ -181,15 +182,67 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     games = {'hydrogen': load(args.hydrogen), 'flash': load(args.flash)}
 
-    report = {'saves': {tag: dict(path=game['path'], sha256=game['sha256'])
+    report = {'saves': {tag: dict(path=game['path'], gz_sha256=game['sha256'],
+                                     json_sha256=game['json_sha256'])
                         for tag, game in games.items()},
-              'seats': {}, 'behaviour': {}, 'attribution': {}}
+              'seats': {}, 'behaviour': {}, 'attribution': {}, 'engine': {}}
 
     for tag, game in games.items():
         report['seats'][tag] = seat_metrics(game)
         for row in report['seats'][tag]:
             check(f'{tag}/{row["name"]} 会计恒等式', row['identity_ok'], f'{row["identity_value"]:.2f}')
         report['behaviour'][tag] = trading_activity(game)
+
+        # engine-version facts: rest-day slot executions and the compute price sheet
+        settlements = [row for row in game['audit'].values() if row.get('action') == 'settlement']
+        slots_of = lambda row: (row['receipt'].get('data') or {}).get('detail', {}).get('slots', [])
+        rest = [row for row in settlements if (row['receipt']['period'] - 1) % 7 >= 5]
+        trade = [row for row in settlements if (row['receipt']['period'] - 1) % 7 < 5]
+        paid = {'pool': set(), 'slot': set(), 'research': set()}
+        for row in game['audit'].values():
+            action = row.get('action')
+            body = (row.get('receipt') or {}).get('data')
+            if not isinstance(body, dict):
+                continue
+            if action == 'compute':
+                kind = (row.get('arguments') or {}).get('kind')
+                if kind in paid and body.get('paid'):
+                    paid[kind].add(round(float(body['paid']), 2))
+            elif action == 'script' and (row.get('arguments') or {}).get('action') == 'run':
+                if body.get('billed'):
+                    paid['research'].add(round(float(body['billed']), 2))
+        report['engine'][tag] = dict(
+            trading_day_slot_runs=sum(len(slots_of(row)) for row in trade),
+            rest_day_slot_runs=sum(len(slots_of(row)) for row in rest),
+            rest_day_seats=len(rest),
+            paid_pool=sorted(paid['pool']), paid_slot=sorted(paid['slot']),
+            research_fee=sorted(paid['research']))
+
+    for tag in games:
+        engine = report['engine'][tag]
+        print(f"{tag}: trading-day slots {engine['trading_day_slot_runs']}, "
+              f"rest-day slots {engine['rest_day_slot_runs']} over {engine['rest_day_seats']} rest-day rows, "
+              f"pool prices {engine['paid_pool']}, slot prices {engine['paid_slot']}, research {engine['research_fee']}")
+    check('休市日席位槽执行：Hydrogen 64 次 / Flash 0 次',
+          report['engine']['hydrogen']['rest_day_slot_runs'] == 64
+          and report['engine']['flash']['rest_day_slot_runs'] == 0)
+    price_ok = all(set(engine['paid_pool']) <= {120, 240, 480}
+                   and set(engine['paid_slot']) <= {80, 160, 320}
+                   and set(engine['research_fee']) <= {200}
+                   for engine in report['engine'].values())
+    check('两局算力/槽/研究价格均为 0585416 版价目（120/240/480、80/160/320、200）', price_ok)
+
+    expected = {'hydrogen': '2345b9fd75b08c468d6f076f5aad990d53160bf0793502398faadf236ba4595c',
+                'flash': '04e6d461c6c49b4c6629e1cae93ad1af42f1c9bf67bec373aad634bde3e862f0'}
+    hashes_ok = all(report['saves'][tag]['json_sha256'] == digest for tag, digest in expected.items())
+    check('两局解压后 session.json 的 SHA-256 与发布记录一致', hashes_ok)
+
+    stocks_meta = {tag: {symbol: {key: row.get(key) for key in
+                        ('anchor', 'vol', 'beta', 'converge', 'drift', 'sens', 'liq', 'spread', 'report_offset')}
+                        for symbol, row in game['data']['modules']['stock:market']['stocks'].items()}
+                  for tag, game in games.items()}
+    check('14 只股票静态参数两局逐字段一致', stocks_meta['hydrogen'] == stocks_meta['flash'],
+          f"{len(stocks_meta['hydrogen'])} symbols")
 
     # attribution of the per-seat average gap
     average = {tag: {key: statistics.fmean(row[key] for row in report['seats'][tag])
@@ -296,6 +349,8 @@ def main():
         json.dumps({'news': report['news'], 'price_paths': report['price_paths']},
                    ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     (out / 'checks.json').write_text(json.dumps(PASS, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    (out / 'engine.json').write_text(json.dumps(report['engine'], ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    (out / 'saves.json').write_text(json.dumps(report['saves'], ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     if not all(item['ok'] for item in PASS):
         raise SystemExit(f'{sum(not item["ok"] for item in PASS)} check(s) failed')
     print(f'\n{len(PASS)} checks passed; outputs written to {out}')

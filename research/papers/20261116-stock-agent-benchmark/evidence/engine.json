@@ -1,0 +1,31 @@
+{
+  "hydrogen": {
+    "trading_day_slot_runs": 255,
+    "rest_day_slot_runs": 64,
+    "rest_day_seats": 64,
+    "paid_pool": [
+      120.0,
+      240.0
+    ],
+    "paid_slot": [
+      80.0
+    ],
+    "research_fee": [
+      200.0
+    ]
+  },
+  "flash": {
+    "trading_day_slot_runs": 172,
+    "rest_day_slot_runs": 0,
+    "rest_day_seats": 64,
+    "paid_pool": [
+      120.0,
+      240.0,
+      480.0
+    ],
+    "paid_slot": [],
+    "research_fee": [
+      200.0
+    ]
+  }
+}
