@@ -1,0 +1,14 @@
+{
+  "protocol": "stock-bench/1",
+  "name": "full-protocol",
+  "notes": "全尺寸协议：20000 tick/日 × 60 回合（第 60 回合只清算）。一局约 7–9 分钟（本机）。",
+  "seed": 2026111303,
+  "ticks_per_day": 20000,
+  "turns": 60,
+  "language": "en-US",
+  "seats": [
+    {"name": "cash", "policy": "../policies/cash.py"},
+    {"name": "hold", "policy": "../policies/hold.py"},
+    {"name": "mom", "policy": "../policies/momentum.py"}
+  ]
+}

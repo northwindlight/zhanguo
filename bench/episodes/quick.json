@@ -1,0 +1,14 @@
+{
+  "protocol": "stock-bench/1",
+  "name": "quick-smoke",
+  "notes": "缩放协议：4000 tick/日 × 8 回合，只用于验证管线可跑、可复现；不要用它的数字做结论。",
+  "seed": 2026111303,
+  "ticks_per_day": 4000,
+  "turns": 8,
+  "seats": [
+    {"name": "cash", "policy": "../policies/cash.py"},
+    {"name": "hold", "policy": "../policies/hold.py"},
+    {"name": "mom", "policy": "../policies/momentum.py"},
+    {"name": "cash2", "policy": "../policies/cash.py"}
+  ]
+}

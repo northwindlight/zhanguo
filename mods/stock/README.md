@@ -234,3 +234,31 @@ PAMS 的软件出处与许可证见 [第三方说明](THIRD_PARTY.md)。
 风格基准见 [策略动物园](examples/strategy_zoo.py)：跟消息、日内轮动（动量/均值回归两个方向）、
 等权持有四类策略在同一市场的结果分布明显分开——高频轮动被佣金和点差稳定惩罚，
 逆消息的均值回归持续亏损，跟消息策略多数种子盈利且回撤小，等权持有完全暴露在该种子的市场方向上。
+
+---
+
+## English / language support
+
+The distribution ships UI catalogs for **zh-CN** (default) and **en-US** under
+`mods/stock/locales/`. Setting `language = "en-US"` in the session config switches the prose a
+model reads — the per-round briefing and every tool description — into English, including
+stock names, sectors and the personality-change labels inside event reports.
+
+What deliberately does **not** change with the language: world state, ledger, fills, audit
+records and every hash. The `language` key is presentation only, so an evaluation run in
+English and the same run in Chinese produce byte-identical `ledger_hash`,
+`fill_hash` and `final_world_state` — which is what makes cross-language results comparable.
+
+Symbol ids (`yundu`, `tianhe`, ...) are the stable handles used by scripts, saves and audits;
+they are never translated. Chinese headline text inside generated news events is world content
+and stays as generated.
+
+A zero-cost coverage check verifies that every briefing branch and every visible tool
+description has an English entry and that the Chinese path is unchanged:
+
+```bash
+python bench/check_i18n.py
+```
+
+For running episodes without a model (deterministic policy seats, replay-verifiable results),
+see [`bench/README.md`](../../bench/README.md).

@@ -17,8 +17,27 @@ end_turn      结束本回合，提交一句小结
 ``api.call('stock:market', 'buy'|'sell', symbol=..., quantity=...)`` 发出；
 借贷可以直接调，也可以写在脚本里自动做。
 """
+import json
+from pathlib import Path
+
 from engine.runtime import Action, Tool
 from mods.native.tools import commands as command_layer
+
+LOCALES = Path(__file__).with_name('locales')
+
+
+def _catalogs():
+    """发行版自带的消息目录：键是模型视图查的路径（tools.<名>.description 等）。
+
+    zh-CN 恒为空：中文原文写在代码里，作为兜底；en-US 提供逐条译文。
+    语言由配置 ``language`` 决定，视图按 ``Translator.from_config`` 合并本目录。
+    """
+    result = {}
+    for language in ('zh-CN', 'en-US'):
+        path = LOCALES / f'{language}.json'
+        result[language] = (json.loads(path.read_text(encoding='utf-8'))
+                            if path.exists() else {})
+    return result
 
 
 class StockToolLayer:
@@ -31,6 +50,10 @@ class StockToolLayer:
         self._receipts = dict(receipts)
         self._captions = dict(captions)
         self._commands = dict(commands)
+        self._catalogs = _catalogs()
+
+    def catalogs(self):
+        return self._catalogs
 
     def tools(self):
         return self._tools

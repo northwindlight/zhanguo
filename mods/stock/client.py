@@ -33,142 +33,258 @@ class StockView(ModelView):
         tail, image = super().state(observation, events)
         return tail + self.stock_briefing(observation), image
 
+    def _t(self, key, zh, **values):
+        """简报文案：中文原文写在代码里（兜底），英文按 locales/en-US.json 的 stock.b.* 覆盖。"""
+        return self.text.resolve(key, zh, **values)
+
+    def _name(self, symbol, name):
+        """股票显示名：只改呈现；symbol 才是脚本、存档与审计里的句柄。"""
+        return self._t('stock.name.' + str(symbol), name)
+
+    def _sector(self, sector):
+        return self._t('stock.sector.' + str(sector), sector)
+
+    def _sep(self, zh):
+        """列举分隔符也跟着语言走（中文用全角，英文用半角）。"""
+        return zh if self.text.language == 'zh-CN' else self._t('stock.b.sep', zh, )
+
+    def _effect(self, effect):
+        """个性变化串（波动率→31.0%；点差→×1.30）在呈现层逐标签换语言，不动世界状态。"""
+        if not effect:
+            return effect
+        for zh, en in (('波动率→', 'volatility→'), ('流动性→', 'liquidity→'),
+                       ('点差→', 'spread→'), ('吸收速度→', 'absorption→'),
+                       ('消息敏感度→', 'news sensitivity→'), ('贝塔→', 'beta→'),
+                       ('漂移→', 'drift→')):
+            effect = effect.replace(zh, self._t('stock.effect.' + zh, en))
+        return effect.replace('；', self._t('stock.effect.sep', '; '))
+
     def stock_briefing(self, observation):
         facts = observation.get('facts') or {}
-        lines = ['', '【本回合开局简报】']
+        lines = ['', '【' + self._t('stock.caption.round', '本回合开局简报') + '】']
 
         view = facts.get('round') or {}
         if view:
             final = view.get('final_round'); left = view.get('rounds_left')
             total = f'/{final}' if isinstance(final, int) else ''
-            tail = f'，还剩 {left} 回合（最终回合自动清算）' if isinstance(left, int) else ''
+            tail = self._t('stock.b.left', '，还剩 {left} 回合（最终回合自动清算）', left=left) \
+                if isinstance(left, int) else ''
             if view.get('trading_day'):
-                lines.append(f'第 {view.get("round")}{total} 回合，今日开市{tail}。')
+                lines.append(self._t('stock.b.open', '第 {round}{total} 回合，今日开市{tail}。',
+                                     round=view.get('round'), total=total, tail=tail))
             else:
-                lines.append(f'第 {view.get("round")}{total} 回合，今日休市（还有 {view.get("days_to_next_open")} 回合开市）{tail}：'
-                             f'不能买卖，但可以改脚本、规划、借贷。')
-            lines.append(f'盘前规划动作 {view.get("window_used")}/{view.get("window_limit")}；'
-                         f'市场共同时间线 {view.get("tick")}/{view.get("slices")} tick。'
-                         '交易日全体结束行动后自动运行交易槽，休市日不运行；on_tick回调默认每100tick唤醒，state跨日保留。'
-                         '研究槽按次收费：每次 200 现金，只能在自己行动时手动只读运行。')
+                lines.append(self._t('stock.b.closed',
+                                     '第 {round}{total} 回合，今日休市（还有 {days} 回合开市）{tail}：'
+                                     '不能买卖，但可以改脚本、规划、借贷。',
+                                     round=view.get('round'), total=total,
+                                     days=view.get('days_to_next_open'), tail=tail))
+            lines.append(self._t('stock.b.planning',
+                                 '盘前规划动作 {used}/{limit}；市场共同时间线 {tick}/{slices} tick。'
+                                 '交易日全体结束行动后自动运行交易槽，休市日不运行；'
+                                 'on_tick回调默认每100tick唤醒，state跨日保留。'
+                                 '研究槽按次收费：每次 200 现金，只能在自己行动时手动只读运行。',
+                                 used=view.get('window_used'), limit=view.get('window_limit'),
+                                 tick=view.get('tick'), slices=view.get('slices')))
+
         compute = facts.get('compute_status') or {}
         if compute:
-            lines.append(f'算力池 {compute["pool"]} 档、交易槽 {compute["slots"]} 个（每回合重置，需要请重买）；'
-                         f'本回合剩余 {compute["steps_remaining"]} 单位 / {compute["calls_remaining"]} 次API；'
-                         f'研究次数剩 {compute["research_runs_left"]} 次，累计计算资源费用 {compute["fees_paid"]}。')
-            if compute.get('notice'): lines.append(compute['notice'])
-
+            lines.append(self._t('stock.b.compute',
+                                 '算力池 {pool} 档、交易槽 {slots} 个（每回合重置，需要请重买）；'
+                                 '本回合剩余 {steps} 单位 / {calls} 次API；'
+                                 '研究次数剩 {research} 次，累计计算资源费用 {fees}。',
+                                 pool=compute['pool'], slots=compute['slots'],
+                                 steps=compute['steps_remaining'], calls=compute['calls_remaining'],
+                                 research=compute['research_runs_left'], fees=compute['fees_paid']))
+            if compute.get('notice'):
+                lines.append(compute['notice'])
 
         account = facts.get('portfolio') or {}
         if account:
             if not account.get('alive', True):
-                lines.append(f'你已破产退市（第 {account.get("retired_round")} 回合），本局不再行动。')
-            lines.append(f'现金 {account.get("cash")}，负债 {account.get("debt")}，'
-                         f'持仓市值 {account.get("holdings_value")}，'
-                         f'总财富 {account.get("wealth")}（{account.get("return_pct")}%）。'
-                         f'授信上限 {account.get("credit_limit")}，追保线 {account.get("margin_limit")}。')
+                lines.append(self._t('stock.b.bankrupt',
+                                     '你已破产退市（第 {round} 回合），本局不再行动。',
+                                     round=account.get('retired_round')))
+            lines.append(self._t('stock.b.account',
+                                 '现金 {cash}，负债 {debt}，持仓市值 {holdings}，'
+                                 '总财富 {wealth}（{return_pct}%）。'
+                                 '授信上限 {credit}，追保线 {margin}。',
+                                 cash=account.get('cash'), debt=account.get('debt'),
+                                 holdings=account.get('holdings_value'), wealth=account.get('wealth'),
+                                 return_pct=account.get('return_pct'),
+                                 credit=account.get('credit_limit'), margin=account.get('margin_limit')))
             if account.get('risk_frozen'):
-                lines.append('风控冻结，仅能减仓还款：' + account.get('risk_notice', ''))
+                lines.append(self._t('stock.b.risk_frozen', '风控冻结，仅能减仓还款：{notice}',
+                                     notice=account.get('risk_notice', '')))
             positions = account.get('positions') or []
             if positions:
-                lines.append('持仓：' + '；'.join(
-                    f'{p["name"]}({p["symbol"]}) {p["quantity"]} 股，成本 {p["avg_cost"]}，'
-                    f'现价 {p["price"]}，浮盈亏 {p["pnl"]}' for p in positions))
+                items = self._sep('；').join(self._t('stock.b.position_item',
+                                          '{name}({symbol}) {quantity} 股，成本 {avg_cost}，'
+                                          '现价 {price}，浮盈亏 {pnl}',
+                                          name=self._name(p['symbol'], p['name']), symbol=p['symbol'], quantity=p['quantity'],
+                                          avg_cost=p['avg_cost'], price=p['price'], pnl=p['pnl'])
+                                  for p in positions)
+                lines.append(self._t('stock.b.positions', '持仓：{items}', items=items))
             else:
-                lines.append('持仓：空仓。')
+                lines.append(self._t('stock.b.positions_empty', '持仓：空仓。'))
             liquidations = account.get('liquidations') or []
             if liquidations:
                 last = liquidations[-1]
-                lines.append(f'银行强制平仓：第 {last.get("round")} 回合卖出 {last.get("quantity")} 股 '
-                             f'{last.get("symbol")}，回收 {last.get("amount")}。')
+                lines.append(self._t('stock.b.forced_close',
+                                     '银行强制平仓：第 {round} 回合卖出 {quantity} 股 {symbol}，'
+                                     '回收 {amount}。',
+                                     round=last.get('round'), quantity=last.get('quantity'),
+                                     symbol=last.get('symbol'), amount=last.get('amount')))
             curve = account.get('equity_curve') or []
             if curve:
-                lines.append('净值曲线：' + '，'.join(
-                    f'第 {point["round"]} 回合 {point["wealth"]}' for point in curve[-6:]))
+                items = self._sep('，').join(self._t('stock.b.equity_item', '第 {round} 回合 {wealth}',
+                                          round=point['round'], wealth=point['wealth'])
+                                  for point in curve[-6:])
+                lines.append(self._t('stock.b.equity', '净值曲线：{items}', items=items))
 
         quotes = facts.get('market') or []
         if quotes:
-            lines.append('行情（代码 名称 现价 涨跌 ma5 ma10 波动率 财报日程 最新消息）：')
+            lines.append(self._t('stock.b.quotes_head',
+                                 '行情（代码 名称 现价 涨跌 ma5 ma10 波动率 财报日程 最新消息）：'))
+            kinds = {'market': self._t('stock.b.kind.market', '市场快讯'),
+                     'wire': self._t('stock.b.kind.wire', '公司快讯'),
+                     'earnings': self._t('stock.b.kind.earnings', '财报'),
+                     'shock': self._t('stock.b.kind.shock', '公司事件'),
+                     'ipo': self._t('stock.b.kind.ipo', '挂牌上市')}
             for row in quotes:
                 report = row.get('next_report_round')
-                when = f'第{report}回合' if report else '未定'
-                if row.get('report_tick'):
-                    when += f'今日tick{row["report_tick"]}'
+                if report:
+                    when = (self._t('stock.b.when_tick', '第{round}回合今日tick{tick}',
+                                    round=report, tick=row['report_tick'])
+                            if row.get('report_tick')
+                            else self._t('stock.b.when', '第{round}回合', round=report))
+                else:
+                    when = self._t('stock.b.when_unset', '未定')
                 news = row.get('news') or []
                 latest = ''
                 if news:
                     event = news[-1]
-                    kind = {'market': '市场快讯', 'wire': '公司快讯', 'earnings': '财报',
-                            'shock': '公司事件', 'ipo': '挂牌上市'}.get(event.get('kind'), '消息')
-                    latest = f' {kind}{event.get("cashflow_change_pct", 0):+.2f}%@tick{event.get("tick")}'
+                    kind = kinds.get(event.get('kind'), self._t('stock.b.kind.other', '消息'))
+                    latest = self._t('stock.b.latest', ' {kind}{change:+.2f}%@tick{tick}',
+                                     kind=kind, change=event.get('cashflow_change_pct', 0),
+                                     tick=event.get('tick'))
                     if event.get('effect'):
-                        latest += f'（{event["effect"]}）'
-                review = f' 退市复核第{row["delist_review_round"]}回合' if row.get('delist_review_round') else ''
-                lines.append(f'  {row["symbol"]} {row["name"]} {row["price"]} '
-                             f'{row["change_pct"] * 100:+.2f}% ma5={row["ma5"]} ma10={row["ma10"]} '
-                             f'vol={row["volatility"]} 财报{when}{latest}{review}')
+                        latest += self._t('stock.b.effect', '（{effect}）', effect=self._effect(event['effect']))
+                review = (self._t('stock.b.review', ' 退市复核第{round}回合',
+                                  round=row['delist_review_round'])
+                          if row.get('delist_review_round') else '')
+                lines.append(self._t('stock.b.quote_row',
+                                     '  {symbol} {name} {price} {change:+.2f}% ma5={ma5} ma10={ma10} '
+                                     'vol={volatility} 财报{when}{latest}{review}',
+                                     symbol=row['symbol'], name=self._name(row['symbol'], row['name']), price=row['price'],
+                                     change=row['change_pct'] * 100, ma5=row['ma5'], ma10=row['ma10'],
+                                     volatility=row['volatility'], when=when, latest=latest,
+                                     review=review))
 
         pool = facts.get('pool') or {}
         if pool:
             notes = []
             for listing in pool.get('next_listings') or []:
-                notes.append(f"新股{listing['name']}({listing['symbol']},{listing['sector']})"
-                             f"第{listing['round']}回合挂牌，发行价{listing['anchor']}")
+                notes.append(self._t('stock.b.pool_listing',
+                                     '新股{name}({symbol},{sector})第{round}回合挂牌，发行价{anchor}',
+                                     name=self._name(listing['symbol'], listing['name']), symbol=listing['symbol'],
+                                     sector=self._sector(listing['sector']), round=listing['round'],
+                                     anchor=listing['anchor']))
             for warning in pool.get('delist_warnings') or []:
-                notes.append(f"{warning['symbol']}处于退市警示，第{warning['review_round']}回合复核")
+                notes.append(self._t('stock.b.pool_warning',
+                                     '{symbol}处于退市警示，第{round}回合复核',
+                                     symbol=warning['symbol'], round=warning['review_round']))
             if notes:
-                lines.append('股票池：' + '；'.join(notes) + '。')
+                lines.append(self._t('stock.b.pool', '股票池：{items}。',
+                                  items=self._sep('；').join(notes)))
 
         report = facts.get('day_report') or {}
         if report.get('orders') or report.get('fills'):
             statuses = report.get('statuses') or {}
-            status_text = '，'.join(f'{k}{v}笔' for k, v in sorted(statuses.items()))
-            lines.append(f'上一交易日（第{report.get("round")}回合）执行回执：委托{report.get("orders")}笔'
-                         f'（{status_text}），成交{report.get("fills")}笔，'
-                         f'买入{report.get("bought_quantity")}股/{report.get("bought_amount")}元，'
-                         f'卖出{report.get("sold_quantity")}股/{report.get("sold_amount")}元，'
-                         f'手续费{report.get("fees")}元。部分成交后到期=没吃满，expired=收盘撤销。')
+            status_text = self._sep('，').join(f'{k}{v}笔' if self.text.language == 'zh-CN'
+                                        else f'{k}={v}' for k, v in sorted(statuses.items()))
+            lines.append(self._t('stock.b.day_report',
+                                 '上一交易日（第{round}回合）执行回执：委托{orders}笔（{statuses}），'
+                                 '成交{fills}笔，买入{bought_qty}股/{bought_amt}元，'
+                                 '卖出{sold_qty}股/{sold_amt}元，手续费{fees}元。'
+                                 '部分成交后到期=没吃满，expired=收盘撤销。',
+                                 round=report.get('round'), orders=report.get('orders'),
+                                 statuses=status_text, fills=report.get('fills'),
+                                 bought_qty=report.get('bought_quantity'),
+                                 bought_amt=report.get('bought_amount'),
+                                 sold_qty=report.get('sold_quantity'),
+                                 sold_amt=report.get('sold_amount'), fees=report.get('fees')))
 
         status = facts.get('script_status') or {}
         result = status.get('result')
         if result:
-            lines.append(f'最近一次脚本（第 {result.get("period")} 回合）：{result.get("status")}，步数 {result.get("steps")}，'
-                         f'API 调用 {result.get("calls")}，动作 {result.get("actions")}。')
+            lines.append(self._t('stock.b.script_result',
+                                 '最近一次脚本（第 {period} 回合）：{status}，步数 {steps}，'
+                                 'API 调用 {calls}，动作 {actions}。',
+                                 period=result.get('period'), status=result.get('status'),
+                                 steps=result.get('steps'), calls=result.get('calls'),
+                                 actions=result.get('actions')))
             error = result.get('error')
             if error:
-                where = f'第 {error.get("line")} 行第 {error.get("column")} 列' if error.get('line') else ''
-                lines.append(f'报错 {error.get("type")}：{where} {error.get("message")}')
+                where = (self._t('stock.b.script_error_where', '第 {line} 行第 {column} 列',
+                                 line=error.get('line'), column=error.get('column'))
+                         if error.get('line') else '')
+                lines.append(self._t('stock.b.script_error', '报错 {type}：{where} {message}',
+                                     type=error.get('type'), where=where,
+                                     message=error.get('message')))
                 if error.get('source'):
-                    lines.append(f'出错那行：{error.get("source")}')
+                    lines.append(self._t('stock.b.script_error_source', '出错那行：{source}',
+                                         source=error.get('source')))
             if result.get('output'):
-                lines.append('打印输出：\n' + result['output'])
+                lines.append(self._t('stock.b.script_output', '打印输出：\n{output}',
+                                     output=result['output']))
         else:
-            lines.append('脚本还没跑过：交易日回合末由引擎统一执行，结果下回合开局给你。')
+            lines.append(self._t('stock.b.script_never',
+                                 '脚本还没跑过：交易日回合末由引擎统一执行，结果下回合开局给你。'))
 
         for other in status.get('other_slots', []):
             r = other.get('result')
             if r:
-                lines.append(f'槽 {other["slot"]} 最近一次（第 {r.get("period")} 回合）：{r["status"]}，计算 {r["steps"]}，API {r["calls"]}。')
-                if r.get('error'): lines.append('错误：' + r['error']['message'])
-                if r.get('output'): lines.append('输出：\n' + r['output'])
+                lines.append(self._t('stock.b.other_slot',
+                                     '槽 {slot} 最近一次（第 {period} 回合）：{status}，'
+                                     '计算 {steps}，API {calls}。',
+                                     slot=other['slot'], period=r.get('period'),
+                                     status=r['status'], steps=r['steps'], calls=r['calls']))
+                if r.get('error'):
+                    lines.append(self._t('stock.b.other_error', '错误：{message}',
+                                         message=r['error']['message']))
+                if r.get('output'):
+                    lines.append(self._t('stock.b.other_output', '输出：\n{output}',
+                                         output=r['output']))
+
         intel = facts.get('intel_status') or {}
         if intel:
-            lines.append(f'快照单价 {intel["price"]}，源码片段单价 {intel.get("code_price", "—")}，'
-                         f'已购报告 {len(intel["reports"])} 份。')
+            lines.append(self._t('stock.b.intel',
+                                 '快照单价 {price}，源码片段单价 {code_price}，已购报告 {count} 份。',
+                                 price=intel['price'], code_price=intel.get('code_price', '—'),
+                                 count=len(intel['reports'])))
             for report in intel['reports']:
                 if report.get('kind') == 'source':
                     frag = report.get('fragment') or {}
                     code = frag.get('code') or ''
                     last = frag.get('start_line', 1) + max(0, len(code.splitlines()) - 1)
-                    lines.append(f'第{report["round"]}期/tick{report["tick"]} 偷到 {report["target"]} '
-                                 f'槽{frag.get("slot")}（第{frag.get("revision")}版）'
-                                 f'第{frag.get("start_line")}～{last}行/共{frag.get("total_lines")}行：')
+                    lines.append(self._t('stock.b.intel_source',
+                                         '第{round}期/tick{tick} 偷到 {target} '
+                                         '槽{slot}（第{revision}版）第{start}～{end}行/共{total}行：',
+                                         round=report['round'], tick=report['tick'],
+                                         target=report['target'], slot=frag.get('slot'),
+                                         revision=frag.get('revision'),
+                                         start=frag.get('start_line'), end=last,
+                                         total=frag.get('total_lines')))
                     lines.extend('  ' + row for row in code.splitlines())
                     continue
                 snap = report.get('snapshot') or {}
-                lines.append(f'第{report["round"]}期/tick{report["tick"]} {snap.get("name", report.get("target"))}：'
-                             f'现金{snap.get("cash")}，贷款{snap.get("debt")}，'
-                             f'多头{snap.get("long_value")}，空头{snap.get("short_value")}（获取时快照）。')
+                lines.append(self._t('stock.b.intel_snapshot',
+                                     '第{round}期/tick{tick} {name}：现金{cash}，贷款{debt}，'
+                                     '多头{long}，空头{short}（获取时快照）。',
+                                     round=report['round'], tick=report['tick'],
+                                     name=snap.get('name', report.get('target')),
+                                     cash=snap.get('cash'), debt=snap.get('debt'),
+                                     long=snap.get('long_value'), short=snap.get('short_value')))
 
         return '\n'.join(lines)
 
