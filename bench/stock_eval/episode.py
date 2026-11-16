@@ -42,8 +42,18 @@ def digest(obj) -> str:
     return hashlib.sha256(canonical(obj).encode("utf-8")).hexdigest()
 
 
+def redact(spec: dict) -> dict:
+    """Result files must never carry API keys."""
+    copy = json.loads(json.dumps(spec))
+    for seat in copy.get("seats") or []:
+        if seat.get("api_key"):
+            seat["api_key"] = "<redacted>"
+    return copy
+
+
 def spec_hash(spec) -> str:
-    return digest({k: v for k, v in spec.items() if k not in ("notes", "name")})
+    return digest({"spec": {k: v for k, v in spec.items() if k not in ("notes", "name")},
+                   "seats": redact(spec)["seats"]})
 
 
 # ---------------------------------------------------------------------------
@@ -82,9 +92,17 @@ def load_spec(path: Path) -> dict:
             seat["scripts"] = {str(r): _read_source(base / p) for r, p in seat.pop("sources").items()}
         else:
             seat.setdefault("scripts", {})
-        if not seat["scripts"]:
-            raise ValueError(f"席位 {seat['name']} 没有任何脚本")
-        seat["scripts"] = {str(k): str(v) for k, v in seat["scripts"].items()}
+        seat.setdefault("client", "replay")
+        if seat["client"] == "replay" and not seat["scripts"]:
+            raise ValueError(f"seat {seat['name']}: client=replay needs a script source")
+        if seat["client"] == "llm":
+            if not seat.get("model"):
+                raise ValueError(f"seat {seat['name']}: client=llm needs a model")
+            seat.setdefault("provider", "openai")
+            seat.setdefault("temperature", 0.3)
+            seat.setdefault("max_tokens", 16384)
+            seat.setdefault("max_steps", 28)
+        seat["scripts"] = {str(k): str(v) for k, v in (seat.get("scripts") or {}).items()}
         seat.setdefault("purchases", {})
         seats.append(seat)
     spec["seats"] = seats
@@ -93,11 +111,23 @@ def load_spec(path: Path) -> dict:
     return spec
 
 
+LLM_FIELDS = ("base_url", "api_key", "model", "provider", "thinking",
+               "reasoning_effort", "temperature", "max_tokens", "max_steps")
+
+
 def build_config(spec: dict) -> dict:
     nations = []
     for i, seat in enumerate(spec["seats"]):
-        nations.append(dict(id=f"stock:player{i}", name=seat["name"], client="replay",
-                            scripts=seat["scripts"]))
+        entry = dict(id=f"stock:player{i}", name=seat["name"],
+                     client=seat.get("client", "replay"))
+        if entry["client"] == "llm":
+            for key in LLM_FIELDS:
+                if seat.get(key) is not None:
+                    entry[key] = seat[key]
+        else:
+            # replay: the spec supplies the scripts; sim: the offline client writes its own.
+            entry["scripts"] = seat.get("scripts") or {}
+        nations.append(entry)
     cfg = dict(mods="mods.stock.toml", seed=int(spec["seed"]),
                max_turns=int(spec["turns"]), nations=nations)
     if spec.get("language"):
@@ -112,7 +142,7 @@ def build_config(spec: dict) -> dict:
 # 一局
 # ---------------------------------------------------------------------------
 
-def _round_row(host, actors, player_set):
+def _round_row(host, actors):
     market, clock = host.world.market, host.world.clock
     session = clock.round - 1
     trading = ((session - 1) % clock.cycle) < clock.trading_days
@@ -121,22 +151,12 @@ def _round_row(host, actors, player_set):
     for actor in actors:
         acc = host.world.portfolio.accounts[actor]
         row["actors"][actor] = dict(cash=acc["cash"], debt=acc["debt"], alive=acc["alive"])
-    if trading:
-        picks = [[f["execution_id"], f["actor"], f["side"], f["symbol"], f["quantity"],
-                  f["price"], f["fee"], f["tick"], f["order_id"]]
-                 for f in market.last_fills if f["actor"] in player_set]
-        row["fills"] = picks
-        row["fills_hash"] = digest(picks)
-    else:
-        row["fills"] = []
-        row["fills_hash"] = digest([])
     return row
 
 
 def run_episode(spec: dict) -> dict:
     cfg = build_config(spec)
     actors = [f"stock:player{i}" for i in range(len(spec["seats"]))]
-    player_set = set(actors)
     started = time.perf_counter()
     host = GameHost.new(cfg)
     host.world.clock.session_ticks = int(spec["ticks_per_day"])
@@ -145,16 +165,45 @@ def run_episode(spec: dict) -> dict:
     while not host.finished():
         for i, seat in enumerate(spec["seats"]):
             actor = actors[i]
+            if seat.get("client") == "llm":
+                continue                      # the model buys through its own tool calls
             if host.world.clock.can_act(actor):
                 for item in seat.get("purchases", {}).get(str(host.clock()), []) or []:
                     host.player(actor).submit("compute", item)
                 if seat.get("purchase_pool"):
                     host.player(actor).submit("compute", {"action": "buy", "kind": "pool"})
         host.cycle()
-        rounds.append(_round_row(host, actors, player_set))
+        rounds.append(_round_row(host, actors))
         world_hashes.append(digest(host.runtime.save_mod_state(host.world)))
     elapsed = time.perf_counter() - started
-    return _assemble(spec, host, actors, initial_symbols, rounds, world_hashes, elapsed)
+    fills = _audit_fills(host, actors)
+    for row in rounds:
+        picks = [[f["execution_id"], f["actor"], f["side"], f["symbol"], f["quantity"],
+                  f["price"], f["fee"], f["tick"], f["order_id"]]
+                 for f in fills if f["period"] == row["round"]]
+        row["fills"] = picks
+        row["fills_hash"] = digest(picks)
+    return _assemble(spec, host, actors, initial_symbols, rounds, world_hashes, elapsed, fills)
+
+
+def _audit_fills(host, actors):
+    """Every fill of every player, taken from the audit trail (the ledger's source of truth)."""
+    wanted = set(actors)
+    out = []
+    for row in getattr(host, "audit", ()) or ():
+        if row.get("action") != "stock_fill":
+            continue
+        if row.get("actor") not in wanted:
+            continue
+        receipt = row.get("receipt") or {}
+        body = receipt.get("data") or {}
+        out.append(dict(period=(receipt.get("period") if receipt.get("period") is not None
+                                else body.get("period")),
+                        execution_id=body.get("execution_id"), order_id=body.get("order_id"),
+                        actor=row["actor"], side=body.get("side"), symbol=body.get("symbol"),
+                        quantity=body.get("quantity"), price=body.get("price"),
+                        amount=body.get("amount"), fee=body.get("fee"), tick=body.get("tick")))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +216,7 @@ def _side_cashflow(side: str, amount: float, fee: float) -> float:
     return amount - fee
 
 
-def _assemble(spec, host, actors, initial_symbols, rounds, world_hashes, elapsed) -> dict:
+def _assemble(spec, host, actors, initial_symbols, rounds, world_hashes, elapsed, fills) -> dict:
     accounts = host.world.portfolio.accounts
     final_close = {s: round(p, 4) for s, p in host.world.market.close.items()}
     seats, checks = [], []
@@ -175,16 +224,16 @@ def _assemble(spec, host, actors, initial_symbols, rounds, world_hashes, elapsed
     for i, actor in enumerate(actors):
         acc = accounts[actor]
         name = spec["seats"][i]["name"]
-        fills = [f for row in rounds for f in row["fills"] if f[1] == actor]
+        seat_fills = [f for f in fills if f["actor"] == actor]
         liq = acc.get("final_liquidations") or []
         flow, turnover, fees = 0.0, 0.0, 0.0
         sides = {"buy": 0, "sell": 0, "short": 0, "cover": 0}
-        for f in fills:
-            amount = f[4] * f[5]
-            flow += _side_cashflow(f[2], amount, f[6])
+        for f in seat_fills:
+            amount = float(f["amount"] or 0.0)
+            flow += _side_cashflow(f["side"], amount, float(f["fee"] or 0.0))
             turnover += amount
-            fees += f[6]
-            sides[f[2]] = sides.get(f[2], 0) + 1
+            fees += float(f["fee"] or 0.0)
+            sides[f["side"]] = sides.get(f["side"], 0) + 1
         for close in liq:
             amount = float(close.get("amount") or 0.0)
             fee = float(close.get("fee") or 0.0)
@@ -208,7 +257,7 @@ def _assemble(spec, host, actors, initial_symbols, rounds, world_hashes, elapsed
             borrow_fees=acc.get("borrow_fees"),
             interest_paid=acc.get("interest_paid"),
             turnover=round(turnover, 2), fees=round(fees, 2),
-            fills=len(fills), sides=sides,
+            fills=len(seat_fills), sides=sides,
             final_liq_count=len(liq),
             holdings_end=[dict(symbol=p["symbol"], quantity=p["quantity"],
                                price=p["price"], market_value=p["market_value"])
@@ -243,7 +292,7 @@ def _assemble(spec, host, actors, initial_symbols, rounds, world_hashes, elapsed
                                             "turnover", "fees", "fills", "sides")} for s in seats])
     return dict(
         protocol=spec["protocol"],
-        spec=spec,
+        spec=redact(spec),
         spec_hash=spec_hash(spec),
         score=dict(index=round(mean_cash / (INITIAL_CASH / 100), 4),
                    mean_final_cash=round(mean_cash, 2), seats=len(seats)),
