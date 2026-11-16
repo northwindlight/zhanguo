@@ -129,4 +129,28 @@ python3 docs/site/build.py
 
 The manual and strategy handbooks are maintained by hand; API reference pages are generated from code. Source release archives exclude the separate real-game collection.
 
+## Evaluating agents on the `stock` distribution
+
+`stock` is also a deterministic benchmark environment: no buy/sell tools, only a restricted
+Python strategy submitted each round, with compute, trading slots, research, intelligence and
+borrowing all paid out of in-game cash. A full episode is auditable and replayable byte for byte.
+
+```bash
+pip install -r requirements-stock.txt
+python bench/evaluate.py --client sim --seats 4 --turns 20 --ticks 4000   # offline, no key
+export OPENAI_API_KEY=...  STOCK_EVAL_BASE_URL=...  STOCK_EVAL_MODEL=...
+python bench/evaluate.py --seats 4 --turns 60 --ticks 20000              # full protocol
+```
+
+Read [`bench/README.md`](bench/README.md) for the harness, and build a stock-only reviewer
+package (English-first, ~0.8 MB, no desktop assets) with:
+
+```bash
+python packaging/stock_release.py --verify
+```
+
+The package ships `REVIEWER-GUIDE.md` — a six-step walkthrough from unzip to a publishable
+score, including how to verify someone else's result from its hashes.
+
 [MPL-2.0](LICENSE)
+
