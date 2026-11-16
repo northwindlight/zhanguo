@@ -138,3 +138,11 @@ python bench/evaluate.py --seats 4 --turns 60 --ticks 20000
 
 已知边界：结算价用当日最后成交价，小额尾盘成交可推动它（mark-the-close 探针已量化），
 修复方向是改成最后 N 个 tick 的 VWAP/TWAP；模型 token 成本不进分数；价格层耦合目前是二阶。
+---
+
+## Third-party notice
+
+The matching engine is [PAMS](https://pypi.org/project/pams/0.3.0/) (Platform for Artificial
+Market Simulations, EPL-1.0), used unmodified from PyPI and pinned in
+`requirements-stock.txt`; it is installed by the reviewer, not redistributed in this archive.
+The archive itself is licensed under the Mozilla Public License 2.0 (`LICENSE`).

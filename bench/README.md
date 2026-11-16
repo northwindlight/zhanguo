@@ -5,8 +5,7 @@ No LLM, no network, no paid API is needed to run the harness itself: every seat 
 restricted-Python policy executed by the in-engine sandbox, exactly like a model-submitted
 script.
 
-This is the Layer-1 (reading) half of the evaluation protocol described in
-[`research/papers/20261116-stock-agent-benchmark/`](../../research/papers/20261116-stock-agent-benchmark/README.md):
+This is the Layer-1 (reading) half of the evaluation protocol described in the accompanying paper:
 one episode, one absolute score, a full ledger, and a replay hash anyone can recompute.
 
 ## Quick start
@@ -99,3 +98,4 @@ rule loopholes, never as an upper bound, a lower bound or a normalising denomina
   small order can move it (mark-the-close). Until the settlement rule moves to a VWAP/TWAP
   window, this harness must not be advertised as "un-gameable".
 * Cost of the evaluation in tokens/dollars is **not** part of the score (in-game cash cost is).
+
