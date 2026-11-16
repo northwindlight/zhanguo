@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-ROOT = Path(r"D:\code\zhanguo")
+ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from mods.stock.tools import _catalogs  # noqa: E402
