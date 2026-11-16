@@ -54,10 +54,10 @@ def digest(obj):
 # ---------------------------------------------------------------------------
 
 def apply_patches(h, patches):
-    """patches: {'commission': float, 'depth_shares': int}。
+    """patches: {'commission': float, 'depth_shares': int, 'borrow_shares': int}。
 
-    Commission 在 Market.__init__ 里被复制成 self.commission，DepthShares 则在
-    每次做市报价时从 parameters 现读；两处都改，保证整局语义一致。
+    Commission 在 Market.__init__ 里被复制成 self.commission，DepthShares / BorrowShares
+    则在每次使用前从 parameters 现读；两处都改，保证整局语义一致。
     这是「制度反事实」：等价于把发行版参数在开局前换成另一套，而非运行中半途改。
     """
     market = h.world.market
@@ -67,6 +67,8 @@ def apply_patches(h, patches):
         market.parameters['Commission'] = rate
     if 'depth_shares' in patches:
         market.parameters['DepthShares'] = int(patches['depth_shares'])
+    if 'borrow_shares' in patches:
+        market.parameters['BorrowShares'] = int(patches['borrow_shares'])
     return patches
 
 
@@ -111,11 +113,14 @@ def _round_row(h, actors, player_set, keep_fills, keep_background):
 
 def run_once(*, seed, ticks, turns, sources, actors=1, patches=None,
              planning_workers=None, purchase_pool=False, keep_fills=True,
-             keep_background=False, world_hashes=False):
+             keep_background=False, world_hashes=False, keep_news=False,
+             keep_regime=False):
     """跑完一整局（turns-1 个交易日 + 最终清算），返回逐回合账本与终局摘要。
 
     purchase_pool=True 时，每个行动回合开局前由 ACTOR0 买一档算力池（120/回合），
     用来在确定性测试里覆盖「资源采购动作」。
+    keep_news=True 时逐回合收集已公布消息（在 engine 的 160 条截断之前），用于
+    统计事件跳空；keep_regime=True 时把每回合引擎实际使用的波动状态记进回合行。
     """
     patches = dict(patches or {})
     cfg = config(seed, turns, sources, actors=actors, planning_workers=planning_workers)
@@ -132,12 +137,28 @@ def run_once(*, seed, ticks, turns, sources, actors=1, patches=None,
     rounds = []
     world_hash_rows = []
     pool_receipts = []
+    news = []
+    news_seen = set()
     while not h.finished():
         if purchase_pool and h.world.clock.can_act(ACTOR0):
             receipt = h.player(ACTOR0).submit('compute', {'action': 'buy', 'kind': 'pool'})
             pool_receipts.append(dict(round=h.clock(), ok=bool(receipt.get('ok'))))
         h.cycle()
-        rounds.append(_round_row(h, actors_list, player_set, keep_fills, keep_background))
+        row = _round_row(h, actors_list, player_set, keep_fills, keep_background)
+        dynamics = h.world.market.dynamics
+        if keep_regime:
+            row['regime'] = dynamics.regime if dynamics is not None else None
+        rounds.append(row)
+        if keep_news:
+            for item in h.world.market.news:
+                key = (item.get('round'), item.get('tick'), item.get('symbol'),
+                       item.get('kind'), item.get('headline'))
+                if key in news_seen:
+                    continue
+                news_seen.add(key)
+                news.append({k: item.get(k) for k in
+                             ('round', 'tick', 'symbol', 'kind', 'headline',
+                              'cashflow_change_pct', 'effect')})
         if world_hashes:
             world_hash_rows.append(digest(h.runtime.save_mod_state(h.world)))
     elapsed = time.perf_counter() - started
@@ -192,6 +213,7 @@ def run_once(*, seed, ticks, turns, sources, actors=1, patches=None,
         planning_workers=planning_workers,
         initial_symbols=initial_symbols, common_symbols=common,
         rounds=rounds, players=players,
+        news=news if keep_news else None,
         final_close=final_close, entry_close=entry_close,
         counterfactual_equal_weight=counterfactual,
         pool_receipts=pool_receipts,
@@ -552,3 +574,298 @@ def mark_close_source(round_number, symbol, dose_per_order, orders):
             .replace('__SYMBOL__', str(symbol))
             .replace('__DOSE_PER_ORDER__', str(int(dose_per_order)))
             .replace('__ORDERS__', str(int(orders))))
+
+
+# ---------------------------------------------------------------------------
+# 联赛选手池（exp5 / exp5b 共用）：都是确定性沙盒脚本，不调模型
+# ---------------------------------------------------------------------------
+
+#: 事件顺向：出现新消息后按 cashflow_change_pct 正负做多/做空，持有到当日收盘前
+#: 分批平掉。每方向每天最多 __CAP__ 笔，单笔目标名义额 __NOTIONAL__（受盘口深度限制）。
+#: state 里累计 long_ok/short_ok/long_rej/short_rej 供容量分析。
+NEWS_SYM = '''def on_tick():
+    c = api.call('stock:clock', 'snapshot')
+    if not c['trading_day']:
+        return
+    total = c['slices']
+    t = c['tick']
+    book = api.call('stock:portfolio', 'holdings')
+    held = {}
+    for p in book['positions']:
+        held[p['symbol']] = p['quantity']
+    if t >= total - 1200:
+        rows = api.call('stock:market', 'quotes')
+        depths = {}
+        for r in rows:
+            depths[r['symbol']] = r['depth']
+        for sym in sorted(held):
+            q = held[sym]
+            d = depths.get(sym, {})
+            if q > 0:
+                ladder = d.get('bids', [])
+                avail = 0
+                if ladder:
+                    best = ladder[0][0]
+                    for lvl in ladder:
+                        if lvl[0] >= best * 0.98:
+                            avail = avail + int(lvl[1])
+                qty = min(q, avail)
+                if qty > 0:
+                    api.call('stock:market', 'sell', symbol=sym, quantity=qty)
+            elif q < 0:
+                ladder = d.get('asks', [])
+                avail = 0
+                if ladder:
+                    best = ladder[0][0]
+                    for lvl in ladder:
+                        if lvl[0] <= best * 1.02:
+                            avail = avail + int(lvl[1])
+                qty = min(-q, avail)
+                if qty > 0:
+                    api.call('stock:market', 'cover', symbol=sym, quantity=qty)
+        api.call('stock:clock', 'sleep', ticks=100)
+        return
+    rows = api.call('stock:market', 'quotes')
+    day = state.get('day', 0)
+    if day != c['round']:
+        state['day'] = c['round']
+        state['entries'] = 0
+    entries = state.get('entries', 0)
+    for r in rows:
+        if entries >= __CAP__:
+            break
+        sym = r['symbol']
+        news = r['news']
+        if not news:
+            continue
+        ev = news[-1]
+        key = str(ev.get('round')) + ':' + str(ev.get('tick')) + ':' + str(ev.get('kind'))
+        if state.get('seen:' + sym) == key:
+            continue
+        state['seen:' + sym] = key
+        chg = ev.get('cashflow_change_pct', 0)
+        if chg == 0:
+            continue
+        if held.get(sym, 0) != 0:
+            continue
+        side = 0
+        if chg > 0:
+            side = 1
+        else:
+            side = -1
+        depth = r['depth']
+        price = r['price']
+        ladder = depth['asks'] if side > 0 else depth['bids']
+        avail = 0
+        if ladder:
+            best = ladder[0][0]
+            for lvl in ladder:
+                if side > 0 and lvl[0] <= best * 1.02:
+                    avail = avail + int(lvl[1])
+                elif side < 0 and lvl[0] >= best * 0.98:
+                    avail = avail + int(lvl[1])
+        qty = min(int(__NOTIONAL__ / (price * 1.03)), avail)
+        if side < 0:
+            qty = min(qty, r.get('borrow_available', 0))
+        if qty <= 0:
+            if side > 0:
+                state['long_rej'] = state.get('long_rej', 0) + 1
+            else:
+                state['short_rej'] = state.get('short_rej', 0) + 1
+            continue
+        cash = book['available_cash']
+        if side > 0 and cash < qty * price * 1.03:
+            state['long_rej'] = state.get('long_rej', 0) + 1
+            continue
+        if side > 0:
+            res = api.call('stock:market', 'buy', symbol=sym, quantity=qty)
+        else:
+            res = api.call('stock:market', 'short', symbol=sym, quantity=qty)
+        if res.get('ok') is False:
+            if side > 0:
+                state['long_rej'] = state.get('long_rej', 0) + 1
+            else:
+                state['short_rej'] = state.get('short_rej', 0) + 1
+            continue
+        if side > 0:
+            state['long_ok'] = state.get('long_ok', 0) + 1
+        else:
+            state['short_ok'] = state.get('short_ok', 0) + 1
+        entries = entries + 1
+        state['entries'] = entries
+        book = api.call('stock:portfolio', 'holdings')
+    api.call('stock:clock', 'sleep', ticks=100)
+'''
+
+#: 趋势（mom）：ma5/ma20 金叉做多、死叉做空，持有到反向信号（跨日持有，终局清算）。
+#: __INVERT__=1 时信号取反，即均值回归（rev）。
+TREND = '''def on_tick():
+    c = api.call('stock:clock', 'snapshot')
+    if not c['trading_day']:
+        return
+    rows = api.call('stock:market', 'quotes')
+    book = api.call('stock:portfolio', 'holdings')
+    held = {}
+    for p in book['positions']:
+        held[p['symbol']] = p['quantity']
+    cash = book['available_cash']
+    for r in rows:
+        sym = r['symbol']
+        ma5 = r['ma5']
+        ma20 = r['ma20']
+        if ma5 is None or ma20 is None:
+            continue
+        want = 0
+        if ma5 > ma20:
+            want = 1
+        elif ma5 < ma20:
+            want = -1
+        if __INVERT__:
+            want = -want
+        key = 'dir:' + sym
+        cur = state.get(key, 0)
+        q = held.get(sym, 0)
+        if q != 0 and cur == 0:
+            if q > 0:
+                cur = 1
+            else:
+                cur = -1
+            state[key] = cur
+        if want == cur:
+            continue
+        if q > 0:
+            api.call('stock:market', 'sell', symbol=sym, quantity=q)
+            state[key] = 0
+            continue
+        if q < 0:
+            api.call('stock:market', 'cover', symbol=sym, quantity=-q)
+            state[key] = 0
+            continue
+        depth = r['depth']
+        price = r['price']
+        qty = int(__NOTIONAL__ / (price * 1.03))
+        if want > 0:
+            ladder = depth['asks']
+            avail = 0
+            if ladder:
+                best = ladder[0][0]
+                for lvl in ladder:
+                    if lvl[0] <= best * 1.02:
+                        avail = avail + int(lvl[1])
+            qty = min(qty, avail)
+            if qty <= 0 or cash < qty * price * 1.03:
+                continue
+            res = api.call('stock:market', 'buy', symbol=sym, quantity=qty)
+            if res.get('ok') is False:
+                continue
+            cash = cash - qty * price * 1.03
+            state[key] = 1
+        else:
+            ladder = depth['bids']
+            avail = 0
+            if ladder:
+                best = ladder[0][0]
+                for lvl in ladder:
+                    if lvl[0] >= best * 0.98:
+                        avail = avail + int(lvl[1])
+            qty = min(qty, avail, r.get('borrow_available', 0))
+            if qty <= 0:
+                continue
+            res = api.call('stock:market', 'short', symbol=sym, quantity=qty)
+            if res.get('ok') is False:
+                continue
+            state[key] = -1
+    api.call('stock:clock', 'sleep', ticks=500)
+'''
+
+#: 空头重仓（静态）：第 1 个交易日开盘等权做空 10 只初始股（每只 5% 现金名义额），
+#: 之后不动，持有到终局清算。用于检验熊市局里「空头风格」是否天然占优。
+SHORT_HEAVY = '''def on_tick():
+    c = api.call('stock:clock', 'snapshot')
+    if not c['trading_day']:
+        return
+    if state.get('done'):
+        api.call('stock:clock', 'sleep', ticks=c['slices'])
+        return
+    rows = api.call('stock:market', 'quotes')
+    book = api.call('stock:portfolio', 'holdings')
+    cash = book['available_cash']
+    for r in rows:
+        sym = r['symbol']
+        price = r['price']
+        qty = int(cash * 0.05 / (price * 1.03))
+        lend = r.get('borrow_available', 0)
+        if qty > lend:
+            qty = lend
+        if qty > 0:
+            api.call('stock:market', 'short', symbol=sym, quantity=qty)
+    state['done'] = 1
+    api.call('stock:clock', 'sleep', ticks=c['slices'])
+'''
+
+#: 容量探针：每 100 tick 吃一次盘口，按 200 股/次持续累积单边仓位，不主动平仓。
+#: __SIDE__ = 'long' / 'short'；__SYMBOL__ 固定一只股票。
+ACCUM = '''def on_tick():
+    c = api.call('stock:clock', 'snapshot')
+    if not c['trading_day']:
+        return
+    if state.get('stop'):
+        return
+    rows = api.call('stock:market', 'quotes')
+    book = api.call('stock:portfolio', 'holdings')
+    for r in rows:
+        if r['symbol'] != '__SYMBOL__':
+            continue
+        depth = r['depth']
+        if __IS_SHORT__:
+            ladder = depth['bids']
+        else:
+            ladder = depth['asks']
+        avail = 0
+        if ladder:
+            best = ladder[0][0]
+            for lvl in ladder:
+                if __IS_SHORT__:
+                    if lvl[0] >= best * 0.98:
+                        avail = avail + int(lvl[1])
+                else:
+                    if lvl[0] <= best * 1.02:
+                        avail = avail + int(lvl[1])
+        qty = min(200, avail)
+        if __IS_SHORT__:
+            qty = min(qty, r.get('borrow_available', 0))
+        cash = book['available_cash']
+        if qty <= 0:
+            state['rej'] = state.get('rej', 0) + 1
+            state['stop'] = 1
+            return
+        if not __IS_SHORT__ and cash < qty * r['price'] * 1.05:
+            state['rej'] = state.get('rej', 0) + 1
+            state['stop'] = 1
+            return
+        if __IS_SHORT__:
+            res = api.call('stock:market', 'short', symbol=r['symbol'], quantity=qty)
+        else:
+            res = api.call('stock:market', 'buy', symbol=r['symbol'], quantity=qty)
+        if res.get('ok') is False:
+            state['rej'] = state.get('rej', 0) + 1
+            state['stop'] = 1
+            return
+        state['fills'] = state.get('fills', 0) + 1
+        state['shares'] = state.get('shares', 0) + qty
+    api.call('stock:clock', 'sleep', ticks=100)
+'''
+
+
+def news_sym_source(notional=15000, cap=5):
+    return NEWS_SYM.replace('__NOTIONAL__', str(int(notional))).replace('__CAP__', str(int(cap)))
+
+
+def trend_source(inverted=False, notional=10000):
+    return TREND.replace('__NOTIONAL__', str(int(notional))).replace(
+        '__INVERT__', '1' if inverted else '0')
+
+
+def accum_source(symbol, short=False):
+    return (ACCUM.replace('__SYMBOL__', str(symbol))
+            .replace('__IS_SHORT__', '1' if short else '0'))

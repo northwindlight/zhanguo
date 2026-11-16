@@ -20,6 +20,8 @@ STEPS = [
     ('exp2b', 'exp2b_full_protocol.py', '全尺寸协议（60 回合 × 20k tick）买入持有 vs 论文反事实'),
     ('exp3', 'exp3_mechanism.py', '佣金 0 vs 0.001、盘口深度 100 vs 20'),
     ('exp4', 'exp4_mark_close.py', '结算价（last executed price）可操纵性剂量反应'),
+    ('exp5b', 'exp5b_league.py', '联赛/Elo：5 风格选手池、48 局、稳定性与牛熊分组'),
+    ('exp5', 'exp5_opportunity.py', '环境健康检查：机会总量、策略跨种子 CV、借券容量'),
 ]
 
 
