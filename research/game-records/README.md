@@ -1,6 +1,6 @@
 # 真实游戏日志与完整存档
 
-这里收录对局提供者实际游玩战国时留下的完整存档和原始日志，公开供研究与参考。其中两局来自旧版单体游戏，另两局八国对局来自 `main` 的 experimental 发行版，还有两局 stock 股票模拟；均非合成测试。
+这里收录对局提供者实际游玩战国时留下的完整存档和原始日志，公开供研究与参考。其中两局来自旧版单体游戏，另两局八国对局来自 `main` 的 experimental 发行版，还有三局 stock 股票模拟；均非合成测试。
 
 | 对局 | 存档回合 | 模型 | 状态 | 存档 | 日志 | 报告 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -10,6 +10,7 @@
 | 八国 Qwen / DeepSeek 长局，种子 20261018 | 120 边界（119 已结算） | 四国 Qwen 3.8 Flash / 四国 DeepSeek V4.1 Flash Free | 未终局；第120回合历史交接期间中断 | [session.json.gz](eight-nations-dq-120/session.json.gz) | [后段日志](eight-nations-dq-120/journal.md.gz) / [回退前日志](eight-nations-dq-120/journal-before-rollback.md.gz) | [归档说明与局面](eight-nations-dq-120/README.md) |
 | 股票模拟，种子 2026111303 | 60 | 四席 Gemini 4 Hydrogen High | 已终局，量化丁第一 | [session.json.gz](stock-gemini-hydrogen-20261113/session.json.gz) | [journal.md](stock-gemini-hydrogen-20261113/journal.md) | [结算厅复盘](stock-gemini-hydrogen-20261113/结算厅复盘.md) |
 | 股票模拟，种子 2026111303 | 60 | 四席 Gemini 3.8 Flash High | 已终局，量化乙第一；第48回合额度耗尽后续跑 | [session.json.gz](stock-gemini38-flash-20261114/session.json.gz) | [journal.md](stock-gemini38-flash-20261114/journal.md) | [结算厅复盘](stock-gemini38-flash-20261114/结算厅复盘.md) / [Hydrogen对照](stock-gemini38-flash-20261114/Hydrogen对照评估.md) |
+| 股票模拟，随机种子 126775603 | 60 | 四席 hy4-flash-free（opencode Go） | 已终局，量化甲第一；**与两局 Gemini 种子不同，非严格对照** | [session.json.gz](stock-hy4flashfree-20261117/session.json.gz) | [journal.md](stock-hy4flashfree-20261117/journal.md) | [结算厅复盘](stock-hy4flashfree-20261117/结算厅复盘.md) / [Gemini对照](stock-hy4flashfree-20261117/对照评估.md) |
 
 上述四局八国对局均为 24×24 地图，初始国家为秦、魏、韩、赵、燕、齐、楚、周。258/158 局的模型名称由对局提供者说明。258 局确实使用过 DeepSeek，原始存档中部分 `reasoning_signature.model` 为 `deepseek-flash[1m]`；这些字段原样保留。没有整理或推断各国、各回合的完整模型切换表，不能把该局当作单一模型的受控实验。
 
@@ -25,7 +26,7 @@
 
 Qwen / DeepSeek 120边界局的存档和两份日志以 gzip 收录，全部审计文件另附 tar.gz；每个原始文件的哈希、解压与历史版本读档检查见该局目录。
 
-股票局的版本、审计归档与校验方式见 [Hydrogen 对局说明](stock-gemini-hydrogen-20261113/README.md)与 [3.8 Flash 对局说明](stock-gemini38-flash-20261114/README.md)。以下 manifest 与 SHA256SUMS 针对八国记录。
+股票局的版本、审计归档与校验方式见 [Hydrogen 对局说明](stock-gemini-hydrogen-20261113/README.md)、[3.8 Flash 对局说明](stock-gemini38-flash-20261114/README.md)与 [hy4-flash-free 对局说明](stock-hy4flashfree-20261117/README.md)。以下 manifest 与 SHA256SUMS 针对八国记录。
 
 [manifest.json](manifest.json) 记录原始文件名、保存回合、地图参数、模型来源、文件大小和 SHA-256。[SHA256SUMS](SHA256SUMS) 可直接校验：
 
