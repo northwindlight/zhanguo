@@ -11,9 +11,11 @@
   * 修订回合：该席当回合保存了任一交易槽（1～4，不含研究槽）的新版本，且通过自动检查。
   * 失败日：交易日收盘回执里任一交易槽状态不是 effective。休市日一律不计——Hydrogen 局的
     引擎版本在休市日仍会运行交易槽（0585416 已修复），那些失败不是模型的问题。
-  * 诱发失败：失败日当回合有修订，且上一回合没有失败（上一回合是休市日时按未失败计）。
+  * 诱发失败：失败日当回合有修订，且上一个交易日没有失败（跳过休市日往前找）。
   * 版本：按 write 全文与 patch（old 恰好出现一次时替换）重放；检查失败的源码引擎仍会保存，
     重放时照样更新当前源码，但不计为有效版本。无法重放的 patch 单列。
+  * 去重：H、F 两局的审计压缩包里有同一 id 的重复记录（内容完全相同），按 id 只保留一条，
+    否则重复的 write 会被误算成「与上一版逐字节相同」。
   * 编辑方式：只统计通过自动检查的 write / patch。
   * 失败分类：算力（单次回调计算量超限、共享算力池用满）、结构（语法树/源码超限）、
     市场（无对手方报价、持仓不足）、其余为逻辑错误。
@@ -50,14 +52,15 @@ def classify(message):
 
 
 def load(game_dir):
-    records = []
+    records = {}
     with tempfile.TemporaryDirectory() as tmp:
         with tarfile.open(game_dir / 'session.json.audit.tar.gz') as tar:
             tar.extractall(tmp, filter='data')
         for path in sorted(Path(tmp).glob('session.json.audit/*/*.json')):
-            records += json.loads(path.read_text(encoding='utf-8'))['records']
-    records.sort(key=lambda r: r['id'])
-    return records
+            for r in json.loads(path.read_text(encoding='utf-8'))['records']:
+                if records.setdefault(r['id'], r) != r:
+                    raise ValueError('审计 id %s 有两条内容不同的记录' % r['id'])
+    return sorted(records.values(), key=lambda r: r['id'])
 
 
 def analyze(records):
@@ -120,6 +123,7 @@ def analyze(records):
         seat = seats[actor]
         rounds = sorted(seat['wealth'])
         previous = 100000.0
+        previous_failed = False
         for period in rounds:
             change = seat['wealth'][period] - previous
             previous = seat['wealth'][period]
@@ -131,8 +135,9 @@ def analyze(records):
             group[2].append(change)
             if seat['fail'][period]:
                 failed_days += 1
-                if period in seat['revised'] and not seat['fail'].get(period - 1):
+                if period in seat['revised'] and not previous_failed:
                     induced += 1
+            previous_failed = bool(seat['fail'][period])
         for period in rounds:
             classes.update(seat['fail'][period])
         kinds.update(seat['kinds'])

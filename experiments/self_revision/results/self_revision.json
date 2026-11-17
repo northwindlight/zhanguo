@@ -7,15 +7,13 @@
   ],
   "versions": {
    "rejected": 40,
-   "new": 298,
-   "unreconstructable": 35,
-   "identical": 2
+   "new": 290
   },
   "edit_style": {
-   "patch": 280,
-   "write": 53
+   "patch": 239,
+   "write": 51
   },
-  "research_runs": 24,
+  "research_runs": 22,
   "revised_days": {
    "trading_days": 113,
    "failure_rate": 0.2566,
@@ -27,7 +25,7 @@
    "mean_wealth_change": 670.4
   },
   "failed_trading_days": 33,
-  "induced_failures": 16,
+  "induced_failures": 13,
   "failure_classes": {
    "budget": 32,
    "market": 5,
@@ -39,14 +37,13 @@
     "rounds_revised": 30,
     "versions": {
      "rejected": 32,
-     "new": 53,
-     "unreconstructable": 10
+     "new": 53
     },
     "edit_style": {
-     "patch": 56,
+     "patch": 48,
      "write": 5
     },
-    "research_runs": 18,
+    "research_runs": 16,
     "failed_trading_days": 8,
     "final_settled_wealth": 115069.99
    },
@@ -54,12 +51,11 @@
     "rounds_revised": 34,
     "versions": {
      "new": 111,
-     "rejected": 5,
-     "unreconstructable": 9
+     "rejected": 5
     },
     "edit_style": {
      "write": 14,
-     "patch": 106
+     "patch": 97
     },
     "research_runs": 0,
     "failed_trading_days": 8,
@@ -68,14 +64,12 @@
    "stock:delta": {
     "rounds_revised": 30,
     "versions": {
-     "new": 90,
-     "rejected": 1,
-     "unreconstructable": 8,
-     "identical": 2
+     "new": 82,
+     "rejected": 1
     },
     "edit_style": {
-     "write": 19,
-     "patch": 81
+     "write": 17,
+     "patch": 65
     },
     "research_runs": 0,
     "failed_trading_days": 6,
@@ -85,12 +79,11 @@
     "rounds_revised": 33,
     "versions": {
      "new": 44,
-     "rejected": 2,
-     "unreconstructable": 8
+     "rejected": 2
     },
     "edit_style": {
      "write": 15,
-     "patch": 37
+     "patch": 29
     },
     "research_runs": 6,
     "failed_trading_days": 11,
@@ -106,13 +99,12 @@
   ],
   "versions": {
    "new": 141,
-   "identical": 64,
    "rejected": 1
   },
   "edit_style": {
-   "write": 205
+   "write": 141
   },
-  "research_runs": 24,
+  "research_runs": 22,
   "revised_days": {
    "trading_days": 128,
    "failure_rate": 0.1875,
@@ -135,24 +127,22 @@
    "stock:alpha": {
     "rounds_revised": 17,
     "versions": {
-     "new": 17,
-     "identical": 3
+     "new": 17
     },
     "edit_style": {
-     "write": 20
+     "write": 17
     },
-    "research_runs": 7,
+    "research_runs": 5,
     "failed_trading_days": 7,
     "final_settled_wealth": 82070.03
    },
    "stock:beta": {
     "rounds_revised": 44,
     "versions": {
-     "new": 44,
-     "identical": 20
+     "new": 44
     },
     "edit_style": {
-     "write": 64
+     "write": 44
     },
     "research_runs": 1,
     "failed_trading_days": 8,
@@ -162,11 +152,10 @@
     "rounds_revised": 40,
     "versions": {
      "rejected": 1,
-     "new": 40,
-     "identical": 21
+     "new": 40
     },
     "edit_style": {
-     "write": 61
+     "write": 40
     },
     "research_runs": 11,
     "failed_trading_days": 6,
@@ -175,11 +164,10 @@
    "stock:gamma": {
     "rounds_revised": 39,
     "versions": {
-     "new": 40,
-     "identical": 20
+     "new": 40
     },
     "edit_style": {
-     "write": 60
+     "write": 40
     },
     "research_runs": 5,
     "failed_trading_days": 4,
