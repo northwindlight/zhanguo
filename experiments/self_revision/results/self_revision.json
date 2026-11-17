@@ -1,0 +1,280 @@
+{
+ "H": {
+  "record": "stock-gemini-hydrogen-20261113",
+  "rounds_revised_range": [
+   30,
+   34
+  ],
+  "versions": {
+   "rejected": 40,
+   "new": 298,
+   "unreconstructable": 35,
+   "identical": 2
+  },
+  "edit_style": {
+   "patch": 280,
+   "write": 53
+  },
+  "research_runs": 24,
+  "revised_days": {
+   "trading_days": 113,
+   "failure_rate": 0.2566,
+   "mean_wealth_change": 103.0
+  },
+  "other_days": {
+   "trading_days": 59,
+   "failure_rate": 0.0678,
+   "mean_wealth_change": 670.4
+  },
+  "failed_trading_days": 33,
+  "induced_failures": 16,
+  "failure_classes": {
+   "budget": 32,
+   "market": 5,
+   "logic": 2
+  },
+  "budget_share": 0.8205,
+  "seats": {
+   "stock:alpha": {
+    "rounds_revised": 30,
+    "versions": {
+     "rejected": 32,
+     "new": 53,
+     "unreconstructable": 10
+    },
+    "edit_style": {
+     "patch": 56,
+     "write": 5
+    },
+    "research_runs": 18,
+    "failed_trading_days": 8,
+    "final_settled_wealth": 115069.99
+   },
+   "stock:beta": {
+    "rounds_revised": 34,
+    "versions": {
+     "new": 111,
+     "rejected": 5,
+     "unreconstructable": 9
+    },
+    "edit_style": {
+     "write": 14,
+     "patch": 106
+    },
+    "research_runs": 0,
+    "failed_trading_days": 8,
+    "final_settled_wealth": 92808.8
+   },
+   "stock:delta": {
+    "rounds_revised": 30,
+    "versions": {
+     "new": 90,
+     "rejected": 1,
+     "unreconstructable": 8,
+     "identical": 2
+    },
+    "edit_style": {
+     "write": 19,
+     "patch": 81
+    },
+    "research_runs": 0,
+    "failed_trading_days": 6,
+    "final_settled_wealth": 125615.61
+   },
+   "stock:gamma": {
+    "rounds_revised": 33,
+    "versions": {
+     "new": 44,
+     "rejected": 2,
+     "unreconstructable": 8
+    },
+    "edit_style": {
+     "write": 15,
+     "patch": 37
+    },
+    "research_runs": 6,
+    "failed_trading_days": 11,
+    "final_settled_wealth": 97381.9
+   }
+  }
+ },
+ "F": {
+  "record": "stock-gemini38-flash-20261114",
+  "rounds_revised_range": [
+   17,
+   44
+  ],
+  "versions": {
+   "new": 141,
+   "identical": 64,
+   "rejected": 1
+  },
+  "edit_style": {
+   "write": 205
+  },
+  "research_runs": 24,
+  "revised_days": {
+   "trading_days": 128,
+   "failure_rate": 0.1875,
+   "mean_wealth_change": -526.2
+  },
+  "other_days": {
+   "trading_days": 44,
+   "failure_rate": 0.0227,
+   "mean_wealth_change": -440.6
+  },
+  "failed_trading_days": 25,
+  "induced_failures": 20,
+  "failure_classes": {
+   "budget": 21,
+   "market": 3,
+   "logic": 1
+  },
+  "budget_share": 0.84,
+  "seats": {
+   "stock:alpha": {
+    "rounds_revised": 17,
+    "versions": {
+     "new": 17,
+     "identical": 3
+    },
+    "edit_style": {
+     "write": 20
+    },
+    "research_runs": 7,
+    "failed_trading_days": 7,
+    "final_settled_wealth": 82070.03
+   },
+   "stock:beta": {
+    "rounds_revised": 44,
+    "versions": {
+     "new": 44,
+     "identical": 20
+    },
+    "edit_style": {
+     "write": 64
+    },
+    "research_runs": 1,
+    "failed_trading_days": 8,
+    "final_settled_wealth": 83890.71
+   },
+   "stock:delta": {
+    "rounds_revised": 40,
+    "versions": {
+     "rejected": 1,
+     "new": 40,
+     "identical": 21
+    },
+    "edit_style": {
+     "write": 61
+    },
+    "research_runs": 11,
+    "failed_trading_days": 6,
+    "final_settled_wealth": 67332.4
+   },
+   "stock:gamma": {
+    "rounds_revised": 39,
+    "versions": {
+     "new": 40,
+     "identical": 20
+    },
+    "edit_style": {
+     "write": 60
+    },
+    "research_runs": 5,
+    "failed_trading_days": 4,
+    "final_settled_wealth": 72559.83
+   }
+  }
+ },
+ "Y": {
+  "record": "stock-hy4flashfree-20261117",
+  "rounds_revised_range": [
+   11,
+   19
+  ],
+  "versions": {
+   "new": 104,
+   "revert": 6
+  },
+  "edit_style": {
+   "write": 83,
+   "patch": 27
+  },
+  "research_runs": 106,
+  "revised_days": {
+   "trading_days": 42,
+   "failure_rate": 0.2857,
+   "mean_wealth_change": -811.6
+  },
+  "other_days": {
+   "trading_days": 130,
+   "failure_rate": 0.0231,
+   "mean_wealth_change": 203.4
+  },
+  "failed_trading_days": 15,
+  "induced_failures": 8,
+  "failure_classes": {
+   "logic": 6,
+   "budget": 9
+  },
+  "budget_share": 0.6,
+  "seats": {
+   "stock:alpha": {
+    "rounds_revised": 11,
+    "versions": {
+     "new": 16
+    },
+    "edit_style": {
+     "write": 10,
+     "patch": 6
+    },
+    "research_runs": 12,
+    "failed_trading_days": 3,
+    "final_settled_wealth": 127742.0
+   },
+   "stock:beta": {
+    "rounds_revised": 19,
+    "versions": {
+     "new": 23,
+     "revert": 1
+    },
+    "edit_style": {
+     "write": 22,
+     "patch": 2
+    },
+    "research_runs": 28,
+    "failed_trading_days": 6,
+    "final_settled_wealth": 88588.97
+   },
+   "stock:delta": {
+    "rounds_revised": 13,
+    "versions": {
+     "new": 24,
+     "revert": 1
+    },
+    "edit_style": {
+     "write": 20,
+     "patch": 5
+    },
+    "research_runs": 42,
+    "failed_trading_days": 3,
+    "final_settled_wealth": 77316.17
+   },
+   "stock:gamma": {
+    "rounds_revised": 18,
+    "versions": {
+     "new": 41,
+     "revert": 4
+    },
+    "edit_style": {
+     "write": 31,
+     "patch": 14
+    },
+    "research_runs": 24,
+    "failed_trading_days": 3,
+    "final_settled_wealth": 85401.33
+   }
+  }
+ }
+}
