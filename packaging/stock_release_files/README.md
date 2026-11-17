@@ -89,9 +89,9 @@ python mp_run.py --config mp_config.json --language en-US
   initial 100,000). It is not a confidence-interval ranking; retakes are optional and every
   published seed must be disclosed.
 
-Known limits, stated up front: the settlement price is the last traded price, and a small
-mark-the-close probe shows it can be moved — until the settlement rule moves to a VWAP window,
-this package must not be advertised as "un-gameable". Token/dollar cost of the model is
+Known limits, stated up front: final liquidation settles at the last trading day's VWAP, which
+makes a single seat's mark-the-close push lose money in the probe, but multi-seat collusion and
+selling-side pushes are untested, so this package must not be advertised as "un-gameable". Token/dollar cost of the model is
 reported separately and is not in the score. Price-level coupling between seats is currently
 second order (execution-level coupling is first order).
 
@@ -136,8 +136,8 @@ python bench/evaluate.py --seats 4 --turns 60 --ticks 20000
 交互模式：`cp mp_config.stock.example.json mp_config.json` 填好 key 后
 `python mp_run.py --config mp_config.json --language zh-CN`。
 
-已知边界：结算价用当日最后成交价，小额尾盘成交可推动它（mark-the-close 探针已量化），
-修复方向是改成最后 N 个 tick 的 VWAP/TWAP；模型 token 成本不进分数；价格层耦合目前是二阶。
+已知边界：终局清算价改为最后一个交易日全部成交的成交量加权均价（VWAP），探针中单席尾盘推价已变为亏损；
+多席合谋与反向砸盘尚未测试，不能宣称「不可刷」；模型 token 成本不进分数；价格层耦合目前是二阶。
 ---
 
 ## Third-party notice

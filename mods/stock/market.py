@@ -50,6 +50,9 @@ class Market:
         self.dynamics = None
         # 股票池状态：新股池进度、退市监视与公告队列；随存档持久。
         self.pool = dict(ipo_index=0, risk={}, warnings={}, notices=[])
+        # 当日成交量加权累计（盘中）与最近一个交易日的终局清算价（随存档）。
+        self.vwap = {}
+        self.settlement = {}
         self.tick = 0
         self.round = 1
         self.recorder = None
@@ -173,6 +176,7 @@ class Market:
         self.opening = dict(self.close)
         self.path = {s: [p] for s, p in self.close.items()}
         self.samples = {s: [] for s in self.stocks}
+        self.vwap = {}
         self.state = self.SESSION
         self.dynamics.open_session()
         self._quote_maker()
@@ -385,6 +389,7 @@ class Market:
                 target['filled_quantity'] += log.volume
                 target['remaining'] -= log.volume
                 amount = round(log.price*log.volume, 2)
+                if leg == 'b': self._vwap_trade(symbol, log.price, log.volume)
                 fee = 0 if target['background'] else self.fee_of(amount)
                 target['amount'] = round(target['amount'] + amount, 2)
                 target['fee'] = round(target['fee'] + fee, 2)
@@ -407,6 +412,21 @@ class Market:
                     self.recorder(target['actor'], 'stock_fill', {}, fill)
         if order['kind'] == 'market' and order['status'] in OPEN:
             self._cancel_now(order, 'expired', '保护限价内剩余数量无法成交，市价单剩余部分到期')
+
+    def _vwap_trade(self, symbol, price, volume):
+        """Accumulate every execution (players and background) inside the settlement window."""
+        window = self.parameters.get('SettlementWindow', 0)
+        total = self._clock('slices')
+        if window <= 0 or self.tick <= total - max(1, round(total * min(1.0, window))):
+            return
+        value, shares = self.vwap.get(symbol, (0.0, 0))
+        self.vwap[symbol] = (value + price * volume, shares + volume)
+
+    def settlement_price(self, symbol):
+        """Final-liquidation price: the last trading day's window VWAP, else the close."""
+        if self.parameters.get('SettlementWindow', 0) <= 0:
+            return self.price_of(symbol)
+        return self.settlement.get(symbol, self.price_of(symbol))
 
     def _cancel_now(self, order, status='cancelled', reason='玩家撤单'):
         if order['status'] not in OPEN:
@@ -464,11 +484,12 @@ class Market:
         return fill
 
     def final_close(self, actor, side, symbol, quantity):
-        """最终清算专用：不经过订单簿和清算银行，按最后价平仓并照收佣金。
+        """最终清算专用：不经过订单簿和清算银行，按终局清算价平仓并照收佣金。
 
         终局必须有确定的成交口径，不能因为盘口没量或清算银行没货而让成绩悬空。
+        清算价取最后一个交易日的成交量加权均价，避免尾盘少量成交改写全场成绩。
         """
-        price = self.execution_price(symbol, side, quantity)
+        price = round(self.settlement_price(symbol) * (1-.001 if side in ('sell', 'short') else 1.001), 4)
         amount = round(price * quantity, 2)
         fee = self.fee_of(amount)
         ident = f'{self.round}:final:{self.trade_seq}'
@@ -484,6 +505,8 @@ class Market:
         if self.state == self.SESSION:
             for symbol in self.stocks:
                 self.close[symbol] = self.price_of(symbol)
+                value, shares = self.vwap.get(symbol, (0.0, 0))
+                self.settlement[symbol] = round(value / shares, 2) if shares else self.close[symbol]
                 self.last_depth[symbol] = self.backend.depth(symbol)
             for order in list(self.orders.values()):
                 self._cancel_now(order, 'expired', '收盘，Day 委托到期')
@@ -594,6 +617,7 @@ class Market:
                     fills=deepcopy(self.last_fills[-2000:]),
                     actor_fills=deepcopy({a: f[-500:] for a, f in self.actor_fills.items()
                                           if a not in BACKGROUND}),
+                    settlement=dict(self.settlement),
                     seq=self.seq, trade_seq=self.trade_seq,
                     state=self.state, round=self.round)
 
@@ -615,6 +639,9 @@ class Market:
         self.actor_fills = deepcopy(state['actor_fills'])
         self.seq, self.trade_seq, self.state, self.round = state['seq'], state['trade_seq'], state['state'], state['round']
         self.path = {s: [] for s in self.stocks}
+        self.vwap = {}
+        # 旧存档没有清算价：沿用收盘价，结果与旧规则一致。
+        self.settlement = dict(state.get('settlement', {}))
         self.pending, self.backend = {}, None
         self._public_cache = None
 

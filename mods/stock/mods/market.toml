@@ -22,6 +22,9 @@ FlowInterval = 200
 FlowShares = 5
 NoiseEnabled = true
 NoiseInterval = 40
+# 终局清算价＝最后一个交易日末尾这一比例 tick 内全部成交的成交量加权均价（1.0＝全天）；
+# 0 表示沿用最后成交价。只影响终局清算，不改每日收盘价。
+SettlementWindow = 1.0
 [PlayerAPI]
 Methods = ["quotes", "history", "ticks", "catalog", "pool", "orders", "fills", "day_summary", "buy", "sell", "short", "cover", "cancel"]
 ReadOnly = ["quotes", "history", "ticks", "catalog", "pool", "orders", "fills", "day_summary"]

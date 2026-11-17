@@ -94,8 +94,11 @@ rule loopholes, never as an upper bound, a lower bound or a normalising denomina
 ## Honest status
 
 * Determinism is verified for *given scripts*; model sampling is a separate matter.
-* The settlement price is currently the last traded price (±0.1%), and a dose probe shows a
-  small order can move it (mark-the-close). Until the settlement rule moves to a VWAP/TWAP
-  window, this harness must not be advertised as "un-gameable".
+* Final liquidation settles at the volume-weighted average price of all trades on the last
+  trading day (`SettlementWindow = 1.0` in `mods/stock/mods/market.toml`; `0` restores the old
+  last-trade rule). The mark-the-close dose probe (`experiments/stock_benchmark/exp4b_settlement_vwap.py`)
+  finds that a single seat pushing one illiquid stock now loses cash at every dose, where the
+  old last-trade rule paid it. Multi-seat collusion, selling-side pushes and the full 20000-tick
+  protocol are untested, so this harness must still not be advertised as "un-gameable".
 * Cost of the evaluation in tokens/dollars is **not** part of the score (in-game cash cost is).
 
