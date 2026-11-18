@@ -23,6 +23,43 @@ public partial class WorldMap
         _selectedArmyIds.Clear();foreach(int id in ids)_selectedArmyIds.Add(id);
         _armyOrderRoutes=routes?.DeepClone().AsArray()??new JsonArray();QueueRedraw();
     }
+    // Queued builds and recruits are paid for but only start at turn end; mark them on their tile so a click visibly lands.
+    private readonly List<(Vector2I At,Texture2D Art,bool Recruit,int Count)> _pendingProduction=new();
+    public int PendingProductionCount=>_pendingProduction.Count;
+    public void SetPendingProduction(JsonArray? builds,JsonArray? recruits)
+    {
+        _pendingProduction.Clear();
+        static Vector2I At(JsonNode row)=>new(I(row["position"]![0]),I(row["position"]![1]));
+        foreach(var row in builds??new JsonArray())
+            if(S(row!["status"])!="construction")_pendingProduction.Add((At(row),RtsArt.Building(S(row["kind"])),false,1));
+        foreach(var row in recruits??new JsonArray())
+            if(I(row!["remaining"])>0)_pendingProduction.Add((At(row),RtsArt.Unit(S(row["kind"]),NationColor(PlayerActor)),true,I(row["remaining"])));
+        QueueRedraw();
+    }
+    private void DrawPendingProduction()
+    {
+        float cell=Cell*_scale;if(cell<64)return;
+        const float icon=30;var gold=new Color("e1c48b");
+        foreach(var group in _pendingProduction.GroupBy(p=>p.At))
+        {
+            var center=CellCenter(group.Key);if(!OnScreen(center,cell))continue;
+            var items=group.ToArray();
+            int builds=items.Count(i=>!i.Recruit),soldiers=items.Where(i=>i.Recruit).Sum(i=>i.Count);
+            string text=string.Join(" · ",new[]{builds>0?$"待建 {builds}":"",soldiers>0?$"待征 {soldiers} 支":""}.Where(t=>t!=""));
+            var shown=items.Take(3).ToArray();
+            float width=Math.Max(shown.Length*(icon+2)+6,_font.GetStringSize(text,fontSize:15).X+10),height=icon+26;
+            var at=(center+new Vector2(cell*.5f-width-8,cell*.5f-height-8)).Round();
+            var box=new Rect2(at,new Vector2(width,height));
+            DrawRect(box,new Color("172723e0"));DrawRect(box,gold,false,2);
+            for(int i=0;i<shown.Length;i++)
+            {
+                var art=shown[i].Art;var size=art.GetSize();float fit=icon/Math.Max(size.X,size.Y);
+                var slot=new Rect2(at+new Vector2(4+i*(icon+2),3),Vector2.One*icon);
+                DrawTextureRect(art,new Rect2(slot.GetCenter()-size*fit*.5f,size*fit),false,new Color(1,1,1,.6f));
+            }
+            DrawString(_font,at+new Vector2(5,height-7),text,fontSize:15,modulate:gold);
+        }
+    }
     public int TargetCount=>_humanTargets.Count;
     public int UnknownCount=>_tiles.Values.Count(t=>S(t["visibility"])=="unknown");
     public int MemoryCount=>_tiles.Values.Count(t=>S(t["visibility"])=="memory");
@@ -85,6 +122,7 @@ public partial class WorldMap
         }
         DrawSetTransform(Vector2.Zero);
         DrawArmyOrderRoutes();
+        DrawPendingProduction();
         foreach(var group in Frame!["armies"]!.AsArray().Where(u=>S(u!["owner"])==PlayerActor&&!IsLive(new(I(u["x"]),I(u["y"]))))
             .GroupBy(u=>(X:I(u!["x"]),Y:I(u["y"]))))
         {

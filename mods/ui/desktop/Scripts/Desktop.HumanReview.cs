@@ -212,6 +212,8 @@ public partial class Desktop
             if(HumanFacts["building_sites"]!["instances"]!.AsArray().Any(b=>S(b!["kind"])=="native:militia-camp"))throw new Exception("入队建筑在行动期直接开工");
             if(Yes(_rtsData!["ordered"])||!_rtsCards.Values.Any(b=>_rtsAvailability[b]))throw new Exception("入队占用了本格本期施工额度");
             if(QueuedConstruction().Count!=1||S(QueuedConstruction()[0]!["kind"])!="native:militia-camp")throw new Exception("建造没有进入待建队列");
+            if(_map.PendingProductionCount!=1)throw new Exception("待建条目没有标在地图地块上");
+            await Screenshot(stem+"-pending.png");
             var other=HumanFacts["building_sites"]!["sites"]!.AsArray().First(t=>I(t!["position"]![0])!=capital.X||I(t["position"]![1])!=capital.Y)!["position"]!;
             var otherCell=new Vector2I(I(other[0]),I(other[1]));RtsChangeCell(otherCell);await RtsReady();
             if(_rtsCards["native:castle"].Disabled||Yes(_rtsData!["ordered"])||!_humanReceipt.Text.Contains("已切换地块"))throw new Exception("A 地块的状态残留到 B 地块");

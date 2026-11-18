@@ -347,6 +347,7 @@ public partial class Desktop : Control
         ProcessPlayback(delta);
         if(HumanMode)_map.PlayerPanelOpen=_humanDrawer.IsOpen;
         if(HumanMode){LayoutHumanOutliner();DispatchHumanQueue();TickArmySelection();}
+        if(HumanMode)_banner.Visible=HasTimeline||_humanTurn==null||_humanEnded||_humanPaused||_elapsed-_humanTurnAt<HumanBannerSeconds;
         _map.HudObstacles.Clear();
         foreach(var control in new Control[]{_ledgerPanel,_banner,_settlementCard,_outliner}.Concat(Drawers))
             if(control.IsVisibleInTree())

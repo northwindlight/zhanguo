@@ -33,6 +33,9 @@ public partial class Desktop
     private ConfirmationDialog _humanConfirm=null!;
     private Vector2I _humanCell=new(-1,-1);
     private int _savedHumanPeriod=-1;
+    // The turn banner only announces the player's turn, then gets out of the map's way.
+    private const double HumanBannerSeconds=2.5;
+    private double _humanTurnAt;
     private bool HumanCanWrite=>HumanMode&&_humanTurn!=null&&!_humanNeedsFrame&&!_humanEnded&&!_humanBusy&&!_humanPaused&&
         !HasTimeline&&!_pauseMenu.Visible&&!_closing&&_humanState?["can_act"]?.GetValue<bool>()==true;
     private JsonObject HumanFacts=>_humanState!["facts"]!.AsObject();
@@ -61,6 +64,14 @@ public partial class Desktop
             var button=Button(_humanDock,title,()=>{if(page=="end")HumanEndTurn();else OpenHumanPage(page);});
             button.SizeFlagsHorizontal=SizeFlags.ExpandFill;button.CustomMinimumSize=new Vector2(0,44);
             HumanArt.Style(button,icon);button.AddThemeFontSizeOverride("font_size",16);_humanNav[key]=button;
+            if(key=="end")
+            {
+                // The one action that ends the turn gets more width, the highlighted frame and gold text.
+                _humanDock.AddChild(new Control { CustomMinimumSize=new Vector2(10,0),MouseFilter=MouseFilterEnum.Ignore });_humanDock.MoveChild(button,-1);
+                button.SizeFlagsStretchRatio=1.5f;button.AddThemeStyleboxOverride("normal",HumanArt.Box("button-selected"));
+                button.AddThemeColorOverride("font_color",new Color("f0d58a"));button.AddThemeColorOverride("font_hover_color",new Color("fff0b8"));
+                button.AddThemeFontSizeOverride("font_size",18);
+            }
             if(key is "bank" or "intel")button.Icon=MapIcons.Texture(key=="bank"?"bank":"mail");
         }
         _humanDrawer=Drawer("本国政务",MapDrawer.Side.Right);
@@ -127,6 +138,8 @@ public partial class Desktop
         _humanNav["diplomacy"].Text="外交"+Badge(state["pending_end"]?["offers"]?.AsArray().Count??0);
         _humanNav["alliance"].Text="联盟"+Badge(state["pending_end"]?["votes"]?.AsArray().Count??0);
         RefreshMailbox();
+        if(state["production_queue"] is JsonObject queue)
+            _map.SetPendingProduction(queue["construction"] as JsonArray,queue["recruitment"] as JsonArray);
         var selected=OwnArmies.Where(u=>_selectedArmies.Contains(I(u["id"]))).ToArray();
         var places=selected.Select(u=>new Vector2I(I(u["x"]),I(u["y"]))).Distinct().ToArray();
         if(places.Length==1)_selectionCell=places[0]; // Follow this squad after its own move.
@@ -176,6 +189,7 @@ public partial class Desktop
         {
             _humanCommands.Clear();RefreshHumanQueue();
             _humanTurn=(JsonObject)row.DeepClone();_humanEnded=false;_humanPaused=false;_humanBusy=false;
+            _humanTurnAt=_elapsed;
             _humanNeedsFrame=true;
             CancelHumanTarget();RefreshHumanButtons();return true;
         }

@@ -21,8 +21,9 @@ public partial class Desktop
         if(page is not "tile" and not "guide")_lastOperationPage=page;
         if(page=="army"){_humanPage=page;OpenHumanOutliner(true);return;}
         CancelHumanTarget();
-        if(_humanPage!=page)
-            HumanMessage(page is "build" or "recruit"?"选择本格亮起的图标执行操作；悬停查看价格和条件。":"操作回执保留在国家面板的操作记录中。");
+        // Only the build pages need a hint; other pages keep the last receipt visible.
+        if(_humanPage!=page&&page is "build" or "recruit")
+            HumanMessage("选择本格亮起的图标执行操作；悬停查看价格和条件。");
         _humanPage=page;
         _humanScroll.ScrollVertical=0;
         RenderHumanPage();OpenDrawer(_humanDrawer);LayoutHuman();

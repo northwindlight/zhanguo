@@ -31,7 +31,12 @@ public partial class Desktop
         var sites=HumanFacts["building_sites"]!["sites"]!.AsArray();
         if(sites.Count==0)return false;
         if(!sites.Any(s=>I(s!["position"]![0])==_humanCell.X&&I(s["position"]![1])==_humanCell.Y))
+        {
+            // Say so and move the camera: the panel must never describe a tile the player is not looking at.
             _humanCell=new(I(sites[0]!["position"]![0]),I(sites[0]!["position"]![1]));
+            SetHumanSelectionCell(_humanCell);_map.SelectAndFocus(_humanCell);
+            HumanMessage($"所选地块不是本国领地，已切到本国 ({_humanCell.X}, {_humanCell.Y})。");
+        }
         return true;
     }
     private void RenderRtsCatalog()
@@ -111,8 +116,9 @@ public partial class Desktop
             };
             if(!data["units"]!.AsArray().Any(u=>Yes(u!["has_facility"])))HumanText("本格缺少已落成的兵营／军屯。先建造所需设施。",color:"e0b49b");
         }
-        var hint=HumanText("点击入队并预付 · 回合末统一开工／出兵 · 未开工取消全退，已开工拆除50%，完工0%",color:"a3b7ad");
-        hint.AddThemeFontSizeOverride("font_size",14);
+        var hint=HumanText(recruit?"点击即预付 · 回合末出兵":"点击即预付 · 回合末开工",color:"a3b7ad");
+        hint.AddThemeFontSizeOverride("font_size",14);hint.MouseFilter=Control.MouseFilterEnum.Stop;
+        hint.TooltipText="入队即预付并锁价，回合末统一开工／出兵。\n未开工取消全额退回；已开工拆除返还50%；完工后拆除不返还。";
         _rtsPendingHint=HumanText("本格已有指令正在执行或待执行，不重复排队。",color:"e1c48b");_rtsPendingHint.AddThemeFontSizeOverride("font_size",14);
         var grid=new GridContainer { Name="RtsCatalog",Columns=3,SizeFlagsHorizontal=SizeFlags.ExpandFill };
         grid.AddThemeConstantOverride("h_separation",8);grid.AddThemeConstantOverride("v_separation",8);_humanContent.AddChild(grid);
