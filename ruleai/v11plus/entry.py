@@ -23,10 +23,24 @@ from . import economy, military
 from .ledger import Ledger
 
 
+def _turn(world, name, max_actions, on_action, on_result, horizon_extra):
+    ledger = Ledger(world, name, max_actions, on_action, on_result)
+    economy.run(ledger, world, name, horizon_extra)
+    military.run(ledger, world, name)
+    return ledger.acts
+
+
 def expand_rule_turn_v11plus(world, name: str, rng: random.Random | None = None,
                          max_actions: int = 40, on_action=None, on_result=None) -> list:
     """跑一个回合：**经济层 → 军事层**，共用一个动作账本。"""
-    ledger = Ledger(world, name, max_actions, on_action, on_result)
-    economy.run(ledger, world, name)
-    military.run(ledger, world, name)
-    return ledger.acts
+    return _turn(world, name, max_actions, on_action, on_result, None)
+
+
+def expand_rule_turn_v11plus_h(world, name: str, rng: random.Random | None = None,
+                               max_actions: int = 40, on_action=None, on_result=None) -> list:
+    """`v11plus` + **终局视野**：经济层只建「回本 ≤ 本局还剩回合数」的建筑（视野 = `world.max_turns + 20`）。
+
+    其余（军事层、动作额度、一榜一账）与 `v11plus` 逐条相同；差别只有临近终局时的投资。
+    版本名 `v11plus_h`（配置写 `"rule_ai": "v11plus_h"`）。跑局的人必须把本局总回合数放进 `world.max_turns`。
+    """
+    return _turn(world, name, max_actions, on_action, on_result, economy.PLAN_EXTRA)

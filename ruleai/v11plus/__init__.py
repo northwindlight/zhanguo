@@ -52,12 +52,15 @@ v10 **一个字节没动**（它仍是缺省基线）；`DEFAULT_RULE_AI` 还是
   入口模块造个新变量、经济层读不到（2026-09-15 实测：v11/v12 因此全程按 200 规划）。
   **能被设错的旋钮，不如没有旋钮。**
   ⇒ **本层不再读 `world.max_turns`**（跑局的人仍要把本局长度放进 world —— v10/v11 还要用）。
+- **想要终局视野（临近终局少投资）：用版本名 `v11plus_h`**，不是旋钮。它与 `v11plus` 同一份代码，
+  只差入口写死的 `horizon_extra=20`：ROI 榜只收「回本 ≤ `world.max_turns + 20 - world.turn`」的建筑
+  （与冻结的 v10/v11 同公式）。因为是**版本名**，没法从外面把值设错。`v11plus` 本身一个字节的行为没动。
 - **编组状态是模块内存**（`grouping._STATE`，见底稿 §七）：RL **每局开始必须
   `ruleai.v11plus.grouping.clear()`**，否则上一局的编组会漏进新局。
 """
 from __future__ import annotations
 
 from . import economy, grouping, military       # noqa: F401  转口：调用方按需取用
-from .entry import expand_rule_turn_v11plus     # noqa: F401  注册表指向它
+from .entry import expand_rule_turn_v11plus, expand_rule_turn_v11plus_h   # noqa: F401  注册表指向它们
 
-__all__ = ["expand_rule_turn_v11plus", "economy", "military", "grouping"]
+__all__ = ["expand_rule_turn_v11plus", "expand_rule_turn_v11plus_h", "economy", "military", "grouping"]

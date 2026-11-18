@@ -28,6 +28,7 @@
 | 版本 | 是什么 | 状态 |
 |---|---|---|
 | `v12` | **v11 + 拿掉 4 处 `int()` 截断**（`int(1.60)=1` 把木价看低 37% ⇒ 建筑预算算错 ⇒ 不排楼）：按 **v11** 迭代，**不含** v11plus 那批提速修 | 已注册（**不是缺省**，也不是现役——现役仍是 `v11plus`） |
+| `v11plus_h` | **v11plus + 终局视野**：ROI 榜只收「回本 ≤ 本局剩余回合 + 20」的建筑，临近终局少投资；其余与 v11plus 逐条相同 | 已注册（要在配置里写 `"rule_ai": "v11plus_h"`） |
 | `v11plus` | **v11 的现役继承者**：v11 整包 + 2026-09-16 那批修（引擎两张派生表、寻路换桶队列、删掉每回合 4 场进攻的闸）—— 且**动作逐条不变** | **现役**（配置写 `"rule_ai": "v11plus"`）；缺省仍是 v10 |
 | `v11` | **经济层与军事层分离**：经济段照抄 v10，军事段换成**全局编组**（每支军认领一个目标、人数由判定式算、只在目标消失时重编） | **已冻结**（停在 `04a958d`，历史成绩仍归它；现役见 `v11plus`） |
 | `v10` | v9 + **抗抖**（引擎数值现读/现算）+ 不绕山地（只看打不打得赢） | **缺省**，也是 RL 线的 BC 老师基线 |
@@ -75,6 +76,7 @@ UNLIMITED_ACTIONS = 10 ** 9
 _SOURCES: dict[str, tuple[str, str]] = {
     "v12": ("ruleai.v12", "expand_rule_turn_v12"),   # ★v11 + 拿掉 4 处 int() 截断（见 ruleai/v12/）
     "v11plus": ("ruleai.v11plus", "expand_rule_turn_v11plus"),   # ★现役：v11 + 2026-09-16 那批修
+    "v11plus_h": ("ruleai.v11plus", "expand_rule_turn_v11plus_h"),   # v11plus + 终局视野（临近终局少投资），见 v11plus/__init__.py
     "v11": ("ruleai.v11", "expand_rule_turn_v11"),   # 冻结版（经济层 + 军事层），见 ruleai/v11/
     "v10": ("ruleai.v10", "expand_rule_turn_v10"),
     "v9": ("ruleai.v9", "expand_rule_turn_v9"),

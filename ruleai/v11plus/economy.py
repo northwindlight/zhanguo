@@ -173,8 +173,21 @@ def _engine_allows(world, bn: str, p: tuple, nation_count) -> bool:
     return True
 
 
-def run(ledger, world, name: str) -> None:
-    """把一个回合的经济动作追加进 `ledger`（额度与回调都由它统一管）。"""
+PLAN_EXTRA = 20        # `v11plus_h` 的视野 = 本局总回合数 + 这个数（与 v10/v11 同口径）
+
+
+def run(ledger, world, name: str, horizon_extra: int | None = None) -> None:
+    """把一个回合的经济动作追加进 `ledger`（额度与回调都由它统一管）。
+
+    ★ `horizon_extra`：**不是旋钮，是两个入口之间的区别**（见 `entry.py`）。
+      `None`（`v11plus`）= 不设回合限制，行为与 2026-09-16 定稿逐条相同；
+      给数（`v11plus_h`）= ROI 榜只收「回本 ≤ 本局还剩的回合数」的建筑，
+      视野 = `world.max_turns + horizon_extra - world.turn`（与冻结的 v10/v11 同一个公式）
+      ⇒ 临近终局时回本不了的建筑不再建，钱留给消费。
+      为什么不做成模块级旋钮：见 `ruleai/v11plus/__init__.py` ——「能被设错的旋钮，不如没有旋钮」；
+      这里值由入口函数写死，调用方只能选**用哪个版本名**，没法把它设错。
+    """
+    left = None if horizon_extra is None else max(1, world.max_turns + horizon_extra - world.turn)
     acts = ledger.acts
     do = ledger.do
     # ★ 2026-09-16：这里原先还有 `max_actions = ledger.max_actions`（只为 `econ_full()` 服务）
@@ -288,7 +301,7 @@ def run(ledger, world, name: str) -> None:
                 continue
             e = build_econ(world, bn, p)           # 传地块：按该格实际造价与效果算回本
             pb = _roi_payback(bn, e)               # ★ 存量品工厂在本层重估（见常量注释）
-            if pb:                                 # ★ 不设回合限制（用户 2026-09-16）
+            if pb and (left is None or pb <= left):   # ★ 缺省不设回合限制（用户 2026-09-16）；`v11plus_h` 才按剩余回合滤
                 roi.append((pb, bn, p))
     # ★ 2026-09-16（用户）：「还是按 roi 建，只是全国扫地，高级建筑会扫到很多 roi 相同的地，
     #   然后按密度最高的建」⇒ 排序键加一条**密度降序**当平手判据：
