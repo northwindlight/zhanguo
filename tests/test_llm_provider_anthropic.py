@@ -473,7 +473,7 @@ class TestCompleteText(unittest.TestCase):
                             'stop_reason':'max_tokens','usage':_usage()})
         self.assertEqual(stats['stop_reason'],'max_tokens')
 
-    def _run(self, payload, tools=None, **cfgkw):
+    def _run(self, payload, tools=None, max_tokens=None, **cfgkw):
         captured: dict = {}
         orig = llm_provider._anthropic_open
 
@@ -486,7 +486,7 @@ class TestCompleteText(unittest.TestCase):
             b = llm_provider.AnthropicCompat(_cfg(**cfgkw))
             text, stats = b.complete_text([{"role": "system", "content": "S"},
                                            {"role": "user", "content": "U"}],
-                                          _cfg(**cfgkw), tools=tools)
+                                          _cfg(**cfgkw), tools=tools, max_tokens=max_tokens)
         finally:
             llm_provider._anthropic_open = orig
         return text, stats, captured
@@ -507,6 +507,15 @@ class TestCompleteText(unittest.TestCase):
         self.assertEqual(stats["miss"], 100)
         self.assertEqual(stats["out_tokens"], 7)
         self.assertTrue(stats["usage_reported"])
+
+    def test_no_output_limit_lands_on_the_protocol_maximum(self):
+        """★ 取消压缩文本上限（2026-11-19）：这条协议**必填** max_tokens，无上限只能
+        落成大常数。8047（antigravity→Gemini）实测接受 65536 并正常 end_turn；更严
+        的端点若按模型上限拒绝会 400 直接抛 ⇒ 压缩走失败回退，不收腰斩摘要。"""
+        payload = {"content": [{"type": "text", "text": "记忆"}], "usage": _usage()}
+        _text, _stats, captured = self._run(payload, max_tokens=llm_provider.NO_OUTPUT_LIMIT)
+        self.assertEqual(captured["max_tokens"], 65536)
+        self.assertEqual(captured["thinking"], {"type": "disabled"})
 
     def test_tools_are_sent_for_prefix_reuse_and_tool_choice_stays_auto(self):
         """★ 这条协议的前缀顺序是 tools → system → messages：压缩调用要复用主请求的

@@ -387,7 +387,7 @@ class TestRetry(unittest.TestCase):
 # 非流式（记忆压缩）
 # ---------------------------------------------------------------------------
 class TestCompleteText(unittest.TestCase):
-    def _run(self, response_payload, tools=None, **cfgkw):
+    def _run(self, response_payload, tools=None, max_tokens=None, **cfgkw):
         captured: dict = {}
         orig = llm_provider._post_json
 
@@ -401,7 +401,7 @@ class TestCompleteText(unittest.TestCase):
             b = llm_provider.ResponsesCompat(_cfg(**cfgkw))
             text, stats = b.complete_text([{"role": "system", "content": "S"},
                                            {"role": "user", "content": "U"}],
-                                          _cfg(**cfgkw), tools=tools)
+                                          _cfg(**cfgkw), tools=tools, max_tokens=max_tokens)
         finally:
             llm_provider._post_json = orig
         return text, stats, captured
@@ -450,6 +450,18 @@ class TestCompleteText(unittest.TestCase):
         _text, stats, _c = self._run(payload)
         self.assertEqual(stats["stop_reason"], "max_tokens",
                          "压缩循环认 length/max_tokens 两个词，续写也靠它触发")
+
+    def test_no_output_limit_omits_the_cap_field(self):
+        """★ 取消压缩文本上限（2026-11-19）：`max_tokens=NO_OUTPUT_LIMIT` 时请求体
+        **不发** max_output_tokens，长度交端点默认；端点自己的硬顶会以
+        incomplete/max_output_tokens 回报，上层截断纪律照判失败。"""
+        payload = {"status": "completed",
+                   "output": [{"type": "message",
+                               "content": [{"type": "output_text", "text": "记忆"}]}],
+                   "usage": _usage()}
+        _text, _stats, captured = self._run(payload, max_tokens=llm_provider.NO_OUTPUT_LIMIT)
+        self.assertNotIn("max_output_tokens", captured)
+        self.assertEqual(captured["reasoning"], {"effort": "none"})
 
     def test_no_usage_reports_estimated_not_zero(self):
         payload = {"status": "completed",

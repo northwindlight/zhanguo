@@ -22,6 +22,10 @@
         **同一份**工具声明、同一个 `tool_choice`（Anthropic 那路 tools 排在 system
         之前，缺了或改了都是零命中，2026-10-02 真端点实测）。工具调用靠尾随指令里那句
         "不要调用任何工具"约束，**不是**靠 `tool_choice=none`。
+        `max_tokens=NO_OUTPUT_LIMIT`＝本次调用**不设输出上限**（2026-11-19 用户口径
+        「正式取消压缩文本上限」）：openai/responses 两路直接不发该字段，anthropic
+        协议必填、落成大常数。`max_tokens=None` 仍是老缺省（跟 cfg 的 ctx_compact_tokens
+        走，stock/council/结算厅这些调用方不变）。
         stats 与 chat_turn 同键（"hit"/"miss"/"out_tokens"/"usage_reported"/"estimated"…）。
 
 消息在**存储与回放层一律保持 OpenAI 形态**：clients/context.py 的 token 估算与缓存前缀布局、
@@ -149,6 +153,21 @@ import urllib.request
 
 from clients.context import REPLAY_KEY, est_tokens   # 估算（存档校准过的那套，只在"提供方没报用量"时兜底）
                                          # + 提供方私有回填键（定义在 ctx：消息形态的契约归它）
+
+NO_OUTPUT_LIMIT = object()
+"""`complete_text` 的 `max_tokens` 哨兵：本次调用**不设输出上限**。
+
+2026-11-19 用户口径「正式取消压缩文本上限」。动机是 hy4-flash-free 八国局的实测：
+旧记忆涨到 7k+ 字后，模型一次压缩的自然输出 ≈13.3k token（≈6.1k 思考——这条上游
+根本不理 `thinking:disabled`——加上重写后的新长期记忆 ≈1 万字正文），8192 的
+`ctx_compact_tokens` 上限让**每一次**尝试都 `finish_reason=length` 腰斩、
+`_compact` 按既有截断纪律判失败重试，十次耗尽后退回逐期小结。取消上限后同一
+prompt 以 `finish_reason=stop` 自然收尾（47s→61s 量级，见当次探针记录）。
+
+- openai / responses 两路：**直接不发** `max_tokens` / `max_output_tokens`，
+  输出长度交端点自己的默认（opencode 网关实测：省略后 13.3k token 正常收尾）。
+- anthropic 路协议必填该字段 → 落成大常数 65536。
+"""
 
 
 def _stream_notify(callback, kind, text):
@@ -756,10 +775,16 @@ class OpenAICompat:
         body: dict = {"model": cfg["model"],
                       "messages": _public_messages(messages, vision=cfg.get("vision", False),
                                                    renderer=cfg.get("_ui_expand_message")),
-                      "max_tokens": int(max_tokens if max_tokens is not None
-                                        else cfg.get("ctx_compact_tokens", 1500)),
                       "temperature": 0.3,
                       "thinking": {"type": "disabled"}}
+        if max_tokens is NO_OUTPUT_LIMIT:
+            # 压缩输出不设上限（见 NO_OUTPUT_LIMIT）：不发 max_tokens，长度交端点。
+            # opencode/hy4-flash 网关实测：省略后 13.3k token 以 stop 自然收尾；
+            # 端点若回 length（它自己的硬顶）⇒ 上层既有截断纪律照判失败，不收腰斩摘要。
+            pass
+        else:
+            body["max_tokens"] = int(max_tokens if max_tokens is not None
+                                     else cfg.get("ctx_compact_tokens", 1500))
         if tools:
             body["tools"] = list(tools)
             body["tool_choice"] = "auto"       # 与 chat_turn 同值：前缀必须逐字节一致
@@ -1113,8 +1138,14 @@ class ResponsesCompat:
         口径与 `chat_turn` 相同。**不重试**：压缩失败由 mp_ai 兜住。"""
         body = _responses_body(messages, tools, cfg, stream=False)
         body["reasoning"] = {"effort": "none"}
-        body["max_output_tokens"] = int(max_tokens if max_tokens is not None
-                                        else cfg.get("ctx_compact_tokens", 1500))
+        if max_tokens is NO_OUTPUT_LIMIT:
+            # 压缩输出不设上限（见 NO_OUTPUT_LIMIT）：`_responses_body` 从 cfg.max_tokens
+            # 带了一个缺省顶（16384），这里摘掉，长度交端点自己的默认；
+            # 回 max_tokens 即端点硬顶 ⇒ 上层照判失败，不收腰斩摘要。
+            body.pop("max_output_tokens", None)
+        else:
+            body["max_output_tokens"] = int(max_tokens if max_tokens is not None
+                                             else cfg.get("ctx_compact_tokens", 1500))
         limit = float(cfg.get("api_timeout", 900))
         wall0 = time.time()
         with hard_timeout(limit, "非流式调用超时"):
@@ -1579,8 +1610,15 @@ class AnthropicCompat:
         # （`_anthropic_body` 是按"开思考"分支塞的 output_config，这里整段关掉，
         # 留着它就是给一个不思考的请求塞思考配置——实测网关不挑，但没必要带）。
         body.pop("output_config", None)
-        body["max_tokens"] = int(max_tokens if max_tokens is not None
-                                 else cfg.get("ctx_compact_tokens", 1500))
+        if max_tokens is NO_OUTPUT_LIMIT:
+            # 压缩输出不设上限（见 NO_OUTPUT_LIMIT）。这条协议**必填** max_tokens，
+            # "无上限"只能落成大常数：8047（antigravity→Gemini）实测接受 65536
+            # 并正常 end_turn；更严的端点若按模型上限拒绝会直接 400 抛出 ⇒
+            # 压缩走失败回退，绝不静默收下截断摘要。
+            body["max_tokens"] = 65536
+        else:
+            body["max_tokens"] = int(max_tokens if max_tokens is not None
+                                     else cfg.get("ctx_compact_tokens", 1500))
         limit = float(cfg.get("api_timeout", 900))
         wall0 = time.time()
         with hard_timeout(limit, "非流式调用超时"):

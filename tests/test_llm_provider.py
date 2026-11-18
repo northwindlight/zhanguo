@@ -242,7 +242,7 @@ class TestCompleteText(unittest.TestCase):
     前缀缓存**，压缩调用要接在主请求后面）、② 回 `(text, stats)`，好让压缩调用自己的
     命中率看得见——在那之前它没有任何统计，改造的收益无法验证。"""
 
-    def _run(self, payload, tools=None, **cfgkw):
+    def _run(self, payload, tools=None, max_tokens=None, **cfgkw):
         captured: dict = {}
         orig = llm_provider._post_json
 
@@ -256,7 +256,7 @@ class TestCompleteText(unittest.TestCase):
             b = llm_provider.make_backend(_cfg(**cfgkw))
             text, stats = b.complete_text([{"role": "system", "content": "S"},
                                            {"role": "user", "content": "U"}],
-                                          _cfg(**cfgkw), tools=tools)
+                                          _cfg(**cfgkw), tools=tools, max_tokens=max_tokens)
         finally:
             llm_provider._post_json = orig
         return text, stats, captured
@@ -281,6 +281,14 @@ class TestCompleteText(unittest.TestCase):
         _text, _st, captured = self._run(self._payload())
         self.assertNotIn("tools", captured)
         self.assertNotIn("tool_choice", captured)
+
+    def test_no_output_limit_omits_the_cap_field(self):
+        """★ 取消压缩文本上限（2026-11-19）：`max_tokens=NO_OUTPUT_LIMIT` 时请求体
+        **不发** max_tokens——opencode/hy4-flash 网关实测：省略后 13.3k token 以
+        stop 自然收尾；旧的 8192 上限让每轮都在 length 处腰斩、十次重试全废。"""
+        _text, _st, captured = self._run(self._payload(), max_tokens=llm_provider.NO_OUTPUT_LIMIT)
+        self.assertNotIn("max_tokens", captured)
+        self.assertEqual(captured["thinking"], {"type": "disabled"})
 
     def test_compression_preserves_truncation_reason(self):
         _text, stats, _c = self._run(self._payload(finish_reason="length"))

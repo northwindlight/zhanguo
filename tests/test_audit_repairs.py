@@ -11,6 +11,7 @@ from engine.deltas import difference,apply
 from host import GameHost
 from clients import context
 from clients.llm import LLMClient
+from clients.provider import NO_OUTPUT_LIMIT
 from mods.native.vision.mod import Vision
 from tests.test_player_clients import FakeBackend,call
 from tests import test_world_domains as domains
@@ -200,21 +201,23 @@ class AuditRepairs(unittest.TestCase):
         f,w=self.world();backend=FakeBackend()
         client=LLMClient({'ctx_full_turns':1,'ctx_window':16384,'max_tokens':1024},backend=backend)
         for _ in range(6):client.play(w.runtime.player(w,Q));f.cycle(w)
-        prompt,tools=backend.compressions[0]
-        self.assertLess(context.messages_tokens(prompt)+1500+context.SAFETY_TOKENS,16384)
+        prompt,tools,cap=backend.compressions[0]
+        self.assertIs(cap,NO_OUTPUT_LIMIT,"压缩输出不设上限（2026-11-19 取消压缩文本上限）")
+        self.assertLessEqual(context.messages_tokens(prompt)+context.SAFETY_TOKENS,16384)
         self.assertEqual(tools,[])
         self.assertNotIn('"messages":',prompt[-1]['content'])
 
     def test_oversized_compression_instruction_falls_back_without_provider_call(self):
         f,w=self.world();backend=FakeBackend()
-        client=LLMClient({'ctx_window':4096,'ctx_full_turns':1,'ctx_compact_tokens':4096},backend=backend)
+        client=LLMClient({'ctx_window':4096,'ctx_full_turns':1},backend=backend)
         client.state.replay=[{'turn':i,'messages':[{'role':'user','content':'合成回放'}]} for i in range(6)]
         client.state.summaries=[{'turn':i,'text':'合成小结'} for i in range(6)]
-        client.state.long_memory='需要保留的原长期记忆'
+        # 输出上限已取消 ⇒ 这道门只看输入：指令本身（旧记忆+被压期小结）放不下窗口才回退。
+        client.state.long_memory='需要保留的超长期记忆条目'*400
         notifications=[]
         client._compact(w.runtime.player(w,Q),[],context.make_plan(client.cfg),[],notifications.append)
         self.assertFalse(backend.compressions)
-        self.assertEqual(client.state.long_memory,'需要保留的原长期记忆')
+        self.assertEqual(client.state.long_memory,'需要保留的超长期记忆条目'*400)
         self.assertTrue(any('ValueError' in text for text in notifications))
 
     def test_vote_keeps_confirmed_next_period_contract_without_implicit_ballot(self):

@@ -1,5 +1,12 @@
 # 更新记录
 
+## 未发布 — 取消压缩文本上限（2026-11-19）
+
+- 正式取消记忆压缩的输出文本上限（用户口径「正式取消压缩文本上限」）：`clients/llm.py` 的压缩调用改传 `max_tokens=NO_OUTPUT_LIMIT`，不再读 `ctx_compact_tokens`；openai / responses 两路请求体**不发** `max_tokens` / `max_output_tokens`，anthropic 路协议必填、落成 65536（8047 实测接受）。stock、议会评审、结算厅等其他调用方走原 `ctx_compact_tokens` 缺省链不变。
+- 根因（hy4-flash-free 八国局实测）：旧长期记忆涨到 7k+ 字后，一次压缩的自然输出 ≈13.3k token（≈6.1k 上游强开的思考 + ≈1 万字新记忆正文），8192 上限让**每一轮**都 `finish_reason=length` 腰斩、按既有截断纪律判失败重试，十次耗尽退回逐期小结；取消上限后同一 prompt 以 stop 自然收尾。
+- 压缩输入侧只留 `SAFETY_TOKENS` 估算余量（不再为输出预留 8192），“指令放不下窗口→不请求模型”的回退门改为纯输入口径；`length`/`max_tokens` 截断拒绝与 ≥20 字有效性检查照旧——上游自己的硬顶截断依然判失败，绝不收腰斩摘要。
+- 新增三条路的 NO_OUTPUT_LIMIT 回归（openai 省字段 / anthropic 65536 / responses 省字段）与高层压缩调用断言。
+
 ## 开发中 — 第二版旧地图灭国残影修复
 
 - 玩家A持有B旧地图并灭掉B后，清除已失效的B国色，标注“原属B（已灭国）·现归属待确认”；保留地形、建筑及日期，不泄露视野外新领主。

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from clients import context as ctx
 from clients import memory
 from clients.model_view import ModelView
-from clients.provider import make_backend,REPLAY_KEY
+from clients.provider import make_backend,REPLAY_KEY,NO_OUTPUT_LIMIT
 
 
 @dataclass
@@ -170,11 +170,14 @@ class LLMClient:
         snapshot=False
         if plan.compact:
             # Reuse the actual request prefix once, without dumping the same
-            # replay as JSON again. Compression has its own input/output budget.
+            # replay as JSON again. The compression input keeps its own budget;
+            # the OUTPUT is uncapped（用户 2026-11-19「正式取消压缩文本上限」）：
+            # hy4-flash 旧记忆涨到 7k+ 字后，一次压缩的自然输出 ≈13k token（含 ~6k
+            # 上游强开的思考），8192 上限让每轮都 length 腰斩、十次重试全废再回退；
+            # 不设上限后同一 prompt 以 stop 自然收尾。截断拒绝纪律照旧保留。
             ceiling=min(120000,int(self.cfg.get('ctx_window') or 128000))
-            reserve=int(self.cfg.get('ctx_compact_tokens') or 1500)+ctx.SAFETY_TOKENS
             instruction={'role':'user','content':self.ui.text('llm.compact',memory=self.state.long_memory,history=summary)}
-            budget=max(0,ceiling-reserve-ctx.msg_tokens(instruction))
+            budget=max(0,ceiling-ctx.SAFETY_TOKENS-ctx.msg_tokens(instruction))
             prefix=[];pending=set();used=0
             for message in messages:
                 cost=ctx.msg_tokens(message)
@@ -188,11 +191,11 @@ class LLMClient:
                 if last.get('role')=='assistant':pending.difference_update(c['id'] for c in last.get('tool_calls',[]))
             prompt=prefix+[instruction]
             try:
-                if ctx.messages_tokens(prompt)+reserve>ceiling:
-                    raise ValueError('Compression instruction and output cannot fit the configured window')
+                if ctx.messages_tokens(prompt)+ctx.SAFETY_TOKENS>ceiling:
+                    raise ValueError('Compression instruction cannot fit the configured window')
                 for attempt in range(1,11):
                     if emit:emit(self.ui.text('llm.compacting',actor=player.actor,attempt=attempt,limit=10))
-                    compressed,stats=self._provider().complete_text(prompt,{**self._request_config(),'max_tokens':int(self.cfg.get('ctx_compact_tokens') or 1500)},tools=[])
+                    compressed,stats=self._provider().complete_text(prompt,self._request_config(),max_tokens=NO_OUTPUT_LIMIT,tools=[])
                     self._usage(stats)
                     if (isinstance(compressed,str) and len(compressed.strip())>=20
                         and stats.get('stop_reason') not in ('length','max_tokens')):break

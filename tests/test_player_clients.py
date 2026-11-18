@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from tests import test_world_domains as fixtures
 from clients.llm import LLMClient,LLMState,assert_paired
+from clients.provider import NO_OUTPUT_LIMIT
 from ruleai.v11plus import RuleClient,RuleState
 from ruleai.v13 import RuleClient as V13Client, RuleState as V13State
 from ruleai.v14 import RuleClient as V14Client
@@ -32,8 +33,8 @@ class FakeBackend:
         else:message={'content':'本期发展','reasoning_content':'按可见事实决定','reasoning_signature':{'model':'fake','signature':'signed'},
                       'tool_calls':[call('plan','plan',text='发展经济'),call('end','end_turn',summary='本期已经完成经营')]}
         return message,{'hit':10,'miss':2}
-    def complete_text(self,messages,cfg,tools=None,**kwargs):
-        self.compressions.append((deepcopy(messages),deepcopy(tools)))
+    def complete_text(self,messages,cfg,tools=None,max_tokens=None,**kwargs):
+        self.compressions.append((deepcopy(messages),deepcopy(tools),max_tokens))
         return '持续发展经济，记住已生效条约与待办事项。',{'hit':8,'miss':1}
 
 
@@ -99,7 +100,8 @@ class TestPlayerClients(unittest.TestCase):
         client.state.long_memory='已有长期盟约'
         for _ in range(6):client.play(w.runtime.player(w,Q));w.resolve_turn();w.phase='行动'
         self.assertTrue(backend.compressions)
-        compression,tools=backend.compressions[0]
+        compression,tools,cap=backend.compressions[0]
+        self.assertIs(cap,NO_OUTPUT_LIMIT,"压缩输出不设上限（2026-11-19 取消压缩文本上限）")
         prefix=compression[:-1]
         self.assertEqual(prefix[:len(backend.requests[5])],backend.requests[5])
         self.assertEqual(prefix[len(backend.requests[5]):],client.state.replay[-1]['messages'][1:])
@@ -115,7 +117,7 @@ class TestPlayerClients(unittest.TestCase):
             with self.subTest(failure=failure):
                 w=self.world();backend=FakeBackend();client=LLMClient({'ctx_full_turns':1,'ctx_compact':'llm'},backend=backend)
                 client.state.long_memory='原有盟约'
-                def complete(messages,cfg,tools=None):
+                def complete(messages,cfg,tools=None,max_tokens=None):
                     if failure=='provider':raise RuntimeError('provider failed')
                     if failure=='truncated':return '这段摘要虽然超过二十字但输出上限已经截断，不能作为长期记忆。',{'hit':8,'miss':1,'stop_reason':'length'}
                     return '   ' if failure=='empty' else '不足二十字',{'hit':8,'miss':1}
