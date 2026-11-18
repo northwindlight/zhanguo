@@ -18,7 +18,7 @@
     否则重复的 write 会被误算成「与上一版逐字节相同」。
   * 编辑方式：只统计通过自动检查的 write / patch。
   * 失败分类：算力（单次回调计算量超限、共享算力池用满）、结构（语法树/源码超限）、
-    市场（无对手方报价、持仓不足）、其余为逻辑错误。
+    市场（无对手方报价、持仓或现金不足）、其余为逻辑错误。
 """
 import collections
 import json
@@ -34,6 +34,8 @@ GAMES = {
     'H': 'stock-gemini-hydrogen-20261113',
     'F': 'stock-gemini38-flash-20261114',
     'Y': 'stock-hy4flashfree-20261117',
+    'R1': 'stock-hy4flashfree-20261118-r1',
+    'R2': 'stock-hy4flashfree-20261118-r2',
 }
 
 
@@ -46,7 +48,7 @@ def classify(message):
         return 'budget'
     if '语法树节点' in message or ('源码' in message and '超限' in message):
         return 'structure'
-    if '对手方没有报价' in message or '持仓不足' in message:
+    if '对手方没有报价' in message or '持仓不足' in message or '现金不足' in message:
         return 'market'
     return 'logic'
 
@@ -72,7 +74,7 @@ def analyze(records):
         actor, action, receipt = r['actor'], r['action'], r['receipt']
         seat = seats[actor]
         if action == 'script':
-            args = r['arguments']
+            args = r['arguments'] if isinstance(r['arguments'], dict) else {}  # 参数格式错误的调用已被拒绝
             slot = str(args.get('slot', '1'))
             if args.get('action') == 'run' and slot == 'research':
                 seat['research_runs'] += 1
