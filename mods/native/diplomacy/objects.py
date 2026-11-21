@@ -43,6 +43,7 @@ class Offer:
     arguments: tuple
     parties: tuple
     accepted: tuple = ()
+    escrow: int = 0          # 求和方预付、挂在邀约上的赔款（kind=pay）；成交划给对方，拒绝/作废原数退回
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,7 @@ class Command:
     entities: tuple
     status: str = 'submitted'
     message: str = ''
+    escrow: int = 0          # 提交时与手续费一并预扣的赔款：求和方的 pay 赔款，或接受 demand 的一方应付赔款
 
 
 @dataclass(frozen=True)
@@ -113,6 +115,8 @@ class Diplomacy(Vassalage):
         self._offers,self._votes,self._approved,self._pending,self._results = [],[],[],[],[]
         self._next_command,self._next_offer,self._next_vote,self._next_war = 1,1,1,1
         self._effects = [];self._archive=[]
+        # 结算单条命令时由 resolve 在副本上设置：本命令提交时已预扣的赔款，及是否已被和约用掉。不存档。
+        self._prepaid,self._prepaid_used = 0,False
         self._vassals={};self._subject_alliance=None
         self._tribute_rates={'ordinary':ordinary_tribute}
         self._world,self._domain = None,None
@@ -526,7 +530,13 @@ class Diplomacy(Vassalage):
         elif kind not in ('white','pay','demand') or (kind!='white' and not gold) or (kind=='white' and gold):raise ValueError('Invalid peace terms')
         routed=self._route(actor,'offer_peace',{'target':target,'kind':kind,'gold':gold,'truce':truce,'note':note},approved,w.attackers+w.defenders)
         if routed:return routed
-        return self._offer('peace',actor,b,{'war':w.id,'kind':kind,'gold':gold,'truce':truce,'note':note},w.attackers+w.defenders)
+        offer=self._offer('peace',actor,b,{'war':w.id,'kind':kind,'gold':gold,'truce':truce,'note':note},w.attackers+w.defenders)
+        if kind=='pay':
+            # 付款一律预扣：直接提交时已随手续费扣下；联盟表决通过后执行的求和在此刻扣（不足则该和议失败）
+            if self._prepaid>=gold:self._prepaid_used=True
+            else:self._effects.append(('escrow_charge',actor,gold))
+            offer=replace(offer,escrow=gold);self._offers[-1]=offer
+        return offer
 
     def _apply_accept_peace(self, actor, offer: int, *, approved=False):
         integer(offer,1)
@@ -540,8 +550,14 @@ class Diplomacy(Vassalage):
         if routed:return routed
         if args['gold']:
             source,target=(o.actor,actor) if args['kind']=='pay' else (actor,o.actor)
-            self._effects.append(('transfer',source,target,args['gold']))
-        self._wars.remove(w);self._offers=[p for p in self._offers if not (p.action=='peace' and dict(p.arguments)['war']==w.id)]
+            if args['kind']=='pay' and o.escrow>=args['gold']:self._effects.append(('credit',target,args['gold']))
+            elif args['kind']=='demand' and self._prepaid>=args['gold']:
+                self._prepaid_used=True;self._effects.append(('credit',target,args['gold']))
+            else:self._effects.append(('transfer',source,target,args['gold']))
+        closed=[p for p in self._offers if p.action=='peace' and dict(p.arguments)['war']==w.id]
+        for p in closed:
+            if p.id!=o.id and p.escrow:self._effects.append(('credit',p.actor,p.escrow))
+        self._wars.remove(w);self._offers=[p for p in self._offers if p not in closed]
         if args['kind'] in ('submit','subjugate'):
             overlord,subject=(actor,o.actor) if args['kind']=='submit' else (o.actor,actor)
             self._peaceful(self.entity(overlord),self.entity(subject))
@@ -559,6 +575,7 @@ class Diplomacy(Vassalage):
         if o is None:raise ValueError('Offer does not exist')
         if actor!=self.representative(o.target):
             raise ValueError('只有受邀的战争代表可拒绝和谈；请查 foreign 中的 response_actor 与 vote_ids，联盟成员应通过 vote 表态')
+        if o.escrow:self._effects.append(('credit',o.actor,o.escrow))
         self._offers.remove(o);return o
 
     def _fork(self):
@@ -566,6 +583,7 @@ class Diplomacy(Vassalage):
         for name in ('_alliances','_vassals','_pacts','_wars','_truces','_offers','_votes','_approved','_pending','_results'):
             setattr(draft,name,deepcopy(getattr(self,name)))
         draft._effects=[];draft._archive=list(self._archive)
+        draft._prepaid=0;draft._prepaid_used=False
         return draft
 
     def _target_entity(self, target):
@@ -623,6 +641,16 @@ class Diplomacy(Vassalage):
 
     def fee(self, actor):return self._cost(actor,"borrow",{})
 
+    def _escrow(self, action, arguments, outcome):
+        """提交时须随手续费预扣的赔款（付款一律预扣、回合末直接结算）。联盟表决路由（outcome 为 Vote）不预扣：
+        表决通过后执行时再扣。"""
+        if isinstance(outcome,Offer) and outcome.action=='peace':return outcome.escrow
+        if action=='accept_peace' and isinstance(outcome,War):
+            o=next((o for o in self._offers if o.id==arguments.get('offer')),None)
+            args=dict(o.arguments) if o else {}
+            if args.get('kind')=='demand':return args.get('gold',0)
+        return 0
+
     def submit(self, actor, action, **arguments):
         self._write()
         if self._world is not None and self._world.phase!='行动':raise ValueError('Submit only during action phase')
@@ -630,11 +658,15 @@ class Diplomacy(Vassalage):
         arguments=self._target_arguments(action,arguments)
         for c in self._pending:
             if (c.actor,c.action,c.arguments)==(actor,action,tuple(arguments.items())):return freeze(c)
-        draft=self._fork();draft._dispatch(actor,action,arguments)
+        draft=self._fork();outcome=draft._dispatch(actor,action,arguments)
         fee=self._cost(actor,action,arguments)
+        escrow=self._escrow(action,arguments,outcome)
         stocks={s.id:s.amount for s in self._call('native:resource-inspection','snapshot',actor)}
         currency=self._currency()
         if fee>0 and stocks.get(currency,0)<fee:raise ValueError('Insufficient cash for diplomatic fee')
+        if escrow and stocks.get(currency,0)<fee+escrow:
+            raise DomainRejection(f'现金不足以预付和约赔款：需 {fee+escrow}（手续费 {fee}、赔款 {escrow}）',
+                {'reason':'insufficient_resource','resource':currency,'required':fee+escrow,'available':stocks.get(currency,0)})
         target=arguments.get('target')
         if target and action in ENTITY_TARGET_ACTIONS:target=self.representative(target)
         targets=[actor]+([target] if target else [])
@@ -643,8 +675,8 @@ class Diplomacy(Vassalage):
             targets.extend(n for o in self._offers if o.id==arguments['offer'] for n in o.parties)
         if action=='bloc_join':targets.extend(self._alliances[arguments['bloc']].members)
         entities=tuple((n,self.entity(n)) for n in dict.fromkeys(targets))
-        command=Command(self._next_command,actor,action,tuple(deepcopy(arguments).items()),self._period(),fee,entities)
-        if fee:self._call('native:resource-exchange','exchange',actor,{currency:fee},{})
+        command=Command(self._next_command,actor,action,tuple(deepcopy(arguments).items()),self._period(),fee,entities,escrow=escrow)
+        if fee+escrow:self._call('native:resource-exchange','exchange',actor,{currency:fee+escrow},{})
         self._next_command+=1;self._pending.append(command)
         return freeze(command)
 
@@ -805,7 +837,8 @@ class Diplomacy(Vassalage):
                     and c.action!='declare_war'
                     and not (cofounder and n==founding_target and self.representative(self.entity(n))==n)
                     for n,entity in c.entities):raise ValueError('Party or diplomatic entity changed')
-                draft=self._fork();outcome=draft._dispatch(c.actor,c.action,dict(c.arguments),approved=approved or cofounder)
+                draft=self._fork();draft._prepaid=c.escrow
+                outcome=draft._dispatch(c.actor,c.action,dict(c.arguments),approved=approved or cofounder)
                 if isinstance(outcome,War):
                     c=replace(c,entities=tuple((n,draft.entity(n)) for n in dict.fromkeys(outcome.attackers+outcome.defenders)))
                 draft._cancel_invalid_foundings()
@@ -822,6 +855,19 @@ class Diplomacy(Vassalage):
                                 'resource': self._currency(), 'required': amount, 'available': cash})
                         operations.extend(({'owner':source,'debits':{self._currency():amount},'credits':{}},
                                            {'owner':target,'debits':{},'credits':{self._currency():amount}}))
+                    if effect[0]=='escrow_charge':
+                        _,source,amount=effect
+                        cash={s.id:s.amount for s in self._call('native:resource-inspection','snapshot',source)}.get(self._currency(),0)
+                        if cash<amount:
+                            raise DomainRejection('赔款预付不足', {'reason': 'insufficient_resource',
+                                'resource': self._currency(), 'required': amount, 'available': cash})
+                        operations.append({'owner':source,'debits':{self._currency():amount},'credits':{}})
+                    if effect[0]=='credit':
+                        _,owner,amount=effect
+                        if owner in self._ids():operations.append({'owner':owner,'debits':{},'credits':{self._currency():amount}})
+                if c.escrow and not draft._prepaid_used:
+                    # 预扣的赔款本次没有用上（例如结算时已改走联盟表决）：原数退回
+                    operations.append({'owner':c.actor,'debits':{},'credits':{self._currency():c.escrow}})
                 if operations:self._call('native:resource-exchange','exchange_batch',operations)
                 for name in ('_alliances','_vassals','_pacts','_wars','_truces','_offers','_votes','_approved','_results','_next_command','_next_offer','_next_vote','_next_war'):
                     setattr(self,name,getattr(draft,name))
@@ -836,7 +882,7 @@ class Diplomacy(Vassalage):
                     effects.append(('notice',message+'。',tuple(n for n,_ in c.entities),False))
                 results.append(self._result(c,'effective',message))
             except (ValueError,KeyError,TypeError) as exc:
-                if c.fee:self._call('native:resource-exchange','exchange',c.actor,{}, {self._currency():c.fee})
+                if c.fee+c.escrow:self._call('native:resource-exchange','exchange',c.actor,{}, {self._currency():c.fee+c.escrow})
                 results.append(self._result(c,'cancelled' if c.actor not in self._ids() else 'failed',str(exc)))
                 if c.action=='bloc_found':
                     args=dict(c.arguments)
@@ -877,7 +923,9 @@ class Diplomacy(Vassalage):
             else:self._alliances[bloc.id]=replace(bloc,members=members,chief=members[0] if bloc.chief==owner else bloc.chief)
         self._vassals={n:s for n,s in self._vassals.items() if owner not in (s.subject,s.overlord)}
         self._sync_subject_alliance()
+        escrowed=[o for o in self._offers if o.escrow and o.actor!=owner and o.actor in self._ids()]
         self._wars=[];self._void_pending(True)
+        for o in escrowed:self._call('native:resource-exchange','exchange',o.actor,{}, {self._currency():o.escrow})
         survivors=[n for n in self._ids() if n!=owner]
         if ended_participants:self._call('native:territory','snapshot_cores',ended_participants)
         for i,a in enumerate(survivors):
@@ -913,7 +961,8 @@ class Diplomacy(Vassalage):
 
     def to_save(self):
         def command(c):return {'id':c.id,'actor':c.actor,'action':c.action,'arguments':dict(c.arguments),
-            'period':c.period,'fee':c.fee,'entities':dict(c.entities),'status':c.status,'message':c.message}
+            'period':c.period,'fee':c.fee,'entities':dict(c.entities),'status':c.status,'message':c.message,
+            **({'escrow':c.escrow} if c.escrow else {})}
         def vote(v):return {'id':v.id,'alliance':v.alliance,'actor':v.actor,'action':v.action,'arguments':dict(v.arguments),
             'voters':list(v.voters),'ballots':dict(v.ballots),'deadline':v.deadline,'parties':list(v.parties)}
         return {'alliances':[{'id':b.id,'name':b.name,'members':list(b.members),'chief':b.chief} for b in self._alliances.values()],
@@ -922,7 +971,7 @@ class Diplomacy(Vassalage):
             'wars':[{'id':w.id,'a':w.a,'b':w.b,'attackers':list(w.attackers),'defenders':list(w.defenders)} for w in self._wars],
             'truces':[{'a':a,'b':b,'until':until} for (a,b),until in sorted(self._truces.items())],
             'offers':[{'id':o.id,'action':o.action,'actor':o.actor,'target':o.target,'arguments':dict(o.arguments),
-                       'parties':list(o.parties),'accepted':list(o.accepted)} for o in self._offers],
+                       'parties':list(o.parties),'accepted':list(o.accepted),**({'escrow':o.escrow} if o.escrow else {})} for o in self._offers],
             'votes':[vote(v) for v in self._votes],'approved':[vote(v) for v in self._approved],
             'pending':[command(c) for c in self._pending],'results':[command(c) for c in self._results],
             'next_command':self._next_command,'next_offer':self._next_offer,'next_vote':self._next_vote,'next_war':self._next_war}
@@ -934,8 +983,12 @@ class Diplomacy(Vassalage):
         draft=self._fork()
         for key in expected-{'next_command','next_offer','next_vote','next_war','subject_alliance'}:
             if not isinstance(data[key],list):raise ValueError('Invalid diplomacy records')
-        def fields(row, expected):
-            if not isinstance(row,dict) or set(row)!=set(expected):raise ValueError('Invalid diplomacy record fields')
+        def fields(row, expected, optional=()):
+            if not isinstance(row,dict) or not set(expected)<=set(row)<=set(expected)|set(optional):raise ValueError('Invalid diplomacy record fields')
+        def escrow(row):
+            value=row.get('escrow',0)
+            if type(value) is not int or value<0 or 'escrow' in row and not value:raise ValueError('Invalid escrow')
+            return value
         def nations(values):
             if not isinstance(values,list) or not values or len(set(values))!=len(values):raise ValueError('Invalid nation list')
             for n in values:self._living(n)
@@ -991,13 +1044,15 @@ class Diplomacy(Vassalage):
             draft._truces[pair]=row['until']
         draft._offers=[]
         for row in data['offers']:
-            fields(row,('id','action','actor','target','arguments','parties','accepted'));integer(row['id'],1);self._living(row['actor'])
+            fields(row,('id','action','actor','target','arguments','parties','accepted'),('escrow',));integer(row['id'],1);self._living(row['actor'])
             if row['action'] not in ('found','defense','peace','vassal','submission') or not isinstance(row['arguments'],dict):raise ValueError('Invalid offer action')
             parties=nations(row['parties'])
             if not isinstance(row['accepted'],list) or len(set(row['accepted']))!=len(row['accepted']) or set(row['accepted'])-set(parties):raise ValueError('Invalid accepted members')
             args=deepcopy(row['arguments'])
             if row['action']=='found':args['members']=tuple(args['members'])
-            draft._offers.append(Offer(row['id'],row['action'],row['actor'],row['target'],tuple(args.items()),parties,tuple(row['accepted'])))
+            held=escrow(row)
+            if held and (row['action']!='peace' or args.get('kind')!='pay' or held!=args.get('gold')):raise ValueError('Escrow only backs a pay peace offer')
+            draft._offers.append(Offer(row['id'],row['action'],row['actor'],row['target'],tuple(args.items()),parties,tuple(row['accepted']),held))
         for key in ('votes','approved'):
             records=[]
             for row in data[key]:
@@ -1010,12 +1065,14 @@ class Diplomacy(Vassalage):
         for key in ('pending','results'):
             records=[]
             for row in data[key]:
-                fields(row,('id','actor','action','arguments','period','fee','entities','status','message'))
+                fields(row,('id','actor','action','arguments','period','fee','entities','status','message'),('escrow',))
                 integer(row['id'],1);integer(row['period']);integer(row['fee']);self._call('native:nation-inspection','get',row['actor'])
                 if row['status'] not in ('submitted','effective','failed','cancelled') or not isinstance(row['arguments'],dict) or not isinstance(row['entities'],dict) or not isinstance(row['message'],str):raise ValueError('Invalid command')
                 if key=='pending' and (row['status']!='submitted' or row['action'] not in PRIORITIES):raise ValueError('Invalid pending action')
                 if not row['action'].removeprefix('vote:') in PRIORITIES:raise ValueError('Invalid command action')
-                records.append(Command(row['id'],row['actor'],row['action'],tuple(deepcopy(row['arguments']).items()),row['period'],row['fee'],tuple(row['entities'].items()),row['status'],row['message']))
+                held=escrow(row)
+                if held and row['action'] not in ('offer_peace','accept_peace'):raise ValueError('Escrow only backs peace payments')
+                records.append(Command(row['id'],row['actor'],row['action'],tuple(deepcopy(row['arguments']).items()),row['period'],row['fee'],tuple(row['entities'].items()),row['status'],row['message'],held))
             setattr(draft,'_'+key,records)
         for group,next_key in ((draft._pending+draft._results,'next_command'),(draft._offers,'next_offer'),(draft._votes+draft._approved,'next_vote'),(draft._wars,'next_war')):
             integer(data[next_key],1)
