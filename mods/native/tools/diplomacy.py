@@ -33,7 +33,7 @@ DESCRIPTIONS = {
     'bloc_transfer': '盟主把领导权转交给现有其他成员，target 使用成员的国家键；剧本锁定特殊宗主盟主权时不可移交。',
     'bloc_rename': '盟主修改联盟显示名；不能有空白或与其他联盟重名。',
     'declare_war': '向另一外交实体宣战。第一次调用（不带 confirm）只返回战前自检与警告，不提交；阅读自检、补足情报并确认后，带 confirm=true 再调用才真正提交。休战期间不能宣战，本方联盟先表决。攻击联盟任一成员即与全盟交战，防守全盟无需另投票；原防守实体的直接保障/共同防御再传导一跳，不递归。保障不协助主动进攻；宣战一刻战线冻结，此后对同一战线的 attack 不重复触发条约、也不追加参战方，只有新的合法宣战可增援既有战线。',
-    'offer_peace': '向敌方战争主导实体代表求和，双方主导者都可发起；普通跟随方不能代谈。kind=white 白和、pay 本方赔款、demand 对方赔款；赔款须 gold>0。kind=submit 本国称臣、subjugate 要求对方称臣，须 gold=0，附庸接受持续上贡和权力限制，其他战线须已结束，不能成环；联盟依正常表决，称臣代表在和平生效后退出原联盟，其他盟友不随之成为附庸。truce 为休战周期数。联盟先表决，接受后整条战线停战；剧本可将指定宗主的附庸自动转为特殊附庸联盟。',
+    'offer_peace': '向敌方战争主导实体代表求和，双方主导者都可发起；普通跟随方不能代谈。kind=white 白和、pay 本方赔款、demand 对方赔款；赔款须 gold>0，pay 在求和提交时随手续费预扣，被拒或作废原数退回。kind=submit 本国称臣、subjugate 要求对方称臣，须 gold=0，附庸接受持续上贡和权力限制，其他战线须已结束，不能成环；联盟依正常表决，称臣代表在和平生效后退出原联盟，其他盟友不随之成为附庸。truce 为休战周期数。联盟先表决，接受后整条战线停战；剧本可将指定宗主的附庸自动转为特殊附庸联盟。',
     'accept_peace': '仅 foreign 邀约中 can_accept=true 的战争代表可接受，普通联盟成员应查 vote_ids 后使用 vote 表态。由收到提议的战争代表接受 query(panel=foreign) 待回应提议中的和平提议，offer 为整数编号；联盟可能先表决。',
     'reject_peace': '仅 foreign 邀约中 can_reject=true 的战争代表可拒绝，普通联盟成员应查 vote_ids 后使用 vote 表态。由收到提议的战争代表拒绝和平提议，offer 为 query(panel=foreign) 待回应提议中的整数编号，战争继续；普通跟随方不能代拒。',
     'propose_vassalage': '宗主向独立国家提出附庸邀约，对方免费 accept_proposal 后生效：普通附庸强制上交实际生产15%，失去全部外交权和表决权，随宗主参战，仅宗主可和平释放；附庸只能发动独立战争脱离。剧本可配置特殊附庸联盟，接受前须结合剧本说明确认贡率及权利。',
@@ -109,7 +109,7 @@ def tools(runtime):
         if action in ('accept_proposal', 'bloc_found', 'bloc_join'):
             description += ALLIANCE_COMMITMENT
         if action in ('accept_proposal', 'reject_proposal', 'accept_peace', 'reject_peace'):
-            description += ' 回应免费，不收外交手续费；议和约定的赔款仍按条款执行。'
+            description += ' 回应免费，不收外交手续费；接受 demand 和约须在提交时预付赔款（付不起不能接受），pay 和约的赔款已由求和方预扣。'
         if action == 'bloc_found':
             unit = runtime.units.get('native:diplomacy')
             if unit is not None:

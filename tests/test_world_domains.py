@@ -248,14 +248,14 @@ class TestWorldDomains(unittest.TestCase):
         fact=w.territory.get('scenario:allied-core')
         self.assertEqual((fact.owner,fact.tile.core),(Z,Z))
 
-    def test_unaffordable_peace_reverts_whole_transition_with_free_response(self):
+    def test_unaffordable_demand_cannot_be_accepted_and_leaves_state_unchanged(self):
+        # 付款一律预扣：接受 demand 须在提交时付得起赔款，付不起直接拒绝提交，不留待结算
         w=self.world();self.declare(w)
         self.call(w,Q,'offer_peace',target=C,kind='demand',gold=20000);self.cycle(w)
-        offer=w.diplomacy.snapshot(C).offers[0];cash=w.resources.balance(C,'native:gold')
-        self.call(w,C,'accept_peace',offer=offer.id);result=self.cycle(w)['diplomacy_results'][0]
-        self.assertEqual(result.status,'failed');self.assertTrue(w.diplomacy.war_between(Q,C))
-        self.assertEqual(w.resources.balance(C,'native:gold'),cash)
-        self.assertEqual(len(w.diplomacy.snapshot(C).offers),1)
+        offer=w.diplomacy.snapshot(C).offers[0];before=self.save(w)
+        with self.assertRaises(ValueError):self.call(w,C,'accept_peace',offer=offer.id)
+        self.assertEqual(self.save(w),before)
+        self.assertTrue(w.diplomacy.war_between(Q,C));self.assertEqual(len(w.diplomacy.snapshot(C).offers),1)
 
     def test_diplomatic_fees_enter_spending_and_do_not_fake_gdp(self):
         w=self.world();self.call(w,Q,'guarantee',target=C);self.cycle(w)
