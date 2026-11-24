@@ -64,7 +64,7 @@ public partial class MainMenu
         _playerScenario.ItemSelected+=_=>RefreshPlayerWorld();
         var footer=new HBoxContainer();panel.AddChild(footer);
         _playerNext=new Button { Text="下一步：设置其他国家 →",CustomMinimumSize=new Vector2(0,48),SizeFlagsHorizontal=SizeFlags.ExpandFill };
-        HumanArt.Style(_playerNext,"check");_playerNext.Pressed+=ContinuePlayerSetup;footer.AddChild(_playerNext);footer.AddChild(BackButton());
+        HumanArt.Style(_playerNext,"next","primary");_playerNext.Pressed+=ContinuePlayerSetup;footer.AddChild(_playerNext);footer.AddChild(BackButton());
         _playerScenario.Select(1);RefreshPlayerWorld();return panel;
     }
     private void RefreshPlayerWorld()

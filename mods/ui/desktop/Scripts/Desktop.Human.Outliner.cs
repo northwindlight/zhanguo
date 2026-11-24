@@ -65,7 +65,7 @@ public partial class Desktop
         float width=Size.X<1200?246:280;
         _outliner.Position=new Vector2(Size.X-width-16,70);
         _outliner.CustomMinimumSize=Vector2.Zero;
-        _outliner.Size=new Vector2(width,compact?44+(_armySelectionPanel.Visible?96:0):Size.Y-154);
+        _outliner.Size=new Vector2(width,compact?44+(_armySelectionPanel.Visible?96:0):Size.Y-166);
     }
     private void SetHumanSelectionCell(Vector2I at)
     {

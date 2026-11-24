@@ -19,4 +19,4 @@ project/assembly_name="Zhanguo.Desktop"
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 textures/default_filters/use_nearest_mipmap_filter=false
-environment/defaults/default_clear_color=Color(0.055, 0.075, 0.08, 1)
+environment/defaults/default_clear_color=Color(0.075, 0.055, 0.04, 1)

@@ -94,6 +94,7 @@ public partial class WorldMap
         var p=(at-_offset)/(_scale*Cell);
         HumanTargetHovered?.Invoke(HumanTarget(new((int)MathF.Floor(p.X),(int)MathF.Floor(p.Y))));
     }
+    private static readonly Color FogInk=new("130e0a");
     private void DrawHumanFog()
     {
         if(!PlayerMode)return;
@@ -103,15 +104,26 @@ public partial class WorldMap
             string state=S(tile["visibility"]);if(state=="live")continue;
             var rect=new Rect2(new Vector2(p.X,p.Y)*Cell,Vector2.One*Cell);
             if(!new Rect2(Vector2.Zero,Size).Intersects(new Rect2(_offset+rect.Position*_scale,rect.Size*_scale)))continue;
-            if(state=="unknown")DrawTextureRect(HumanArt.Texture("fog-unknown"),rect,true);
-            else DrawTextureRect(HumanArt.Texture("fog-memory"),rect,true);
+            // 未知：暖墨实底；历史地图：半透明墨色压暗（不再使用像素抖动纹理）。
+            DrawRect(rect,state=="unknown"?FogInk:new Color(FogInk,.6f));
         }
+        var clear=new Color(FogInk,0);
         foreach(var (p,tile) in _tiles)
         {
             if(S(tile["visibility"])=="unknown")continue;
-            int mask=0;var neighbors=new[]{new Vector2I(0,-1),new Vector2I(1,0),new Vector2I(0,1),new Vector2I(-1,0)};
-            for(int i=0;i<4;i++)if(_tiles.TryGetValue(p+neighbors[i],out var other)&&S(other["visibility"])=="unknown")mask|=1<<i;
-            if(mask>0)DrawTextureRect(HumanArt.Texture($"fog-edge-{mask:00}"),new Rect2(new Vector2(p.X,p.Y)*Cell,Vector2.One*Cell),false);
+            var neighbors=new[]{new Vector2I(0,-1),new Vector2I(1,0),new Vector2I(0,1),new Vector2I(-1,0)};
+            var o=new Vector2(p.X,p.Y)*Cell;float c=Cell,w=Cell*.16f;
+            for(int i=0;i<4;i++)
+            {
+                if(!_tiles.TryGetValue(p+neighbors[i],out var other)||S(other["visibility"])!="unknown")continue;
+                // 向未知一侧渐隐的雾边。
+                Vector2[] quad=i switch {
+                    0=>new[]{o,o+new Vector2(c,0),o+new Vector2(c,w),o+new Vector2(0,w)},
+                    1=>new[]{o+new Vector2(c,0),o+new Vector2(c,c),o+new Vector2(c-w,c),o+new Vector2(c-w,0)},
+                    2=>new[]{o+new Vector2(c,c),o+new Vector2(0,c),o+new Vector2(0,c-w),o+new Vector2(c,c-w)},
+                    _=>new[]{o+new Vector2(0,c),o,o+new Vector2(w,0),o+new Vector2(w,c)} };
+                DrawPolygon(quad,new[]{FogInk,FogInk,clear,clear});
+            }
         }
         if(Selected.X>=0)DrawTextureRect(HumanArt.Texture("tile-selected"),new Rect2(new Vector2(Selected.X,Selected.Y)*Cell,Vector2.One*Cell),false);
         foreach(var (p,target) in _humanTargets)

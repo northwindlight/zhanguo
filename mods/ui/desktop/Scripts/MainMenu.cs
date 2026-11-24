@@ -209,7 +209,7 @@ public partial class MainMenu : Control
         box.AddChild(extraLabel);
         _globalExtra = new LineEdit { PlaceholderText = "{ }" }; box.AddChild(_globalExtra);
         var start = new Button { Name="StartGame",Text = "开始对局", CustomMinimumSize = new Vector2(0, 44), FocusMode = FocusModeEnum.None };
-        start.AddThemeFontSizeOverride("font_size", 22);
+        UiSkin.Style(start,"end-turn","seal");start.AddThemeFontOverride("font",UiSkin.Brush);start.AddThemeFontSizeOverride("font_size", 26);start.AddThemeConstantOverride("icon_max_width",28);
         start.Pressed += () =>
         {
             if(_starting)return;

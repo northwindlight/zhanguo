@@ -54,7 +54,7 @@ public partial class Desktop
     {
         if(_mapTools==null)return;
         _mapTools.Visible=!_pauseMenu.Visible;_guideButton.Visible=HumanMode;
-        _mapTools.Position=new Vector2(16,Size.Y-(HumanMode?134:100));
+        _mapTools.Position=new Vector2(16,Size.Y-(HumanMode?146:100));
         _terrainLegend.Visible=_simpleTerrain&&!_pauseMenu.Visible;
         _terrainLegend.Size=new Vector2(292,0);
         _terrainLegend.Position=new Vector2(16,_mapTools.Position.Y-_terrainLegend.Size.Y-8);

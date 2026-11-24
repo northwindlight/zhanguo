@@ -99,3 +99,17 @@ Fusion Pixel 中文字体继续遵循本目录 fonts/FUSION-PIXEL-OFL.txt。
 `map-ui-v1/`的七种地形、城堡和指南共9张24×24 SVG由本项目代码补绘，使用仓库MPL-2.0；无外部图片或字体。用于简易地图图例、地形标记和紧凑列表，矢量母版随Windows美术预览提供。
 
 2026-10-29追加原创24×24银行与信封图标，位置和许可相同，用于银行、邮箱和新经济报表提醒。
+
+## 漆金界面皮肤与字体（2026-11-24）
+
+`ui-lacquer/` 的面板、题签、按钮、开关、图标与主菜单山水均为本项目原创 SVG，由
+`scripts/build_lacquer_ui.py` 生成，使用仓库 MPL-2.0；无外部图片、滤镜或字体。图录见
+`docs/design/ui-lacquer/catalog.svg`。
+
+界面正文使用 **Noto Serif SC**（思源宋体，Google Fonts `ofl/notoserifsc/NotoSerifSC[wght].ttf`，
+原文件 SHA-256 `050080d9255a86808f2945bffac582b31ef32bc36411ce29563b4961670c66f9`），标题使用 **Ma Shan Zheng**（马善政，Google Fonts
+`ofl/mashanzheng/MaShanZheng-Regular.ttf`，原文件 SHA-256 `6d2546bb189c732a8ca29af9e22457b152387d158aa459e4ac2ce1e51788b7fb`），2026-11-24 下载。
+两者均为 SIL OFL-1.1，许可全文见 `fonts/NOTO-SERIF-SC-OFL.txt`、`fonts/MA-SHAN-ZHENG-OFL.txt`。
+随包分发的是用 fontTools 按 GB2312 与游戏界面用字裁出的子集（WOFF2），未改动字形；
+宋体保留可变字重轴，游戏按 520／720 取正文与强调。按 OFL，子集仍以原名称说明来源，
+文件名加 `-zhanguo` 以示区别。像素字体保留为 Esc 菜单中的可选项。

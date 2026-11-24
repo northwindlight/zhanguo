@@ -56,10 +56,10 @@ public partial class Desktop
         // 底部政务栏：左侧青铜框图标导航（经营 / 军事 / 邦交 / 国务四组），右侧朱印「结束回合」。
         _humanDock=new HBoxContainer { Visible=false,ZIndex=12,MouseFilter=MouseFilterEnum.Ignore };
         _humanDock.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomWide);
-        _humanDock.OffsetLeft=16;_humanDock.OffsetRight=-16;_humanDock.OffsetTop=-80;_humanDock.OffsetBottom=-8;
+        _humanDock.OffsetLeft=16;_humanDock.OffsetRight=-16;_humanDock.OffsetTop=-90;_humanDock.OffsetBottom=-6;
         _humanDock.AddThemeConstantOverride("separation",12);AddChild(_humanDock);
         var navPanel=new PanelContainer { Name="HumanNavPanel",MouseFilter=MouseFilterEnum.Stop };
-        var navStyle=UiSkin.Box("dock");navStyle.ContentMarginTop=9;navStyle.ContentMarginBottom=6;navStyle.ContentMarginLeft=14;navStyle.ContentMarginRight=14;
+        var navStyle=UiSkin.Box("dock");navStyle.ContentMarginTop=8;navStyle.ContentMarginBottom=5;navStyle.ContentMarginLeft=14;navStyle.ContentMarginRight=14;
         navPanel.AddThemeStyleboxOverride("panel",navStyle);_humanDock.AddChild(navPanel);
         var nav=new HBoxContainer();nav.AddThemeConstantOverride("separation",4);navPanel.AddChild(nav);
         int hotkey=1;
@@ -74,9 +74,9 @@ public partial class Desktop
             {
                 string page=key;int number=hotkey++;
                 var button=Button(nav,title,()=>OpenHumanPage(page));
-                UiSkin.Style(button,icon,"nav");button.Name="HumanNav_"+key;
+                UiSkin.Style(button,icon,"nav");button.AddThemeConstantOverride("icon_max_width",26);button.Name="HumanNav_"+key;
                 button.VerticalIconAlignment=VerticalAlignment.Top;button.IconAlignment=HorizontalAlignment.Center;
-                button.CustomMinimumSize=new Vector2(66,56);button.AddThemeFontSizeOverride("font_size",14);
+                button.CustomMinimumSize=new Vector2(64,0);button.AddThemeFontSizeOverride("font_size",14);
                 button.AddThemeConstantOverride("h_separation",1);button.TooltipText=$"{title} · {hint}\n快捷键 {number}";
                 foreach(var state in new[]{"normal","hover","pressed","hover_pressed","disabled","focus"})
                 {
@@ -137,9 +137,9 @@ public partial class Desktop
     {
         LayoutMapTools();
         if(_humanDrawer==null)return;
-        float width=Math.Min(_humanPage=="market"?568:520,Size.X-328),height=Math.Max(180,Size.Y-300);
+        float width=Math.Min(_humanPage=="market"?568:520,Size.X-328),height=Math.Max(180,Size.Y-312);
         float reserve=HumanMode&&Size.X>=1500&&!_outlinerCollapsed?296:0;
-        _humanDrawer.SetBounds(_humanPage=="market"?new Rect2(Size.X-width-16-reserve,124,width,Size.Y-208):new Rect2(Size.X-width-16-reserve,216,width,height));
+        _humanDrawer.SetBounds(_humanPage=="market"?new Rect2(Size.X-width-16-reserve,124,width,Size.Y-220):new Rect2(Size.X-width-16-reserve,216,width,height));
         LayoutHumanOutliner();
         _map.PlayerRightInset=_humanDrawer.IsOpen?width+32+reserve:_outlinerCollapsed?32:Size.X<1200?278:312;
         if(_humanConfirm!=null)_humanConfirm.MaxSize=new Vector2I((int)Math.Max(400,Size.X-48),(int)Math.Max(180,Size.Y-48));
