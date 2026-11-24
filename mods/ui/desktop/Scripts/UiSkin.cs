@@ -65,7 +65,7 @@ public static class UiSkin
         float m=margin;
         (box.ContentMarginLeft,box.ContentMarginTop,box.ContentMarginRight,box.ContentMarginBottom)=name switch {
             "panel" or "panel-glass"=>(m<0?20:m,m<0?16:m,m<0?20:m,m<0?16:m),
-            "dock"=>(18,14,18,10),"title"=>(22,3,24,5),"heading"=>(2,0,2,12),"card"=>(10,8,10,8),"tooltip"=>(12,8,12,9),
+            "dock"=>(18,14,18,10),"title"=>(22,3,24,5),"heading"=>(2,0,2,9),"card"=>(10,8,10,8),"tooltip"=>(12,8,12,9),
             _=>(m<0?10:m,m<0?6:m,m<0?10:m,m<0?6:m) };
         return box;
     }

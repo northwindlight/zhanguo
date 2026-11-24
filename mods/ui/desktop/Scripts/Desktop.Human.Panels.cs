@@ -118,7 +118,10 @@ public partial class Desktop
                 AutowrapMode=TextServer.AutowrapMode.WordSmart,SizeFlagsHorizontal=SizeFlags.ExpandFill };
             owner.AddThemeColorOverride("font_color",UiSkin.Paper);facts.AddChild(owner);
         }
-        HumanText(VisibilityText(tile),color:"a2b8ac");
+        // 视野口径与地形归属同行，省出首屏高度给驻军。
+        var sight=new Label { Text=VisibilityText(tile),AutowrapMode=TextServer.AutowrapMode.WordSmart,
+            SizeFlagsHorizontal=state=="unknown"?SizeFlags.ExpandFill:SizeFlags.ShrinkEnd,HorizontalAlignment=state=="unknown"?HorizontalAlignment.Left:HorizontalAlignment.Right };
+        sight.AddThemeColorOverride("font_color",UiSkin.PaperMuted);sight.AddThemeFontSizeOverride("font_size",14);facts.AddChild(sight);
         RenderHumanGarrison(tile);
         if(state!="unknown")
         {

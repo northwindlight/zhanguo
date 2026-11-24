@@ -45,6 +45,7 @@ public partial class Desktop
     private void BuildPlaybackControls(HBoxContainer top)
     {
         var follow=new CheckButton { Text="跟随",ButtonPressed=true,FocusMode=FocusModeEnum.None };
+        follow.AddThemeColorOverride("font_outline_color",UiSkin.InkDeep);follow.AddThemeConstantOverride("outline_size",5);
         follow.Toggled+=value=>_autoFollow=value;top.AddChild(follow);
         var speed=new OptionButton { FocusMode=FocusModeEnum.None };_speedControl=speed;
         string[] names={"细看 0.5×","常速 1×","快速 2×","加速 4×","快进 16×"};

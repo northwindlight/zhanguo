@@ -22,7 +22,7 @@ public partial class Desktop
     private void BuildHumanOutliner()
     {
         _outliner=new PanelContainer { Name="HumanOutliner",Visible=false,ZIndex=21 };
-        var outlinerStyle=UiSkin.Box("panel",14);outlinerStyle.ContentMarginTop=16;outlinerStyle.ContentMarginBottom=16;
+        var outlinerStyle=UiSkin.Box("panel",12);
         _outliner.AddThemeStyleboxOverride("panel",outlinerStyle);AddChild(_outliner);
         var column=new VBoxContainer();column.AddThemeConstantOverride("separation",6);_outliner.AddChild(column);
         var tabs=new HBoxContainer();column.AddChild(tabs);

@@ -17,7 +17,7 @@ public partial class Desktop
     private void BuildArmySelection(VBoxContainer parent)
     {
         _armySelectionPanel=new PanelContainer { Name="ArmySelectionSummary",Visible=false };parent.AddChild(_armySelectionPanel);
-        _armySelectionPanel.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));
+        _armySelectionPanel.AddThemeStyleboxOverride("panel",UiSkin.Box("card"));
         var body=new VBoxContainer();body.AddThemeConstantOverride("separation",3);_armySelectionPanel.AddChild(body);
         _armySelectionText=new Label { Name="ArmySelectionText",AutowrapMode=TextServer.AutowrapMode.WordSmart,MaxLinesVisible=2,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };
         _armySelectionText.AddThemeFontSizeOverride("font_size",14);body.AddChild(_armySelectionText);

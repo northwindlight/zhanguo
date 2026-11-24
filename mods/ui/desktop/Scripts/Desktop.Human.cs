@@ -142,6 +142,7 @@ public partial class Desktop
         _humanDrawer.SetBounds(_humanPage=="market"?new Rect2(Size.X-width-16-reserve,124,width,Size.Y-220):new Rect2(Size.X-width-16-reserve,216,width,height));
         LayoutHumanOutliner();
         _map.PlayerRightInset=_humanDrawer.IsOpen?width+32+reserve:_outlinerCollapsed?32:Size.X<1200?278:312;
+        RefreshNavSelection();
         if(_humanConfirm!=null)_humanConfirm.MaxSize=new Vector2I((int)Math.Max(400,Size.X-48),(int)Math.Max(180,Size.Y-48));
     }
     private void SetHumanState(JsonObject state)
@@ -193,8 +194,10 @@ public partial class Desktop
         string current=!_humanDrawer.IsOpen&&_humanPage!="army"?"":_humanPage switch {
             "build" or "recruit" or "production" or "demolish"=>"build","army" or "selected-armies" or "army-unit"=>"army",
             "bank" or "finance"=>"bank",_=>_humanPage };
+        if(current==_navCurrent)return;_navCurrent=current;
         foreach(var (key,button) in _humanNav)if(key!="end")UiSkin.Selected(button,key==current);
     }
+    private string? _navCurrent;
     private IEnumerable<JsonNode> OwnArmies=>(_humanState?["facts"]?["army"]?.AsArray()??new JsonArray()).Where(u=>S(u!["owner"])==HumanActor&&F(u["hp"])>0).Select(u=>u!);
     private void RefreshHumanButtons()
     {
