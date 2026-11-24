@@ -1,0 +1,80 @@
+name: 界面截图
+
+# Linux 实际窗口（Xvfb + Mesa 软件渲染）跑桌面离线验收，上传截图供审阅。
+# 与 Windows 便携包验收共用 Godot 内部检查；软件渲染只核对布局与流程，不代表显卡性能。
+on:
+  push:
+    branches: ['ui/**']
+    paths:
+      - 'mods/ui/**'
+      - 'scripts/review_desktop_linux.py'
+      - 'tests/desktop-layout/**'
+      - '.github/workflows/ui-review.yml'
+  pull_request:
+    paths: ['mods/ui/**']
+  workflow_dispatch:
+    inputs:
+      checks:
+        description: '逗号分隔：menu,human,finance,extinction,effects,ledger,startup,world'
+        default: 'menu,human,finance'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-review-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: '4.7.2'
+
+jobs:
+  screenshots:
+    name: Linux 实际窗口截图
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: 装系统依赖
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q xvfb libgl1-mesa-dri libglx-mesa0 libxcursor1 libxinerama1 libxrandr2 libxi6 libasound2t64 libpulse0 fontconfig
+      - name: 装 Python 依赖
+        run: python -m pip install -r requirements.txt
+      - name: 缓存 Godot
+        id: godot-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/godot
+          key: godot-mono-linux-${{ env.GODOT_VERSION }}
+      - name: 下载 Godot .NET
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot && cd ~/godot
+          name="Godot_v${GODOT_VERSION}-stable_mono_linux_x86_64"
+          curl -fsSL -o godot.zip "https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable/${name}.zip"
+          unzip -q godot.zip && rm godot.zip
+      - name: 跑离线界面验收
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          godot="$(find ~/godot -name 'Godot_v*_mono_linux.x86_64' -type f | head -1)"
+          chmod +x "$godot"
+          xvfb-run -a -s '-screen 0 1600x1000x24' python scripts/review_desktop_linux.py \
+            --godot "$godot" --output "$RUNNER_TEMP/ui-review" --checks "${{ github.event.inputs.checks || 'menu,human,finance' }}"
+      - name: 上传截图与日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-review-linux
+          path: |
+            ${{ runner.temp }}/ui-review/*.png
+            ${{ runner.temp }}/ui-review/*.json
+            ${{ runner.temp }}/ui-review/*.txt
+          retention-days: 14
