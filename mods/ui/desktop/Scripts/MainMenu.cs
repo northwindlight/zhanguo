@@ -537,6 +537,8 @@ public partial class MainMenu : Control
         {
             if (File.Exists(_settingsPath) && JsonNode.Parse(File.ReadAllText(_settingsPath))?["profiles"] is JsonArray rows)
                 foreach (var row in rows) if (row is JsonObject o) _profiles.Add(ApiProfile.FromJson(o));
+            if (File.Exists(_settingsPath) && JsonNode.Parse(File.ReadAllText(_settingsPath))?["chancellor"] is JsonValue chancellor)
+                _chancellorProfileName = chancellor.ToString();
         }
         catch (IOException) { }
         catch (JsonException) { }
@@ -579,6 +581,7 @@ public partial class MainMenu : Control
             var rows = new JsonArray();
             foreach (var profile in _profiles) rows.Add(profile.ToJson());
             root["profiles"] = rows;
+            root["chancellor"] = _chancellorProfileName;
             File.WriteAllText(_settingsPath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             return $"已保存 {_profiles.Count} 个档案";
         }

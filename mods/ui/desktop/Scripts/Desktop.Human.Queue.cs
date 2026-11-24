@@ -7,7 +7,7 @@ using static WorldMap;
 
 public partial class Desktop
 {
-    private sealed record HumanCommand(string Operation,JsonObject Arguments,string Actor,int Period,string Seat);
+    private sealed record HumanCommand(string Operation,JsonObject Arguments,string Actor,int Period,string Seat,string Tag="");
     private readonly Queue<HumanCommand> _humanCommands=new();
     private HBoxContainer _humanQueuePanel=null!;
     private Label _humanQueueStatus=null!;
@@ -34,14 +34,14 @@ public partial class Desktop
         _humanQueuePanel.Visible=_humanCommands.Count>0;
         _humanQueueStatus.Text=$"待提交 {_humanCommands.Count} 项（尚未扣款）\n生产队列在提交受理时预付，已受理条目请到生产面板取消。";
     }
-    private void QueueHumanCommand(string operation,JsonObject arguments)
+    private bool QueueHumanCommand(string operation,JsonObject arguments,string tag="")
     {
-        if(!HumanCanQueue){HumanMessage("请先继续游戏，或等待本国取得行动权。",false);return;}
-        if(_humanCommands.Count>=99){HumanMessage("待执行指令已达99项，请先完成或取消。",false);return;}
+        if(!HumanCanQueue){HumanMessage("请先继续游戏，或等待本国取得行动权。",false);return false;}
+        if(_humanCommands.Count>=99){HumanMessage("待执行指令已达99项，请先完成或取消。",false);return false;}
         if(operation is "build" or "recruit"&&PendingHumanSite(operation,new(I(arguments["x"]),I(arguments["y"]))))
-        {HumanMessage("本格已有同类指令正在执行或排队，请先查看结果。",false);return;}
-        _humanCommands.Enqueue(new(operation,(JsonObject)arguments.DeepClone(),HumanActor,I(_humanTurn!["period"]),S(_humanTurn["seat_token"])));
-        RefreshHumanQueue();RefreshHumanButtons();DispatchHumanQueue();
+        {HumanMessage("本格已有同类指令正在执行或排队，请先查看结果。",false);return false;}
+        _humanCommands.Enqueue(new(operation,(JsonObject)arguments.DeepClone(),HumanActor,I(_humanTurn!["period"]),S(_humanTurn["seat_token"]),tag));
+        RefreshHumanQueue();RefreshHumanButtons();DispatchHumanQueue();return true;
     }
     private void DispatchHumanQueue()
     {
@@ -49,6 +49,6 @@ public partial class Desktop
         var command=_humanCommands.Dequeue();RefreshHumanQueue();
         if(command.Actor!=HumanActor||command.Period!=I(_humanTurn!["period"])||command.Seat!=S(_humanTurn["seat_token"]))
         {_humanCommands.Clear();RefreshHumanQueue();HumanMessage("行动权已变化，未提交的旧指令已取消。",false);return;}
-        SendHumanCommand(command.Operation,command.Arguments);
+        SendHumanCommand(command.Operation,command.Arguments,command.Tag);
     }
 }

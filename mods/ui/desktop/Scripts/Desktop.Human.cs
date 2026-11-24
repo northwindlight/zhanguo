@@ -18,6 +18,7 @@ public partial class Desktop
     private string _humanOperation="",_humanPage="",_humanWrite="",_humanTargetMode="";
     private Control? _observerDock,_mapHint;
     private HBoxContainer _humanDock=null!;
+    private Button? _chancellorNavButton;
     private MapDrawer _humanDrawer=null!;
     private VBoxContainer _humanContent=null!;
     private ScrollContainer _humanScroll=null!;
@@ -74,6 +75,12 @@ public partial class Desktop
             }
             if(key is "bank" or "intel")button.Icon=MapIcons.Texture(key=="bank"?"bank":"mail");
         }
+        // 丞相入口放在最前；本局设了丞相才显示。
+        _chancellorNavButton=Button(_humanDock,"丞相",()=>OpenHumanPage("chancellor"));
+        _chancellorNavButton.SizeFlagsHorizontal=SizeFlags.ExpandFill;_chancellorNavButton.CustomMinimumSize=new Vector2(0,44);
+        HumanArt.Style(_chancellorNavButton,"report");_chancellorNavButton.AddThemeFontSizeOverride("font_size",16);
+        _chancellorNavButton.Name="HumanNavChancellor";_chancellorNavButton.Visible=false;_humanDock.MoveChild(_chancellorNavButton,0);
+        _chancellorNavButton.TooltipText="丞相奏报：准奏或驳回本回合建议，下口谕，定方针";
         _humanDrawer=Drawer("本国政务",MapDrawer.Side.Right);
         _humanDrawer.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));
         _targetSummary=new Label { Visible=false,MaxLinesVisible=4,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("a9cddd") };
@@ -149,7 +156,7 @@ public partial class Desktop
         if(lost>0)HumanMessage($"{lost} 支选中军队已阵亡或不再属于本国；其余选择保留。");
         if(!_humanStarted)
         {
-            _humanStarted=true;_playbackPaused=false;Send("resume");
+            _humanStarted=true;_playbackPaused=false;ConfigureChancellor();Send("resume");
             _map.FocusNation(HumanActor);
         }
         if(_humanDrawer.IsOpen&&!_manualArmyTarget)RenderHumanPage();
@@ -213,6 +220,7 @@ public partial class Desktop
         bool changedSite=_humanSubmittedCell is Vector2I submitted&&submitted!=_humanCell;
         HumanMessage(changedSite?$"原地块 ({_humanSubmittedCell!.Value.X}, {_humanSubmittedCell.Value.Y}) 的操作{(ok?"已受理":"未成功")}，详见操作记录。当前地块 ({_humanCell.X}, {_humanCell.Y}) 的条件已刷新。":result,ok);
         _humanHistory.Add($"第 {_humanSubmittedPeriod+1} 期"+(_humanSubmittedCell is Vector2I at?$" · ({at.X}, {at.Y})":"")+"\n"+result);
+        if(_humanSubmittedTag!=""){string tag=_humanSubmittedTag;_humanSubmittedTag="";ChancellorReceipt(tag,ok,result);}
         if(_humanSubmittedOperation=="end_turn"&&ok){_humanEnded=true;_humanTurn=null;}
         if(receipt?["status"]?.ToString()=="confirmation_required")
         {
@@ -239,8 +247,9 @@ public partial class Desktop
         if(_humanCommands.Count>0){HumanMessage("请先完成或取消待执行指令。",false);return;}
         SendHumanCommand(operation,arguments);
     }
-    private void SendHumanCommand(string operation,JsonObject arguments)
+    private void SendHumanCommand(string operation,JsonObject arguments,string tag="")
     {
+        _humanSubmittedTag=tag;
         if(operation=="declare_war")_warTarget=S(arguments["target"]);
         _humanSubmittedOperation=operation;_humanSubmittedPeriod=I(_humanTurn!["period"]);
         _humanSubmittedCell=arguments["x"]!=null&&arguments["y"]!=null?new Vector2I(I(arguments["x"]),I(arguments["y"])):null;
@@ -262,6 +271,7 @@ public partial class Desktop
     private void HumanEndTurn()
     {
         if(!HumanCanWrite)return;
+        SendChancellorFeedback();
         var pending=_humanState!["pending_end"]!;
         int offers=pending["offers"]!.AsArray().Count,votes=pending["votes"]!.AsArray().Count;
         if(offers+votes>0)ConfirmHuman("结束本国回合",$"还有 {offers} 项外交提议、{votes} 项未表态投票。\n结束后自动拒绝未处理提议、对开放投票投反对票。",()=>SubmitHuman("end_turn",new JsonObject()));

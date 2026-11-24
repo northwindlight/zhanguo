@@ -48,6 +48,7 @@ public partial class Desktop
         switch(_humanPage)
         {
             case "tile":RenderHumanTile();break;
+            case "chancellor":RenderChancellor();break;
             case "build":case "recruit":RenderRtsCatalog();break;
             case "production":RenderProductionQueue();break;
             case "selected-armies":RenderSelectedArmies();break;

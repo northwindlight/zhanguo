@@ -49,6 +49,8 @@ class Controller:
         if humans:
             from mods.native.human import HumanAPI
             self.human_api=HumanAPI(host);self.viewer=humans[0]
+        from mods.ui.desktop_chancellor import Chancellor
+        self.chancellor=Chancellor(self) if self.human_api is not None else None
 
     def flush_stream(self):
         if self._stream_buffer:
@@ -165,6 +167,11 @@ class Controller:
         op = row.get('command')
         if op in ('human_query','human_submit'):
             self.human_command(row);return
+        if op and op.startswith('chancellor_'):
+            # 丞相的报错只关乎奏折，不暂停对局；消息本身是给玩家看的中文说明。
+            try:self.chancellor_command(op,row)
+            except (ValueError,OSError) as exc:self.send('error',message=str(exc),source='chancellor')
+            return
         if op in ('discard_progress','disconnect') and self.human_api is not None:
             if op=='discard_progress' and row.get('confirm') is not True:raise ValueError('需明确确认放弃未保存进度')
             self.running=False;self.stopping=True;self.waiting=None
@@ -265,6 +272,16 @@ class Controller:
         except ValueError as exc:
             self.send('human_result',request_id=request_id,ok=False,code='request_rejected',message=str(exc))
 
+    def chancellor_command(self,op,row):
+        """丞相原型：设置、请奏、结果回收、准驳反馈与方针；见 mods/ui/desktop_chancellor.py。"""
+        if self.chancellor is None:raise ValueError('本局没有真人席位，不能设丞相')
+        if op=='chancellor_config':self.chancellor.configure(row.get('profile'))
+        elif op=='chancellor_request':self.chancellor.request(row.get('kind','memorial'),row.get('text',''))
+        elif op=='chancellor_result':self.chancellor.receive(row)
+        elif op=='chancellor_feedback':self.chancellor.feedback(row)
+        elif op=='chancellor_directive':self.chancellor.directive(row.get('op'),row.get('text',''),row.get('index'))
+        else:raise ValueError(f'未知丞相命令：{op}')
+
     def human_turn(self,player):
         """Wait outside Session.lock; pause, reads, ack and close remain serviced."""
         self._human_player=player;self._seat_token=uuid.uuid4().hex
@@ -275,6 +292,9 @@ class Controller:
                   nickname=self.host.clients[player.actor].cfg.get('nickname','玩家'))
         self.snapshot()
         self.status('human-waiting')
+        if self.chancellor is not None and self.chancellor.enabled:
+            try:self.chancellor.request('memorial')
+            except ValueError as exc:self.send('notice',message=str(exc))
         try:
             while player.action_state()['can_act']:
                 try:self.command(self.commands.get())

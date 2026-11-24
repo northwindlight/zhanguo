@@ -23,8 +23,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / 'mods' / 'ui' / 'desktop'
-CHECKS = ('menu', 'human', 'finance', 'extinction', 'effects', 'ledger', 'startup', 'world')
-TIMEOUTS = {'menu': 240, 'human': 1500, 'world': 600}
+CHECKS = ('menu', 'human', 'finance', 'chancellor', 'extinction', 'effects', 'ledger', 'startup', 'world')
+TIMEOUTS = {'menu': 240, 'human': 1500, 'world': 600, 'chancellor': 600}
 
 
 def run_check(name: str, godot: str, env: dict, out: Path) -> dict:
@@ -36,6 +36,8 @@ def run_check(name: str, godot: str, env: dict, out: Path) -> dict:
         subprocess.run([sys.executable, '-X', 'utf8', '-m', 'mods.ui.desktop_review', f'--{name}', '--output', str(fixture)],
                        cwd=ROOT, check=True, env=env)
         check_env[f'ZHANGUO_{name.upper()}_REVIEW'] = str(fixture)
+    if name == 'chancellor':
+        check_env['ZHANGUO_CHANCELLOR_SCRIPT'] = str(ROOT / 'tests' / 'fixtures' / 'chancellor-review.json')
     if name == 'startup':
         check_env['ZHANGUO_STARTUP_FIXTURES'] = str(ROOT / 'tests' / 'fixtures')
     if name == 'ledger':
@@ -64,7 +66,7 @@ def main(argv=None):
     parser.add_argument('--godot', default=os.environ.get('GODOT'))
     parser.add_argument('--dotnet', default=shutil.which('dotnet'))
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--checks', default='menu,human,finance', help='逗号分隔：' + ','.join(CHECKS))
+    parser.add_argument('--checks', default='chancellor,menu,human,finance', help='逗号分隔：' + ','.join(CHECKS))
     args = parser.parse_args(argv)
     checks = [c for c in args.checks.split(',') if c]
     if unknown := set(checks) - set(CHECKS):

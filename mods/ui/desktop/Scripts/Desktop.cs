@@ -153,6 +153,7 @@ public partial class Desktop : Control
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--ledger-review-output"){_=ReviewLedger(args[i+1]);return;}
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--effects-review-output"){_=ReviewEffects(args[i+1]);return;}
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--human-review-output"){_=ReviewHuman(args[i+1]);return;}
+        for(int i=0;i<args.Length-1;i++)if(args[i]=="--chancellor-review-output"){_=ReviewChancellor(args[i+1]);return;}
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--extinction-review-output"){_=ReviewExtinctionMemory(args[i+1]);return;}
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--finance-review-output"){_=ReviewFinanceMailbox(args[i+1]);return;}
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--startup-review-output"){_=ReviewStartup(args[i+1]);return;}
@@ -369,6 +370,7 @@ public partial class Desktop : Control
             else Error("Python 宿主退出，代码 "+row["code"]);
             return;
         }
+        if(type=="error"&&S(row["source"])=="chancellor"){_chancellorStatus=S(row["message"]);HumanMessage(_chancellorStatus,false);RefreshChancellorPage();return;}
         if(type=="error"){Error(S(row["message"]),row["actor"]?.ToString());_play.Disabled=false;return;}
         if(S(row["protocol"])!="zhanguo.desktop/1")throw new Exception("不支持的协议版本");
         string generation=S(row["generation"]);int revision=I(row["revision"]);
@@ -376,6 +378,7 @@ public partial class Desktop : Control
         if(generation!=_generation||revision<=_revision)return;
         _revision=revision;
         if(ReceiveHuman(row))return;
+        if(ReceiveChancellor(row))return;
         if(_closing&&(type is "timeline" or "snapshot"))return;
         if(type=="stream")
         {

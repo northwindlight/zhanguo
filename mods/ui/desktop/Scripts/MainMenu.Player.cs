@@ -10,7 +10,20 @@ public partial class MainMenu
     private LineEdit _playerName=null!,_playerNickname=null!,_playerSeed=null!;
     private ColorPickerButton _playerColor=null!;
     private SpinBox _playerMapSize=null!;
-    private OptionButton _playerScenario=null!,_playerIdentity=null!;
+    private OptionButton _playerScenario=null!,_playerIdentity=null!,_playerChancellor=null!;
+    private string _chancellorProfileName="";
+    /// <summary>玩家选择的丞相模型档案；未设丞相时为 null。档案只经管道交给宿主，不写入游戏配置。</summary>
+    public System.Text.Json.Nodes.JsonObject? ChancellorProfile=>
+        _profiles.FirstOrDefault(p=>p.Name==_chancellorProfileName&&_chancellorProfileName!="")?.ToJson();
+    public void ReviewChancellorProfile(){_profiles.Add(new ApiProfile { Name="离线丞相",Model="offline",BaseUrl="http://offline.invalid",ApiKey="unused" });_chancellorProfileName="离线丞相";RefreshChancellorOptions();}
+    private void RefreshChancellorOptions()
+    {
+        if(_playerChancellor==null)return;
+        _playerChancellor.Clear();_playerChancellor.AddItem("不设丞相 · 亲自操作");
+        foreach(var p in _profiles)_playerChancellor.AddItem("丞相："+p.Name);
+        int index=_profiles.FindIndex(p=>p.Name==_chancellorProfileName);
+        _playerChancellor.Select(index<0?0:index+1);
+    }
     private Label _playerWorldHint=null!,_editorTitle=null!;
     private Button _playerNext=null!,_editorBack=null!;
     private List<NationDraft>? _savedPlayerRoster;
@@ -41,6 +54,11 @@ public partial class MainMenu
         _playerName=new LineEdit { Text="秦",SizeFlagsHorizontal=SizeFlags.ExpandFill,MaxLength=20 };nameRow.AddChild(_playerName);
         var nickname=new HBoxContainer();fields.AddChild(nickname);nickname.AddChild(FieldLabel("玩家昵称"));
         _playerNickname=new LineEdit { Text="本地玩家",SizeFlagsHorizontal=SizeFlags.ExpandFill,MaxLength=32 };nickname.AddChild(_playerNickname);
+        var chancellor=new HBoxContainer();fields.AddChild(chancellor);chancellor.AddChild(FieldLabel("丞相"));
+        _playerChancellor=new OptionButton { Name="PlayerChancellor",SizeFlagsHorizontal=SizeFlags.ExpandFill,
+            TooltipText="丞相每回合按本国局势拟写奏折，你只需准奏或驳回；也可以下口谕、定长期方针。需要一个 API 档案（在「设置」中添加）。" };
+        chancellor.AddChild(_playerChancellor);
+        _playerChancellor.ItemSelected+=i=>{_chancellorProfileName=i<=0?"":_profiles[(int)i-1].Name;SaveSettings();};
         var colors=new HFlowContainer();colors.AddThemeConstantOverride("h_separation",7);fields.AddChild(colors);colors.AddChild(FieldLabel("国家颜色"));
         _playerColor=new ColorPickerButton { Color=new Color("9eb5cf"),EditAlpha=false,CustomMinimumSize=new Vector2(48,32) };colors.AddChild(_playerColor);
         foreach(var hex in Zhanguo.Desktop.Layout.DesktopScene.NationPalette)
@@ -88,7 +106,7 @@ public partial class MainMenu
             _playerMode=true;
             SelectScenario(_savedPlayerScenario);RestoreNationEditor(_savedPlayerRoster);_savedPlayerRoster=null;
         }
-        _playerMode=true;OpenPanel(_playerSetup);
+        _playerMode=true;RefreshChancellorOptions();OpenPanel(_playerSetup);
     }
     private void ContinuePlayerSetup()
     {
