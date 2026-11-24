@@ -155,6 +155,8 @@ def stage_sources(bundle, root=ROOT):
                     ignore=shutil.ignore_patterns("*.import"))
     shutil.copytree(root / "mods/ui/desktop/assets/map-ui-v1", review / "地图SVG",
                     ignore=shutil.ignore_patterns("*.import"))
+    shutil.copytree(root / "mods/ui/desktop/assets/ui-lacquer", review / "漆金界面SVG",
+                    ignore=shutil.ignore_patterns("*.import"))
     code = review / "CSharp"
     code.mkdir()
     for relative in tracked_files(root):
@@ -168,6 +170,8 @@ def stage_sources(bundle, root=ROOT):
     shutil.copy2(root / "LICENSE", licenses / "MPL-2.0.txt")
     for relative, name in [("assets/CREDITS.md", "素材来源.md"), ("assets/fonts/FUSION-PIXEL-OFL.txt", "Fusion-Pixel-OFL.txt"),
                            ("assets/fonts/ZLABS-ROUNDPIX-OFL.txt", "ZLabs-RoundPix-OFL.txt"),
+                           ("assets/fonts/NOTO-SERIF-SC-OFL.txt", "Noto-Serif-SC-OFL.txt"),
+                           ("assets/fonts/MA-SHAN-ZHENG-OFL.txt", "Ma-Shan-Zheng-OFL.txt"),
                            ("assets/portraits/manifest.json", "用户图片来源.json")]:
         shutil.copy2(root / "mods/ui/desktop" / relative, licenses / name)
 
