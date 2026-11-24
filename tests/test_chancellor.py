@@ -142,9 +142,9 @@ class TestChancellor(unittest.TestCase):
             try:
                 t.put(command='chancellor_request', kind='memorial')
                 error = t.wait(lambda r: r['type'] == 'error')
-                self.assertIn('未设丞相', error['message'])
+                self.assertIn('未设首辅', error['message'])
                 t.put(command='chancellor_config', profile={'model': 'x'})
-                error = t.wait(lambda r: r['type'] == 'error' and '丞相模型档案' in r['message'])
+                error = t.wait(lambda r: r['type'] == 'error' and '首辅模型档案' in r['message'])
                 self.assertIn('base_url', error['message'])
             finally:
                 t.close()
