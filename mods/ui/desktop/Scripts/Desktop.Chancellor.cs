@@ -5,8 +5,9 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using static WorldMap;
 
-// 丞相原型：宿主拟写结构化奏折，玩家逐条准奏／驳回；准奏后的操作经原有真人输入队列逐条提交，
-// 回执照旧，丞相不直接写世界。宿主侧见 mods/ui/desktop_chancellor.py。
+// 内阁首辅原型：首辅总揽内政、军事、外交并拟写结构化奏折；君主只批阅（准／驳）、下诏（口谕与方针）
+// 或亲政（亲手操作）。准奏后的操作逐条经原有真人提交通道执行，回执照旧，首辅不直接写世界。
+// 宿主侧见 mods/ui/desktop_chancellor.py。
 public partial class Desktop
 {
     private sealed class ChancellorItem
@@ -18,11 +19,12 @@ public partial class Desktop
     }
     private readonly List<ChancellorItem> _chancellorItems=new();
     private readonly List<string> _chancellorDirectives=new(),_chancellorDropped=new();
-    private bool _chancellorEnabled,_chancellorBusy,_chancellorFeedbackSent=true;
+    private bool _chancellorEnabled,_chancellorBusy,_chancellorFeedbackSent=true,_chancellorPersonal,_chancellorEndAfter;
+    private readonly Queue<(string Tag,string Operation,JsonObject Arguments,int Period)> _chancellorRun=new();
     private string _chancellorSummary="",_chancellorReply="",_chancellorStatus="",_chancellorModel="",_humanSubmittedTag="";
     private int _chancellorPeriod=-1;
     private double _chancellorSeconds,_chancellorStarted;
-    private static readonly string[] ChancellorExamples={"这回合多建产业，钱留三百","粮食保持一百以上","只卖不买，攒钱"};
+    private static readonly string[] ChancellorExamples={"这回合多建产业，钱留三百","粮食保持一百以上","军队守住边境，不主动开战","闲着的兵去占无主之地"};
 
     private void SendChancellor(JsonObject row){if(HumanMode||row["command"]?.ToString()=="chancellor_config")SendHumanRow(row);}
     private void ConfigureChancellor()
@@ -32,8 +34,8 @@ public partial class Desktop
     }
     private void RequestChancellor(string kind,string text="")
     {
-        if(!_chancellorEnabled){HumanMessage("本局未设丞相。",false);return;}
-        if(_chancellorBusy){HumanMessage("丞相正在拟奏，请稍候。",false);return;}
+        if(!_chancellorEnabled){HumanMessage("本局未设首辅。",false);return;}
+        if(_chancellorBusy){HumanMessage("首辅正在拟奏，请稍候。",false);return;}
         SendChancellor(new JsonObject { ["command"]="chancellor_request",["kind"]=kind,["text"]=text });
     }
 
@@ -42,17 +44,17 @@ public partial class Desktop
         string type=S(row["type"]);
         if(type=="chancellor_state")
         {
-            _chancellorEnabled=Yes(row["enabled"]);_chancellorBusy=Yes(row["busy"]);_chancellorModel=S(row["model"]);
+            _chancellorEnabled=Yes(row["enabled"]);_chancellorBusy=Yes(row["busy"]);_chancellorModel=S(row["model"]);_chancellorPersonal=Yes(row["personal"]);
             _chancellorDirectives.Clear();_chancellorDirectives.AddRange((row["directives"]?.AsArray()??new JsonArray()).Select(d=>S(d)));
             if(_chancellorNavButton!=null)_chancellorNavButton.Visible=_chancellorEnabled;
             // 设定到达时若本回合尚无奏折，补拟一份（首回合设定晚于开局自动拟奏）。
-            if(_chancellorEnabled&&!_chancellorBusy&&_humanTurn!=null&&_chancellorPeriod!=I(_humanTurn["period"]))RequestChancellor("memorial");
+            if(_chancellorEnabled&&!_chancellorPersonal&&!_chancellorBusy&&_humanTurn!=null&&_chancellorPeriod!=I(_humanTurn["period"]))RequestChancellor("memorial");
             RefreshChancellorPage();return true;
         }
         if(type=="chancellor_status")
         {
             _chancellorBusy=true;_chancellorStarted=_elapsed;
-            _chancellorStatus=S(row["kind"])=="edict"?"丞相领旨，正在拟奏…":"丞相正在拟写本回合奏折…";
+            _chancellorStatus=S(row["kind"])=="edict"?"首辅领旨，正在拟奏…":"首辅正在拟写本回合奏折…";
             RefreshChancellorPage();return true;
         }
         if(type!="chancellor_memorial")return false;
@@ -83,25 +85,41 @@ public partial class Desktop
             "recruit" or "queue_recruit"=>$"征兵 {HumanLabel(S(a["kind"]))} ×{(a["count"]==null?1:I(a["count"]))}{at}",
             "buy"=>$"买入 {HumanLabel(S(a["resource"]))} ×{I(a["quantity"])}",
             "sell"=>$"卖出 {HumanLabel(S(a["resource"]))} ×{I(a["quantity"])}",
-            _=>op };
+            _=>OperationLabel(op)+ChancellorArgs(a.AsObject()) };
+    }
+
+    private string ChancellorArgs(JsonObject a)
+    {
+        var parts=new List<string>();
+        if(a["ids"] is JsonArray ids)parts.Add(string.Join("、",ids.Select(i=>"#"+S(i))));else if(a["id"]!=null)parts.Add("#"+S(a["id"]));
+        if(a["target"]!=null)parts.Add(NationLabel(S(a["target"])));
+        if(a["x"]!=null&&a["y"]!=null)parts.Add($"({I(a["x"])}, {I(a["y"])})");
+        if(a["nodes"] is JsonArray nodes)parts.Add("路线 "+string.Join("→",nodes.Select(n=>$"({S(n!["position"]?[0])},{S(n["position"]?[1])})")));
+        if(a["offer"]!=null)parts.Add("提议 #"+S(a["offer"]));
+        if(a["resource"]!=null)parts.Add(HumanLabel(S(a["resource"]))+(a["quantity"]!=null?" ×"+S(a["quantity"]):""));
+        if(a["text"]!=null)parts.Add("“"+S(a["text"])[..Math.Min(24,S(a["text"]).Length)]+"…”");
+        return parts.Count==0?"":" · "+string.Join(" · ",parts);
     }
 
     private void RenderChancellor()
     {
-        _humanDrawer.Title="丞相奏报";
+        _humanDrawer.Title="内阁奏报";
         if(!_chancellorEnabled)
         {
-            HumanText("本局未设丞相",true);
-            HumanText("开新局时，在「创建你的国家」里选择丞相使用的模型档案（API 档案在主菜单「设置」中添加）。丞相每回合按本国局势拟奏，你只需准奏或驳回。",color:"a2b8ac");
+            HumanText("本局未设内阁首辅",true);
+            HumanText("开新局时，在「创建你的国家」里选择首辅使用的模型档案（API 档案在主菜单「设置」中添加）。首辅总揽内政、军事与外交，每回合拟奏，你只需批阅、下诏，或亲政。",color:"a2b8ac");
             return;
         }
-        var head=HumanText(_chancellorPeriod>=0?$"第 {_chancellorPeriod+1} 回合奏折":"丞相奏折",true);head.Name="ChancellorHeading";
+        var personal=new CheckButton { Name="ChancellorPersonal",Text="亲政（首辅不自动拟奏，我亲手操作）",ButtonPressed=_chancellorPersonal };
+        personal.AddThemeFontSizeOverride("font_size",14);_humanContent.AddChild(personal);
+        personal.Toggled+=on=>SendChancellor(new JsonObject { ["command"]="chancellor_mode",["personal"]=on });
+        var head=HumanText(_chancellorPeriod>=0?$"第 {_chancellorPeriod+1} 回合奏折":"首辅奏折",true);head.Name="ChancellorHeading";
         var status=HumanText(_chancellorBusy?$"{_chancellorStatus}（{Math.Max(0,_elapsed-_chancellorStarted):0} 秒）":_chancellorStatus,color:_chancellorBusy?"e1c48b":"a2b8ac");
         status.Name="ChancellorStatus";status.AddThemeFontSizeOverride("font_size",14);
         if(_chancellorSummary!="")HumanText(_chancellorSummary).Name="ChancellorSummary";
         if(_chancellorReply!="")HumanText("臣启：“"+_chancellorReply+"”",color:"d6cba7").Name="ChancellorReply";
         foreach(var item in _chancellorItems)RenderChancellorItem(item);
-        if(_chancellorItems.Count==0&&!_chancellorBusy&&_chancellorPeriod>=0)HumanText("本回合丞相无事可奏。",color:"a2b8ac");
+        if(_chancellorItems.Count==0&&!_chancellorBusy&&_chancellorPeriod>=0)HumanText("本回合首辅无事可奏。",color:"a2b8ac");
         if(_chancellorDropped.Count>0)
         {
             var dropped=HumanText($"另有 {_chancellorDropped.Count} 条建议不合规，已剔除（悬停查看）",color:"8f9a8f");
@@ -110,27 +128,31 @@ public partial class Desktop
         }
         var actions=new HBoxContainer();actions.AddThemeConstantOverride("separation",6);_humanContent.AddChild(actions);
         int ready=_chancellorItems.Count(i=>i.Status=="pending"&&!i.Major);
-        var all=Button(actions,$"全部准奏（{ready} 条）",ApproveAllChancellor);all.Name="ChancellorApproveAll";HumanArt.Style(all,"check");
+        var all=Button(actions,$"全部准奏（{ready}）",ApproveAllChancellor);all.Name="ChancellorApproveAll";HumanArt.Style(all,"check");
         all.SizeFlagsHorizontal=SizeFlags.ExpandFill;all.Disabled=ready==0||!HumanCanQueue;
-        all.TooltipText="依次执行所有未处理的常规建议；征兵等大事须逐条准奏。";
+        all.TooltipText="依次执行所有未处理的常规建议；宣战、议和、结盟、借贷、拆除、遣散等大事须逐条批阅。";
+        int majors=_chancellorItems.Count(i=>i.Status=="pending"&&i.Major);
+        var close=Button(actions,"准奏并退朝",()=>{ApproveAllChancellor();_chancellorEndAfter=true;});close.Name="ChancellorApproveAndEnd";HumanArt.Style(close,"end-turn");
+        close.Disabled=!HumanCanQueue||_chancellorEndAfter;
+        close.TooltipText="准奏全部常规建议，执行完毕后结束本回合"+(majors>0?$"；尚有 {majors} 件大事未批，将视为不办":"");
         var redo=Button(actions,"重新拟奏",()=>RequestChancellor("memorial"));redo.Name="ChancellorRedo";HumanArt.Style(redo,"report");
         redo.Disabled=_chancellorBusy||_humanTurn==null;
 
-        HumanText("口谕",true);
+        HumanText("下诏",true);
         var edictRow=new HBoxContainer();_humanContent.AddChild(edictRow);
-        var edict=new LineEdit { Name="ChancellorEdict",PlaceholderText="例如：东边多建农场；本回合卖掉一半木头",SizeFlagsHorizontal=SizeFlags.ExpandFill,MaxLength=200 };
+        var edict=new LineEdit { Name="ChancellorEdict",PlaceholderText="例如：东边多建农场；派兵守住北岭；与魏国修好",SizeFlagsHorizontal=SizeFlags.ExpandFill,MaxLength=200 };
         edictRow.AddChild(edict);
         void SendEdict(string text){text=text.Trim();if(text=="")return;RequestChancellor("edict",text);}
         edict.TextSubmitted+=t=>SendEdict(t);
-        var send=Button(edictRow,"下旨",()=>SendEdict(edict.Text));send.Name="ChancellorSendEdict";HumanArt.Style(send,"letter");send.Disabled=_chancellorBusy;
+        var send=Button(edictRow,"下诏",()=>SendEdict(edict.Text));send.Name="ChancellorSendEdict";HumanArt.Style(send,"letter");send.Disabled=_chancellorBusy;
         var examples=new HFlowContainer();examples.AddThemeConstantOverride("h_separation",6);_humanContent.AddChild(examples);
         foreach(var text in ChancellorExamples)
         {
-            string chosen=text;var chip=new Button { Text=chosen,FocusMode=Control.FocusModeEnum.None,TooltipText="直接下这道口谕" };
+            string chosen=text;var chip=new Button { Text=chosen,FocusMode=Control.FocusModeEnum.None,TooltipText="直接下这道诏书" };
             HumanArt.Style(chip);chip.AddThemeFontSizeOverride("font_size",13);chip.Pressed+=()=>SendEdict(chosen);chip.Disabled=_chancellorBusy;examples.AddChild(chip);
         }
 
-        HumanText("方针",true).TooltipText="长期有效，丞相每回合都会遵守；最多 12 条。";
+        HumanText("方针",true).TooltipText="长期有效，首辅每回合都会遵守；最多 12 条。";
         if(_chancellorDirectives.Count==0)HumanText("尚未定方针。可写「金币低于 300 不再扩军」「东部只建农场和林场」等。",color:"a2b8ac");
         for(int i=0;i<_chancellorDirectives.Count;i++)
         {
@@ -187,15 +209,28 @@ public partial class Desktop
     {
         if(item.Status!="pending")return;
         if(item.Directive!="")SendChancellor(new JsonObject { ["command"]="chancellor_directive",["op"]="add",["text"]=item.Directive });
-        int queued=0;
+        if(item.Calls.Count>0&&!HumanCanQueue){HumanMessage("请先继续游戏，或等待本国取得行动权。",false);return;}
         foreach(var call in item.Calls)
-            if(QueueHumanCommand(S(call!["operation"]),call["arguments"]!.AsObject(),item.Id))queued++;
-        item.Failed=item.Calls.Count-queued;
-        item.Status=item.Calls.Count==0?"done":queued==0?"failed":"running";
-        if(queued==0&&item.Calls.Count>0)item.Note=_humanReceipt.Text;
+            _chancellorRun.Enqueue((item.Id,S(call!["operation"]),(JsonObject)call["arguments"]!.DeepClone(),I(_humanTurn!["period"])));
+        item.Status=item.Calls.Count==0?"done":"running";
         RefreshChancellorPage();
     }
     private void ApproveAllChancellor(){foreach(var item in _chancellorItems.Where(i=>i.Status=="pending"&&!i.Major).ToList())ApproveChancellor(item);}
+
+    /// <summary>每帧推进：上一条执行完、演出播完后，再提交下一条准奏操作；全部办完且要求退朝时结束回合。</summary>
+    private void PumpChancellor()
+    {
+        if(!HumanMode)return;
+        if(_chancellorRun.Count>0&&_humanTurn!=null&&_chancellorRun.Peek().Period!=I(_humanTurn["period"]))
+        {
+            foreach(var (tag,_,_,_) in _chancellorRun)ChancellorReceipt(tag,false,"回合已变化，未执行");
+            _chancellorRun.Clear();_chancellorEndAfter=false;
+        }
+        if(!HumanCanWrite||_humanCommands.Count>0||_humanConfirm.Visible)return;
+        if(_chancellorRun.Count>0){var (tag,op,args,_)=_chancellorRun.Dequeue();SendHumanCommand(op,args,tag);return;}
+        if(_chancellorEndAfter&&_chancellorItems.All(i=>i.Status!="running"))
+        {_chancellorEndAfter=false;HumanEndTurn();}
+    }
 
     /// <summary>准奏操作的正式回执逐条记回对应奏折。</summary>
     private void ChancellorReceipt(string tag,bool ok,string text)
@@ -206,7 +241,7 @@ public partial class Desktop
         RefreshChancellorPage();
     }
 
-    /// <summary>把本份奏折的准驳结果交给宿主记录，供丞相揣摩君主偏好。</summary>
+    /// <summary>把本份奏折的准驳结果交给宿主记录，供首辅揣摩君主偏好。</summary>
     private void SendChancellorFeedback()
     {
         if(_chancellorFeedbackSent||_chancellorItems.Count==0)return;

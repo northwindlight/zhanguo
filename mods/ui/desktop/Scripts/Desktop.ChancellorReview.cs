@@ -10,7 +10,7 @@ using static WorldMap;
 public partial class Desktop
 {
     /// <summary>
-    /// 丞相离线验收：脚本化模型（ZHANGUO_CHANCELLOR_SCRIPT）拟奏 → 呈上奏折 → 准一条、驳一条 →
+    /// 首辅离线验收：脚本化模型（ZHANGUO_CHANCELLOR_SCRIPT）拟奏 → 呈上奏折 → 准一条、驳一条 →
     /// 下口谕 → 立方针；核对回执回写与布局，并截取多种窗口尺寸。
     /// </summary>
     private async Task ReviewChancellor(string path)
@@ -19,7 +19,7 @@ public partial class Desktop
         string stem=Path.ChangeExtension(Path.GetFullPath(path),null);
         try
         {
-            if(OS.GetEnvironment("ZHANGUO_CHANCELLOR_SCRIPT")=="")throw new Exception("丞相验收需要 ZHANGUO_CHANCELLOR_SCRIPT 脚本");
+            if(OS.GetEnvironment("ZHANGUO_CHANCELLOR_SCRIPT")=="")throw new Exception("首辅验收需要 ZHANGUO_CHANCELLOR_SCRIPT 脚本");
             FocusWindowForPointer();
             string reviewRoot=stem+"-data";Directory.CreateDirectory(reviewRoot);
             _runtime=_runtime with { DataRoot=reviewRoot };
@@ -27,18 +27,18 @@ public partial class Desktop
             _menu.OpenPlayerGame();_menu.PlayerSeedField.Text="20261026";_menu.PlayerNameField.Text="青岚";
             _menu.ReviewChancellorProfile();
             await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
-            if(_menu.ChancellorProfile==null)throw new Exception("菜单没有选中丞相档案");
+            if(_menu.ChancellorProfile==null)throw new Exception("菜单没有选中首辅档案");
             _menu.ValidateVisibleLayout();await Screenshot(stem+"-menu.png");
             _menu.SelectPlayerScenario(0);await PointerClick(_menu.PlayerNextButton);
             _menu.ReviewRuleSeeds(20261026);
             var config=_menu.BuildConfig(out string error,out string? configPath);
             if(config==null||configPath==null)throw new Exception("真人菜单配置失败："+error);
             if(config.ToJsonString().Contains("api_key")&&config["nations"]!.AsArray().All(n=>S(n!["client"])!="llm"))
-                throw new Exception("丞相档案不应写入游戏配置");
+                throw new Exception("首辅档案不应写入游戏配置");
             _menu.Visible=false;StartHost(configPath,null);
             await HumanIdle();
-            await WaitFor(()=>_chancellorEnabled&&_chancellorPeriod>=0&&!_chancellorBusy,"丞相没有呈上首回合奏折",120);
-            if(_chancellorNavButton==null||!_chancellorNavButton.Visible)throw new Exception("设了丞相但底栏没有入口");
+            await WaitFor(()=>_chancellorEnabled&&_chancellorPeriod>=0&&!_chancellorBusy,"首辅没有呈上首回合奏折",120);
+            if(_chancellorNavButton==null||!_chancellorNavButton.Visible)throw new Exception("设了首辅但底栏没有入口");
             if(!_humanDrawer.IsOpen||_humanPage!="chancellor")throw new Exception("奏折到达时没有自动呈上");
             int items=_chancellorItems.Count,dropped=_chancellorDropped.Count;
             if(items<2)throw new Exception("奏折条目不足，无法验收准驳："+items);
@@ -52,7 +52,13 @@ public partial class Desktop
             var second=_chancellorItems.First(i=>i.Status=="pending");
             await PointerClick((Button)_humanContent.FindChild("ChancellorReject_"+second.Id,true,false)!);
             if(second.Status!="rejected")throw new Exception("驳回没有生效");
-            if(_humanHistory.Count==0)throw new Exception("准奏操作没有进入本次会话操作记录");
+            var letter=_chancellorItems.First(i=>i.Calls.Any(c=>S(c!["operation"])=="send_letter"));
+            if(!letter.Title.Contains("[")&&letter.Title.Contains("$NATION"))throw new Exception("外交条目没有填入国家");
+            await PointerClick((Button)_humanContent.FindChild("ChancellorApprove_"+letter.Id,true,false)!);
+            await WaitFor(()=>letter.Status is "done" or "failed","外交条目没有回执",120);await HumanIdle();
+            if(letter.Status!="done")throw new Exception("外交条目未成："+letter.Note);
+            if(_chancellorDropped.Count==0||!_chancellorDropped.Any(d=>d.Contains("越权退朝")))throw new Exception("越权的结束回合没有被剔除");
+            if(_humanHistory.Count<2)throw new Exception("准奏操作没有进入本次会话操作记录");
             await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
             ValidateHumanLayout();await Screenshot(stem+"-approved.png");
 
@@ -68,6 +74,12 @@ public partial class Desktop
             await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
             ValidateHumanLayout();await Screenshot(stem+"-directive.png");
 
+            // 准奏并退朝：常规建议全部执行后自动结束回合；下一回合首辅自动呈上新奏折。
+            int period=_chancellorPeriod;
+            await PointerClick((Button)_humanContent.FindChild("ChancellorApproveAndEnd",true,false)!);
+            await WaitFor(()=>_chancellorPeriod>period&&!_chancellorBusy&&HumanCanWrite,"准奏并退朝后没有进入下一回合的奏折",300);
+            await ToSignal(GetTree().CreateTimer(.3),SceneTreeTimer.SignalName.Timeout);
+            ValidateHumanLayout();await Screenshot(stem+"-next-turn.png");
             var layouts=new JsonArray();
             foreach(var size in new[]{new Vector2I(1280,720),new Vector2I(1920,1080),new Vector2I(1024,768)})
             {
@@ -77,6 +89,7 @@ public partial class Desktop
             }
             File.WriteAllText(path+".json",new JsonObject {
                 ["memorial_items"]=items,["dropped"]=dropped,["approved_done"]=first.Status=="done",["rejected"]=second.Status=="rejected",
+                ["diplomacy_done"]=letter.Status=="done",["approve_and_end"]=_chancellorPeriod>period,
                 ["edict_reply"]=_chancellorReply,["directives"]=new JsonArray(_chancellorDirectives.Select(d=>(JsonNode?)d).ToArray()),
                 ["memorial_seconds"]=_chancellorSeconds,["layouts"]=layouts }.ToJsonString(new JsonSerializerOptions { WriteIndented=true }));
             await Screenshot(path);

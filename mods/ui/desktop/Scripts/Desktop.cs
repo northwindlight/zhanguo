@@ -332,6 +332,7 @@ public partial class Desktop : Control
 
     public override void _Process(double delta)
     {
+        PumpChancellor();
         if(_portableCheck)return;
         TickRts(delta);
         if(_pauseMenu.Visible)HideResourceTooltip();

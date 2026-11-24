@@ -39,7 +39,8 @@ class TestChancellor(unittest.TestCase):
         def memorial(x, y, kind):
             return {'summary': '粮少金多，先建产业。', 'proposals': [
                 {'title': '建一座', 'reason': '有空位', 'calls': [{'operation': 'build', 'arguments': {'x': x, 'y': y, 'kind': kind}}]},
-                {'title': '越权调兵', 'reason': '', 'calls': [{'operation': 'move', 'arguments': {'ids': [1], 'x': 0, 'y': 0}}]},
+                {'title': '越权退朝', 'reason': '', 'calls': [{'operation': 'end_turn', 'arguments': {}}]},
+                {'title': '调兵无编号', 'reason': '', 'calls': [{'operation': 'move', 'arguments': {'x': 0, 'y': 0}}]},
                 {'title': '缺坐标', 'reason': '', 'calls': [{'operation': 'build', 'arguments': {'kind': kind}}]},
                 {'title': '卖空气', 'reason': '', 'calls': [{'operation': 'sell', 'arguments': {'resource': 'native:food', 'quantity': -3}}]},
                 {'title': '定方针', 'reason': '君主说过', 'calls': [], 'directive': '金币低于 300 不再扩军'},
@@ -57,8 +58,9 @@ class TestChancellor(unittest.TestCase):
                     self.assertEqual(memo['summary'], '粮少金多，先建产业。')
                     titles = [p['title'] for p in memo['proposals']]
                     self.assertEqual(titles, ['建一座', '定方针'])
-                    self.assertEqual(len(memo['dropped']), 3)
-                    self.assertTrue(any('越权调兵' in d and '不在可奏请范围' in d for d in memo['dropped']))
+                    self.assertEqual(len(memo['dropped']), 4)
+                    self.assertTrue(any('越权退朝' in d and '不在可奏请范围' in d for d in memo['dropped']))
+                    self.assertTrue(any('调兵无编号' in d and 'ids' in d for d in memo['dropped']))
                     # 准奏：界面按原有真人通道提交奏折里的操作，回执是正式领域回执。
                     call = memo['proposals'][0]['calls'][0]
                     result = t.submit(turn, 'approve-1', call['operation'], call['arguments'])
@@ -102,11 +104,34 @@ class TestChancellor(unittest.TestCase):
                     memo = t.wait(lambda r: r['type'] == 'chancellor_memorial', after=after)
                     self.assertEqual(memo['reply'], '臣明白，只卖不买。')
                     briefing = seen[-1][1]['content']
+                    self.assertIn('【规则书】', seen[-1][0]['content'])
+                    self.assertIn('【军队】', briefing)
+                    self.assertIn('【列国】', briefing)
                     self.assertIn('【本国】', briefing)
                     self.assertIn(f'({x},{y})', briefing)
                     self.assertIn('本期可开工', briefing)
-                    self.assertIn('【君主口谕】这回合只卖不买', briefing)
+                    self.assertIn('【君主诏书】这回合只卖不买', briefing)
                     self.assertNotIn('楚国库存', briefing)
+                finally:
+                    t.close()
+
+    def test_personal_rule_stops_automatic_memorials(self):
+        def memorial(x, y, kind):
+            return {'summary': '无事。', 'proposals': []}
+        with TemporaryDirectory() as d:
+            host, script, _ = self.run_turn([memorial], d)
+            with patch.dict(os.environ, {'ZHANGUO_CHANCELLOR_SCRIPT': str(script), 'ZHANGUO_CHANCELLOR_SCRIPT_DELAY': '0'}):
+                t = Transport(host, d)
+                try:
+                    t.put(command='chancellor_config', profile=PROFILE)
+                    t.put(command='chancellor_mode', personal=True)
+                    t.wait(lambda r: r['type'] == 'chancellor_state' and r.get('personal'))
+                    mark = len(t.rows)
+                    t.turn()
+                    t.put(command='snapshot');t.wait(lambda r: r['type'] == 'snapshot', after=mark + 1)
+                    self.assertFalse(any(r['type'] in ('chancellor_status', 'chancellor_memorial') for r in t.rows[mark:]))
+                    t.put(command='chancellor_request', kind='memorial')
+                    self.assertTrue(t.wait(lambda r: r['type'] == 'chancellor_memorial', after=mark)['ok'])
                 finally:
                     t.close()
 

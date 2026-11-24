@@ -1,17 +1,82 @@
 [
-  {"summary": "开局金多粮少：先在都城起产业，粮价尚低，可少量买入以备军需。",
-   "proposals": [
-     {"title": "都城起建产业", "reason": "本格本期可开工，估算回本最快；入队即预付，回合末开工。",
-      "calls": [{"operation": "build", "arguments": {"x": "$X", "y": "$Y", "kind": "$KIND"}}]},
-     {"title": "买入粮食 20", "reason": "粮仅够两期军需，市价偏低。",
-      "calls": [{"operation": "buy", "arguments": {"resource": "native:food", "quantity": 20}}]},
-     {"title": "立方针：粮食不低于五十", "reason": "开局粮少，免得断粮。", "calls": [], "directive": "粮食不低于五十"},
-     {"title": "调兵东进", "reason": "越权示例：军令须由君主亲自下达。",
-      "calls": [{"operation": "move", "arguments": {"ids": [1], "x": 1, "y": 1}}]}
-   ]},
-  {"summary": "遵旨：粮食保持一百以上。", "reply": "臣遵旨，每回合补足粮食到一百，不足时先卖木头。",
-   "proposals": [
-     {"title": "买入粮食 60", "reason": "补足到一百以上。",
-      "calls": [{"operation": "buy", "arguments": {"resource": "native:food", "quantity": 60}}]}
-   ]}
+ {
+  "summary": "开局金多粮少：先在都城起产业，粮价尚低，可少量买入以备军需。",
+  "proposals": [
+   {
+    "title": "都城起建产业",
+    "reason": "本格本期可开工，估算回本最快；入队即预付，回合末开工。",
+    "calls": [
+     {
+      "operation": "build",
+      "arguments": {
+       "x": "$X",
+       "y": "$Y",
+       "kind": "$KIND"
+      }
+     }
+    ]
+   },
+   {
+    "title": "买入粮食 20",
+    "reason": "粮仅够两期军需，市价偏低。",
+    "calls": [
+     {
+      "operation": "buy",
+      "arguments": {
+       "resource": "native:food",
+       "quantity": 20
+      }
+     }
+    ]
+   },
+   {
+    "title": "立方针：粮食不低于五十",
+    "reason": "开局粮少，免得断粮。",
+    "calls": [],
+    "directive": "粮食不低于五十"
+   },
+   {
+    "title": "致书$NATION，修邻邦之好",
+    "reason": "开局无兵，先稳住邻国；书信不花钱。",
+    "calls": [
+     {
+      "operation": "send_letter",
+      "arguments": {
+       "target": "$NATION",
+       "text": "敝国初立，愿与贵国修好，互不相犯。"
+      }
+     }
+    ]
+   },
+   {
+    "title": "越权退朝",
+    "reason": "越权示例：结束回合须由君主亲自决定。",
+    "calls": [
+     {
+      "operation": "end_turn",
+      "arguments": {}
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "summary": "遵旨：粮食保持一百以上。",
+  "reply": "臣遵旨，每回合补足粮食到一百，不足时先卖木头。",
+  "proposals": [
+   {
+    "title": "买入粮食 60",
+    "reason": "补足到一百以上。",
+    "calls": [
+     {
+      "operation": "buy",
+      "arguments": {
+       "resource": "native:food",
+       "quantity": 60
+      }
+     }
+    ]
+   }
+  ]
+ }
 ]

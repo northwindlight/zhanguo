@@ -12,15 +12,15 @@ public partial class MainMenu
     private SpinBox _playerMapSize=null!;
     private OptionButton _playerScenario=null!,_playerIdentity=null!,_playerChancellor=null!;
     private string _chancellorProfileName="";
-    /// <summary>玩家选择的丞相模型档案；未设丞相时为 null。档案只经管道交给宿主，不写入游戏配置。</summary>
+    /// <summary>玩家选择的首辅模型档案；未设首辅时为 null。档案只经管道交给宿主，不写入游戏配置。</summary>
     public System.Text.Json.Nodes.JsonObject? ChancellorProfile=>
         _profiles.FirstOrDefault(p=>p.Name==_chancellorProfileName&&_chancellorProfileName!="")?.ToJson();
-    public void ReviewChancellorProfile(){_profiles.Add(new ApiProfile { Name="离线丞相",Model="offline",BaseUrl="http://offline.invalid",ApiKey="unused" });_chancellorProfileName="离线丞相";RefreshChancellorOptions();}
+    public void ReviewChancellorProfile(){_profiles.Add(new ApiProfile { Name="离线首辅",Model="offline",BaseUrl="http://offline.invalid",ApiKey="unused" });_chancellorProfileName="离线首辅";RefreshChancellorOptions();}
     private void RefreshChancellorOptions()
     {
         if(_playerChancellor==null)return;
-        _playerChancellor.Clear();_playerChancellor.AddItem("不设丞相 · 亲自操作");
-        foreach(var p in _profiles)_playerChancellor.AddItem("丞相："+p.Name);
+        _playerChancellor.Clear();_playerChancellor.AddItem("不设首辅 · 亲政");
+        foreach(var p in _profiles)_playerChancellor.AddItem("首辅："+p.Name);
         int index=_profiles.FindIndex(p=>p.Name==_chancellorProfileName);
         _playerChancellor.Select(index<0?0:index+1);
     }
@@ -54,9 +54,9 @@ public partial class MainMenu
         _playerName=new LineEdit { Text="秦",SizeFlagsHorizontal=SizeFlags.ExpandFill,MaxLength=20 };nameRow.AddChild(_playerName);
         var nickname=new HBoxContainer();fields.AddChild(nickname);nickname.AddChild(FieldLabel("玩家昵称"));
         _playerNickname=new LineEdit { Text="本地玩家",SizeFlagsHorizontal=SizeFlags.ExpandFill,MaxLength=32 };nickname.AddChild(_playerNickname);
-        var chancellor=new HBoxContainer();fields.AddChild(chancellor);chancellor.AddChild(FieldLabel("丞相"));
+        var chancellor=new HBoxContainer();fields.AddChild(chancellor);chancellor.AddChild(FieldLabel("内阁首辅"));
         _playerChancellor=new OptionButton { Name="PlayerChancellor",SizeFlagsHorizontal=SizeFlags.ExpandFill,
-            TooltipText="丞相每回合按本国局势拟写奏折，你只需准奏或驳回；也可以下口谕、定长期方针。需要一个 API 档案（在「设置」中添加）。" };
+            TooltipText="内阁首辅总揽内政、军事与外交，每回合拟写奏折；你只需批阅（准／驳）、下诏（口谕与方针），或亲政。需要一个 API 档案（在「设置」中添加）。" };
         chancellor.AddChild(_playerChancellor);
         _playerChancellor.ItemSelected+=i=>{_chancellorProfileName=i<=0?"":_profiles[(int)i-1].Name;SaveSettings();};
         var colors=new HFlowContainer();colors.AddThemeConstantOverride("h_separation",7);fields.AddChild(colors);colors.AddChild(FieldLabel("国家颜色"));

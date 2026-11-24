@@ -75,12 +75,12 @@ public partial class Desktop
             }
             if(key is "bank" or "intel")button.Icon=MapIcons.Texture(key=="bank"?"bank":"mail");
         }
-        // 丞相入口放在最前；本局设了丞相才显示。
-        _chancellorNavButton=Button(_humanDock,"丞相",()=>OpenHumanPage("chancellor"));
+        // 首辅入口放在最前；本局设了首辅才显示。
+        _chancellorNavButton=Button(_humanDock,"首辅",()=>OpenHumanPage("chancellor"));
         _chancellorNavButton.SizeFlagsHorizontal=SizeFlags.ExpandFill;_chancellorNavButton.CustomMinimumSize=new Vector2(0,44);
         HumanArt.Style(_chancellorNavButton,"report");_chancellorNavButton.AddThemeFontSizeOverride("font_size",16);
         _chancellorNavButton.Name="HumanNavChancellor";_chancellorNavButton.Visible=false;_humanDock.MoveChild(_chancellorNavButton,0);
-        _chancellorNavButton.TooltipText="丞相奏报：准奏或驳回本回合建议，下口谕，定方针";
+        _chancellorNavButton.TooltipText="内阁奏报：批阅首辅的建议，下诏，定方针；或勾选亲政自己操作";
         _humanDrawer=Drawer("本国政务",MapDrawer.Side.Right);
         _humanDrawer.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));
         _targetSummary=new Label { Visible=false,MaxLinesVisible=4,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("a9cddd") };
