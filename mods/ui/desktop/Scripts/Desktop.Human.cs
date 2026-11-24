@@ -217,7 +217,7 @@ public partial class Desktop
         if(ok&&_humanSubmittedOperation is "buy" or "sell")RefreshLiveMarket();
         _humanReceipt.Modulate=new Color(ok?"c6e3ad":"ffb6a4");
         string result=processed?FormatHumanReceipt(receipt!):S(row["message"]);
-        bool changedSite=_humanSubmittedCell is Vector2I submitted&&submitted!=_humanCell;
+        bool changedSite=_humanSubmittedCell is Vector2I submitted&&submitted!=_humanCell&&_humanCell.X>=0;
         HumanMessage(changedSite?$"原地块 ({_humanSubmittedCell!.Value.X}, {_humanSubmittedCell.Value.Y}) 的操作{(ok?"已受理":"未成功")}，详见操作记录。当前地块 ({_humanCell.X}, {_humanCell.Y}) 的条件已刷新。":result,ok);
         _humanHistory.Add($"第 {_humanSubmittedPeriod+1} 期"+(_humanSubmittedCell is Vector2I at?$" · ({at.X}, {at.Y})":"")+"\n"+result);
         if(_humanSubmittedTag!=""){string tag=_humanSubmittedTag;_humanSubmittedTag="";ChancellorReceipt(tag,ok,result);}
