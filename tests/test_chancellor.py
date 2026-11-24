@@ -73,7 +73,8 @@ class TestChancellor(unittest.TestCase):
                     saved = json.loads((Path(d) / desktop_chancellor.STATE_FILE).read_text(encoding='utf-8'))
                     self.assertEqual(saved['directives'], ['金币低于 300 不再扩军'])
                     self.assertEqual(saved['log'][-1]['approved'], ['建一座'])
-                    self.assertNotIn('chancellor', json.dumps(host.to_save(), ensure_ascii=False))
+                    self.assertNotIn('chancellor', json.dumps(host.cfg, ensure_ascii=False))
+                    self.assertNotIn('unused', json.dumps(host.cfg, ensure_ascii=False))
                 finally:
                     t.close()
 
