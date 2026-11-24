@@ -40,7 +40,7 @@ public partial class Desktop
     {
         if(!HumanMode)return;
         SaveHumanDraft();ResetMarket();ResetRts();ClearHumanChildren(_humanContent);_humanWrites.Clear();_humanFields.Clear();_formOperation="";
-        _humanContent.AddThemeConstantOverride("separation",_humanPage is "build" or "recruit" or "market"?6:10);
+        _humanContent.AddThemeConstantOverride("separation",_humanPage is "build" or "recruit" or "market" or "tile"?6:10);
         _humanExtra=new JsonObject();_humanPreview=null;_humanSubmit=null;_bankBorrow=null;
         _guideTools.Visible=_humanPage=="guide";
         _mailTools.Visible=_humanPage=="intel";
