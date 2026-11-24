@@ -51,14 +51,13 @@ public partial class Desktop
         foreach(var name in names)speed.AddItem(name);
         speed.Selected=1;speed.ItemSelected+=index=>{_playbackSpeed=new[]{.5f,1,2,4,16}[(int)index];RefreshSpeedDisplay();};top.AddChild(speed);
         _banner=new PanelContainer { MouseFilter=MouseFilterEnum.Ignore,ZIndex=10 };
-        var style=new StyleBoxFlat { BgColor=new Color(.055f,.10f,.11f,.94f),BorderColor=new Color("8d9471"),
-            ContentMarginLeft=20,ContentMarginRight=20,ContentMarginTop=10,ContentMarginBottom=12 };
-        style.SetBorderWidthAll(1);style.SetCornerRadiusAll(0);_banner.AddThemeStyleboxOverride("panel",style);
+        var style=UiSkin.Box("panel-glass");style.ContentMarginLeft=26;style.ContentMarginRight=26;style.ContentMarginTop=12;style.ContentMarginBottom=14;
+        _banner.AddThemeStyleboxOverride("panel",style);
         _banner.SetAnchorsAndOffsetsPreset(LayoutPreset.CenterTop);_banner.OffsetLeft=-340;_banner.OffsetRight=340;
         _banner.OffsetTop=78;_banner.OffsetBottom=204;AddChild(_banner);
         var box=new VBoxContainer { MouseFilter=MouseFilterEnum.Ignore };_banner.AddChild(box);
         _bannerTitle=new Label { Text="观天下 · 等待开局",MouseFilter=MouseFilterEnum.Ignore,HorizontalAlignment=HorizontalAlignment.Center,AutowrapMode=TextServer.AutowrapMode.WordSmart,MaxLinesVisible=2,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };
-        _bannerTitle.AddThemeFontSizeOverride("font_size",23);_bannerTitle.AddThemeColorOverride("font_color",new Color("ead9a7"));box.AddChild(_bannerTitle);
+        _bannerTitle.AddThemeFontOverride("font",UiSkin.Brush);_bannerTitle.AddThemeFontSizeOverride("font_size",27);_bannerTitle.AddThemeColorOverride("font_color",UiSkin.BronzeLight);box.AddChild(_bannerTitle);
         _bannerText=new Label { Text="点击继续，按国家和动作慢速观看",AutowrapMode=TextServer.AutowrapMode.WordSmart,
             HorizontalAlignment=HorizontalAlignment.Center,MouseFilter=MouseFilterEnum.Ignore,CustomMinimumSize=new Vector2(0,64),MaxLinesVisible=3,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };box.AddChild(_bannerText);
     }

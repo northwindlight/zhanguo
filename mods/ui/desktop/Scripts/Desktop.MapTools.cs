@@ -28,7 +28,7 @@ public partial class Desktop
         _terrainModeButton.Name="TerrainMode";_terrainModeButton.ToggleMode=true;HumanArt.Style(_terrainModeButton,"map");
         _terrainModeButton.TooltipText="普通地图／简易地形图；保留国界、军队、玩家视野与带日期的历史地图。";
         _guideButton=Button(_mapTools,"查询指南",OpenHumanGuide);_guideButton.Name="OpenGuide";
-        _guideButton.Icon=MapIcons.Texture("guide");HumanArt.Style(_guideButton);_guideButton.AddThemeConstantOverride("icon_max_width",22);
+        HumanArt.Style(_guideButton,"guide");_guideButton.AddThemeConstantOverride("icon_max_width",22);
         _terrainLegend=new PanelContainer { Name="TerrainLegend",ZIndex=7 };_terrainLegend.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));AddChild(_terrainLegend);
         var box=new VBoxContainer();_terrainLegend.AddChild(box);
         var flow=new HFlowContainer();flow.AddThemeConstantOverride("h_separation",10);flow.AddThemeConstantOverride("v_separation",5);box.AddChild(flow);
@@ -54,7 +54,7 @@ public partial class Desktop
     {
         if(_mapTools==null)return;
         _mapTools.Visible=!_pauseMenu.Visible;_guideButton.Visible=HumanMode;
-        _mapTools.Position=new Vector2(16,Size.Y-(HumanMode?108:100));
+        _mapTools.Position=new Vector2(16,Size.Y-(HumanMode?134:100));
         _terrainLegend.Visible=_simpleTerrain&&!_pauseMenu.Visible;
         _terrainLegend.Size=new Vector2(292,0);
         _terrainLegend.Position=new Vector2(16,_mapTools.Position.Y-_terrainLegend.Size.Y-8);

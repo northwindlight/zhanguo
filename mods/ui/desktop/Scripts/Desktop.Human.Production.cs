@@ -40,7 +40,7 @@ public partial class Desktop
             var row=node!.AsObject();int id=I(row["id"]);bool started=S(row["status"])=="construction";
             var at=new Vector2I(I(row["position"]![0]),I(row["position"]![1]));
             var panel=new PanelContainer { Name=$"ProductionOrder_{(recruit?"Recruit":"Build")}_{id}" };
-            panel.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));_humanContent.AddChild(panel);
+            panel.AddThemeStyleboxOverride("panel",UiSkin.Box("card"));_humanContent.AddChild(panel);
             var body=new HBoxContainer();panel.AddChild(body);
             body.AddChild(new TextureRect { Texture=recruit?RtsArt.Unit(S(row["kind"]),_map.NationColor(HumanActor)):RtsArt.Building(S(row["kind"])),
                 CustomMinimumSize=new Vector2(42,48),ExpandMode=TextureRect.ExpandModeEnum.IgnoreSize,StretchMode=TextureRect.StretchModeEnum.KeepAspectCentered });

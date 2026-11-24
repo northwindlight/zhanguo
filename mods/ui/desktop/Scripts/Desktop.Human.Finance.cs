@@ -97,7 +97,7 @@ public partial class Desktop
             catch(Exception e){GD.PrintErr("邮箱已读记录使用默认值："+e.Message);}
         }
         int unread=UnreadReports,letters=HumanFacts["intel"]?.AsArray().Count(m=>!_readIntel.Contains(I(m!["id"])))??0;
-        _humanNav["intel"].Text="邮箱"+Badge(unread+letters);
+        SetNavBadge("intel",unread+letters);
         _mailReportTab.Text="经济报表"+Badge(unread);
         var latest=MailReports.FirstOrDefault(r=>!_readReports.Contains(ReportKey(r)));
         _reportNotice.Text=latest==null?"":$"新经济报表 ({unread}) · {ReportRange(latest)}\n点击阅读 · 与上期资源收支分别统计";

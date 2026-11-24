@@ -18,15 +18,15 @@ public partial class MapDrawer : PanelContainer
     public void Setup(string title,Side side)
     {
         _side=side;ZIndex=20;MouseFilter=MouseFilterEnum.Stop;
-        var style=new StyleBoxFlat { BgColor=new Color(.055f,.10f,.11f,.96f),BorderColor=new Color("566354"),
-            ContentMarginLeft=18,ContentMarginRight=18,ContentMarginTop=12,ContentMarginBottom=16 };
-        style.SetBorderWidthAll(1);style.SetCornerRadiusAll(0);AddThemeStyleboxOverride("panel",style);
+        var style=UiSkin.Box("panel");style.ContentMarginLeft=20;style.ContentMarginRight=20;style.ContentMarginTop=16;style.ContentMarginBottom=18;
+        AddThemeStyleboxOverride("panel",style);
         var column=new VBoxContainer();column.AddThemeConstantOverride("separation",12);AddChild(column);
         var header=new HBoxContainer();column.AddChild(header);
-        var label=new Label { Text=title,SizeFlagsHorizontal=SizeFlags.ExpandFill };
-        _title=label;
-        label.AddThemeFontSizeOverride("font_size",20);label.AddThemeColorOverride("font_color",new Color("ddcf9d"));header.AddChild(label);
-        CloseButton=new Button { Text="收起 ×",FocusMode=FocusModeEnum.None };CloseButton.Pressed+=()=>SetOpen(false);header.AddChild(CloseButton);
+        var band=UiSkin.TitleBand(title,out var label);band.SizeFlagsHorizontal=SizeFlags.ExpandFill;
+        _title=label;header.AddChild(band);
+        CloseButton=new Button { Text="",TooltipText="收起",FocusMode=FocusModeEnum.None,CustomMinimumSize=new Vector2(40,36) };
+        UiSkin.Style(CloseButton,"close");CloseButton.AddThemeConstantOverride("icon_max_width",18);
+        CloseButton.Pressed+=()=>SetOpen(false);header.AddChild(CloseButton);
         Body=new VBoxContainer { SizeFlagsVertical=SizeFlags.ExpandFill };column.AddChild(Body);
         SetOpen(false,false);
     }

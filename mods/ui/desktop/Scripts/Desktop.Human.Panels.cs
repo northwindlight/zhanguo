@@ -66,17 +66,17 @@ public partial class Desktop
             default:RenderHumanActions(_humanPage);break;
         }
         LayoutHuman();
-        RefreshHumanButtons();
+        RefreshHumanButtons();RefreshNavSelection();
     }
     private Label HumanText(string text,bool heading=false,string color="e5e5d2")
     {
         var label=new Label { Text=text,AutowrapMode=TextServer.AutowrapMode.WordSmart,SizeFlagsHorizontal=SizeFlags.ExpandFill };
-        label.AddThemeColorOverride("font_color",new Color(color));if(heading)label.AddThemeFontSizeOverride("font_size",20);
+        label.AddThemeColorOverride("font_color",UiSkin.Text(color));if(heading)UiSkin.Heading(label);
         _humanContent.AddChild(label);return label;
     }
     private Button HumanButton(string text,Action action,string icon="",bool write=false)
     {
-        var button=Button(_humanContent,text,action);HumanArt.Style(button,icon);
+        var button=Button(_humanContent,text,action);HumanArt.Style(button,icon,write&&icon is "build" or "army" or "check"?"primary":"");
         if(write){_humanWrites.Add(button);button.Disabled=!HumanCanWrite;}return button;
     }
     private static string Quantity(JsonNode? n)=>NationLedger.Quantity(F(n));
@@ -94,9 +94,31 @@ public partial class Desktop
         var tile=_map.Frame?["tiles"]?.AsArray().FirstOrDefault(t=>I(t!["position"]![0])==_humanCell.X&&I(t["position"]![1])==_humanCell.Y)?.AsObject();
         if(tile==null){HumanText("点击地图上的地块查看详情。",true);return;}
         string state=S(tile["visibility"]);
-        HumanText($"{(state=="unknown"?"未探明地块":S(tile["name"]) is {Length:>0} n?n:S(tile["terrain_name"]))}  ({_humanCell.X}, {_humanCell.Y})",true);
+        bool own=state!="unknown"&&state!="memory"&&S(tile["owner"])==HumanActor;
+        // 标题行即操作入口：本国地块在地名右侧直接给「建设／征兵」。
+        var head=new HBoxContainer { Name="TileHeader" };head.AddThemeConstantOverride("separation",6);_humanContent.AddChild(head);
+        var name=new Label { Text=$"{(state=="unknown"?"未探明地块":S(tile["name"]) is {Length:>0} n?n:S(tile["terrain_name"]))}  ({_humanCell.X}, {_humanCell.Y})",
+            SizeFlagsHorizontal=SizeFlags.ExpandFill,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,VerticalAlignment=VerticalAlignment.Center };
+        UiSkin.Heading(name,22);head.AddChild(name);
+        if(own)
+        {
+            var build=Button(head,"建设",()=>OpenHumanPage("build"));build.Name="TileBuild";UiSkin.Style(build,"build","primary");
+            build.TooltipText="在本格建设：查看候选建筑、价格与条件";
+            bool canRecruit=HasRecruitFacility(tile);
+            var recruit=Button(head,"征兵",()=>OpenHumanPage("recruit"));recruit.Name="TileRecruit";UiSkin.Style(recruit,"recruit",canRecruit?"primary":"");
+            recruit.Disabled=!canRecruit;recruit.TooltipText=canRecruit?"在本格兵营／军屯征召":"征兵需要本格已落成的兵营／军屯";
+        }
+        var facts=new HBoxContainer();facts.AddThemeConstantOverride("separation",6);_humanContent.AddChild(facts);
+        if(state!="unknown"&&S(tile["terrain"])!=""&&ResourceLoader.Exists($"res://assets/map-ui-v1/{MapIcons.Key(S(tile["terrain"]))}.svg")&&MapIcons.Texture(S(tile["terrain"])) is Texture2D terrain)
+            facts.AddChild(new TextureRect { Texture=terrain,CustomMinimumSize=new Vector2(20,20),ExpandMode=TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode=TextureRect.StretchModeEnum.KeepAspectCentered,SizeFlagsVertical=SizeFlags.ShrinkCenter });
+        if(state!="unknown")
+        {
+            var owner=new Label { Name="HumanOwnership",Text=$"{tile["terrain_name"]} · {DesktopScene.OwnershipLabel(_map.Frame!,tile)}",
+                AutowrapMode=TextServer.AutowrapMode.WordSmart,SizeFlagsHorizontal=SizeFlags.ExpandFill };
+            owner.AddThemeColorOverride("font_color",UiSkin.Paper);facts.AddChild(owner);
+        }
         HumanText(VisibilityText(tile),color:"a2b8ac");
-        if(state!="unknown")HumanText($"{tile["terrain_name"]} · {DesktopScene.OwnershipLabel(_map.Frame!,tile)}").Name="HumanOwnership";
         RenderHumanGarrison(tile);
         if(state!="unknown")
         {
@@ -110,9 +132,6 @@ public partial class Desktop
             else if(S(tile["owner"])==HumanActor)
             {
                 RenderHumanCapacities(tile);
-                HumanButton("在这里建设",()=>OpenHumanPage("build"),"build");
-                if(HasRecruitFacility(tile))HumanButton("在这里征兵",()=>OpenHumanPage("recruit"),"army");
-                else HumanText("征兵需要本格已落成的兵营／军屯。",color:"a2ad9d");
             }
         }
     }
@@ -155,7 +174,7 @@ public partial class Desktop
                     ButtonPressed=_selectedArmies.Contains(id) };
                 check.TooltipText=reason==""?"移动与攻击须分别选择目标":reason+"；原地攻击等例外仍由具体军令判断";
                 check.AddThemeColorOverride("font_color",new Color(reason==""?"d6e6c7":"a4aca5"));
-                check.AddThemeIconOverride("checked",HumanArt.Texture("checkbox-on"));check.AddThemeIconOverride("unchecked",HumanArt.Texture("checkbox-off"));
+                check.AddThemeIconOverride("checked",UiSkin.Texture("check-on"));check.AddThemeIconOverride("unchecked",UiSkin.Texture("check-off"));
                 check.Toggled+=on=>{ToggleArmy(id,on);SelectionChanged();};
                 check.AddThemeFontSizeOverride("font_size",16);
                 var soldierRow=new HBoxContainer();_humanContent.AddChild(soldierRow);

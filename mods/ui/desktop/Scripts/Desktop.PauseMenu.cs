@@ -23,12 +23,10 @@ public partial class Desktop
         var center=new CenterContainer { MouseFilter=MouseFilterEnum.Ignore };
         center.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);_pauseMenu.AddChild(center);
         _pauseCard=new PanelContainer { CustomMinimumSize=new Vector2(400,0) };center.AddChild(_pauseCard);
-        var style=new StyleBoxFlat { BgColor=new Color("1c2c29"),BorderColor=new Color("a5ac85"),
-            ContentMarginLeft=28,ContentMarginRight=28,ContentMarginTop=24,ContentMarginBottom=24 };
-        style.SetBorderWidthAll(2);_pauseCard.AddThemeStyleboxOverride("panel",style);
+        var style=UiSkin.Box("panel");style.ContentMarginLeft=32;style.ContentMarginRight=32;style.ContentMarginTop=26;style.ContentMarginBottom=28;
+        _pauseCard.AddThemeStyleboxOverride("panel",style);
         var box=new VBoxContainer();box.AddThemeConstantOverride("separation",16);_pauseCard.AddChild(box);
-        var title=new Label { Text="游戏菜单",HorizontalAlignment=HorizontalAlignment.Center };
-        title.AddThemeFontSizeOverride("font_size",28);box.AddChild(title);
+        var band=UiSkin.TitleBand("游戏菜单",out var title,28);title.HorizontalAlignment=HorizontalAlignment.Center;box.AddChild(band);
         _gameRulesLabel=new Label { Name="GameDistribution",Visible=false,AutowrapMode=TextServer.AutowrapMode.WordSmart,MaxLinesVisible=3 };
         _gameRulesLabel.AddThemeFontSizeOverride("font_size",14);box.AddChild(_gameRulesLabel);
         _pauseInfo=new Label { AutowrapMode=TextServer.AutowrapMode.WordSmart,CustomMinimumSize=new Vector2(344,80),

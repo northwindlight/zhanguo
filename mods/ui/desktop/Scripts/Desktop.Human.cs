@@ -53,27 +53,50 @@ public partial class Desktop
 
     private void BuildHumanControls()
     {
+        // 底部政务栏：左侧青铜框图标导航（经营 / 军事 / 邦交 / 国务四组），右侧朱印「结束回合」。
         _humanDock=new HBoxContainer { Visible=false,ZIndex=12,MouseFilter=MouseFilterEnum.Ignore };
         _humanDock.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomWide);
-        _humanDock.OffsetLeft=16;_humanDock.OffsetRight=-16;_humanDock.OffsetTop=-60;_humanDock.OffsetBottom=-12;
-        _humanDock.AddThemeConstantOverride("separation",5);AddChild(_humanDock);
-        foreach(var (key,title,icon) in new[]{("build","建设","build"),("army","军队","army"),("market","市场","market"),
-            ("bank","银行","market"),("diplomacy","外交","diplomacy"),("alliance","联盟","alliance"),("intel","邮箱","intelligence"),("nation","国家","nation"),("end","结束回合","end-turn")})
+        _humanDock.OffsetLeft=16;_humanDock.OffsetRight=-16;_humanDock.OffsetTop=-80;_humanDock.OffsetBottom=-8;
+        _humanDock.AddThemeConstantOverride("separation",12);AddChild(_humanDock);
+        var navPanel=new PanelContainer { Name="HumanNavPanel",MouseFilter=MouseFilterEnum.Stop };
+        var navStyle=UiSkin.Box("dock");navStyle.ContentMarginTop=9;navStyle.ContentMarginBottom=6;navStyle.ContentMarginLeft=14;navStyle.ContentMarginRight=14;
+        navPanel.AddThemeStyleboxOverride("panel",navStyle);_humanDock.AddChild(navPanel);
+        var nav=new HBoxContainer();nav.AddThemeConstantOverride("separation",4);navPanel.AddChild(nav);
+        int hotkey=1;
+        foreach(var group in new[]{
+            new[]{("build","建设","build","在选中的本国地块建设、征兵与管理生产"),("army","军队","army","全国军队、驻地与征募地点总览")},
+            new[]{("market","市场","market","即时买卖与自动交易"),("bank","银行","bank","授信、利率与贷款")},
+            new[]{("diplomacy","外交","diplomacy","书信、赠礼、保障、宣战与议和"),("alliance","联盟","alliance","创建、加入联盟与议案投票"),("intel","邮箱","intelligence","来信、经济报表与情报")},
+            new[]{("nation","国家","nation","国库、电力、生产预演与操作记录")}})
         {
-            string page=key;
-            var button=Button(_humanDock,title,()=>{if(page=="end")HumanEndTurn();else OpenHumanPage(page);});
-            button.SizeFlagsHorizontal=SizeFlags.ExpandFill;button.CustomMinimumSize=new Vector2(0,44);
-            HumanArt.Style(button,icon);button.AddThemeFontSizeOverride("font_size",16);_humanNav[key]=button;
-            if(key=="end")
+            if(nav.GetChildCount()>0)nav.AddChild(new VSeparator { CustomMinimumSize=new Vector2(10,0) });
+            foreach(var (key,title,icon,hint) in group)
             {
-                // The one action that ends the turn gets more width, the highlighted frame and gold text.
-                _humanDock.AddChild(new Control { CustomMinimumSize=new Vector2(10,0),MouseFilter=MouseFilterEnum.Ignore });_humanDock.MoveChild(button,-1);
-                button.SizeFlagsStretchRatio=1.5f;button.AddThemeStyleboxOverride("normal",HumanArt.Box("button-selected"));
-                button.AddThemeColorOverride("font_color",new Color("f0d58a"));button.AddThemeColorOverride("font_hover_color",new Color("fff0b8"));
-                button.AddThemeFontSizeOverride("font_size",18);
+                string page=key;int number=hotkey++;
+                var button=Button(nav,title,()=>OpenHumanPage(page));
+                UiSkin.Style(button,icon,"nav");button.Name="HumanNav_"+key;
+                button.VerticalIconAlignment=VerticalAlignment.Top;button.IconAlignment=HorizontalAlignment.Center;
+                button.CustomMinimumSize=new Vector2(66,56);button.AddThemeFontSizeOverride("font_size",14);
+                button.AddThemeConstantOverride("h_separation",1);button.TooltipText=$"{title} · {hint}\n快捷键 {number}";
+                foreach(var state in new[]{"normal","hover","pressed","hover_pressed","disabled","focus"})
+                {
+                    var box=(StyleBoxTexture)button.GetThemeStylebox(state).Duplicate();box.ContentMarginTop=5;box.ContentMarginBottom=3;box.ContentMarginLeft=4;box.ContentMarginRight=4;
+                    button.AddThemeStyleboxOverride(state,box);
+                }
+                var badge=new Label { Name="Badge",Visible=false,HorizontalAlignment=HorizontalAlignment.Center,MouseFilter=MouseFilterEnum.Ignore };
+                badge.AddThemeFontSizeOverride("font_size",12);badge.AddThemeColorOverride("font_color",UiSkin.Paper);
+                var dot=new StyleBoxFlat { BgColor=UiSkin.LacquerLight,BorderColor=UiSkin.BronzeLight,ContentMarginLeft=5,ContentMarginRight=5 };
+                dot.SetBorderWidthAll(1);dot.SetCornerRadiusAll(9);badge.AddThemeStyleboxOverride("normal",dot);
+                badge.SetAnchorsAndOffsetsPreset(LayoutPreset.TopRight);badge.OffsetLeft=-24;badge.OffsetTop=2;badge.OffsetRight=-3;badge.OffsetBottom=20;
+                button.AddChild(badge);_humanNav[key]=button;
             }
-            if(key is "bank" or "intel")button.Icon=MapIcons.Texture(key=="bank"?"bank":"mail");
         }
+        _humanDock.AddChild(new Control { SizeFlagsHorizontal=SizeFlags.ExpandFill,MouseFilter=MouseFilterEnum.Ignore });
+        var end=Button(_humanDock,"结束回合",HumanEndTurn);end.Name="HumanNav_end";
+        UiSkin.Style(end,"end-turn","seal");end.AddThemeConstantOverride("icon_max_width",36);end.AddThemeConstantOverride("h_separation",10);
+        end.AddThemeFontOverride("font",UiSkin.Brush);end.AddThemeFontSizeOverride("font_size",28);
+        end.CustomMinimumSize=new Vector2(206,64);end.SizeFlagsVertical=SizeFlags.ShrinkEnd;
+        end.TooltipText="结束本国回合：未处理的提议将被拒绝，开放投票记为反对。";_humanNav["end"]=end;
         _humanDrawer=Drawer("本国政务",MapDrawer.Side.Right);
         _humanDrawer.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));
         _targetSummary=new Label { Visible=false,MaxLinesVisible=4,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("a9cddd") };
@@ -93,10 +116,10 @@ public partial class Desktop
         _humanConfirm=new ConfirmationDialog { Title="确认操作",DialogText="",MinSize=new Vector2I(460,180),OkButtonText="确认",CancelButtonText="返回",Theme=Theme,DialogAutowrap=true };
         AddChild(_humanConfirm);_humanConfirm.Confirmed+=RunHumanConfirmation;
         _humanConfirm.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));
-        HumanArt.Style(_humanConfirm.GetOkButton(),"check");HumanArt.Style(_humanConfirm.GetCancelButton());
+        HumanArt.Style(_humanConfirm.GetOkButton(),"check","primary");HumanArt.Style(_humanConfirm.GetCancelButton(),"close");
         BuildHumanOutliner();
         BuildReportNotice();
-        _humanDrawer.CloseButton.Pressed+=()=>LayoutHuman();
+        _humanDrawer.CloseButton.Pressed+=()=>{LayoutHuman();RefreshNavSelection();};
         BuildHumanExit();
         _map.HumanTargetHovered=target=>
         {
@@ -135,8 +158,8 @@ public partial class Desktop
         _desktopTitle.Text="战国 · "+NationLabel(HumanActor);
         _menuQuit.Text="退出游戏…";_menuContinue.Text="继续操作 · Esc";
         _humanDock.Visible=true;_observerDock?.Hide();_mapHint?.Hide();_bubbles.HideAll();_step.Visible=false;
-        _humanNav["diplomacy"].Text="外交"+Badge(state["pending_end"]?["offers"]?.AsArray().Count??0);
-        _humanNav["alliance"].Text="联盟"+Badge(state["pending_end"]?["votes"]?.AsArray().Count??0);
+        SetNavBadge("diplomacy",state["pending_end"]?["offers"]?.AsArray().Count??0);
+        SetNavBadge("alliance",state["pending_end"]?["votes"]?.AsArray().Count??0);
         RefreshMailbox();
         if(state["production_queue"] is JsonObject queue)
             _map.SetPendingProduction(queue["construction"] as JsonArray,queue["recruitment"] as JsonArray);
@@ -157,6 +180,21 @@ public partial class Desktop
         RefreshHumanButtons();
     }
     private static string Badge(int count)=>count>0?$" ({count})":"";
+    private void SetNavBadge(string key,int count)
+    {
+        if(!_humanNav.TryGetValue(key,out var button)||button.GetNodeOrNull<Label>("Badge") is not Label badge)return;
+        badge.Visible=count>0;badge.Text=count>99?"99+":count.ToString();
+        button.TooltipText=button.TooltipText.Split("\n未处理")[0]+(count>0?$"\n未处理 {count} 项":"");
+    }
+    /// <summary>底栏高亮当前打开的页面。</summary>
+    private void RefreshNavSelection()
+    {
+        if(_humanNav.Count==0)return;
+        string current=!_humanDrawer.IsOpen&&_humanPage!="army"?"":_humanPage switch {
+            "build" or "recruit" or "production" or "demolish"=>"build","army" or "selected-armies" or "army-unit"=>"army",
+            "bank" or "finance"=>"bank",_=>_humanPage };
+        foreach(var (key,button) in _humanNav)if(key!="end")UiSkin.Selected(button,key==current);
+    }
     private IEnumerable<JsonNode> OwnArmies=>(_humanState?["facts"]?["army"]?.AsArray()??new JsonArray()).Where(u=>S(u!["owner"])==HumanActor&&F(u["hp"])>0).Select(u=>u!);
     private void RefreshHumanButtons()
     {

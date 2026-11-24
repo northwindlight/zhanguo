@@ -22,12 +22,13 @@ public partial class Desktop
     private void BuildHumanOutliner()
     {
         _outliner=new PanelContainer { Name="HumanOutliner",Visible=false,ZIndex=21 };
-        _outliner.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));AddChild(_outliner);
+        var outlinerStyle=UiSkin.Box("panel",14);outlinerStyle.ContentMarginTop=16;outlinerStyle.ContentMarginBottom=16;
+        _outliner.AddThemeStyleboxOverride("panel",outlinerStyle);AddChild(_outliner);
         var column=new VBoxContainer();column.AddThemeConstantOverride("separation",6);_outliner.AddChild(column);
         var tabs=new HBoxContainer();column.AddChild(tabs);
         _outlinerLand=Button(tabs,"地块",()=>OpenHumanOutliner(false));_outlinerLand.Name="OutlinerLand";
         _outlinerArmy=Button(tabs,"军队",()=>OpenHumanOutliner(true));_outlinerArmy.Name="OutlinerArmy";
-        foreach(var b in new[]{_outlinerLand,_outlinerArmy}){b.SizeFlagsHorizontal=SizeFlags.ExpandFill;HumanArt.Style(b);b.AddThemeFontSizeOverride("font_size",16);}
+        foreach(var b in new[]{_outlinerLand,_outlinerArmy}){b.SizeFlagsHorizontal=SizeFlags.ExpandFill;b.ToggleMode=true;HumanArt.Style(b,b==_outlinerLand?"tile":"army");b.AddThemeFontSizeOverride("font_size",16);}
         _outlinerFold=Button(tabs,"−",()=>
         {
             if(Size.X<1500&&_humanDrawer.IsOpen){CloseDrawers();_outlinerCollapsed=false;}
@@ -39,9 +40,9 @@ public partial class Desktop
         _outlinerBody=new VBoxContainer { SizeFlagsVertical=SizeFlags.ExpandFill };column.AddChild(_outlinerBody);
         _outlinerSearch=new LineEdit { Name="OutlinerSearch",PlaceholderText="搜索名称、坐标、建筑",ClearButtonEnabled=true };_outlinerBody.AddChild(_outlinerSearch);
         _outlinerSearch.TextChanged+=text=>{if(_outlinerArmies)_armySearch=text;else _landSearch=text;RenderOutlinerRows();};
-        var filter=Button(_outlinerBody,"筛选 ▾",()=>{_outlinerFilters.Visible=!_outlinerFilters.Visible;LayoutHumanOutliner();});HumanArt.Style(filter);filter.Name="OutlinerFilterToggle";
+        var filter=Button(_outlinerBody,"筛选",()=>{_outlinerFilters.Visible=!_outlinerFilters.Visible;LayoutHumanOutliner();});HumanArt.Style(filter,"filter");filter.Name="OutlinerFilterToggle";
         _outlinerFilters=new VBoxContainer { Visible=false };_outlinerBody.AddChild(_outlinerFilters);
-        _outlinerCount=new Label { Modulate=new Color("b5c7aa") };_outlinerCount.AddThemeFontSizeOverride("font_size",14);_outlinerBody.AddChild(_outlinerCount);
+        _outlinerCount=new Label { Modulate=UiSkin.PaperMuted };_outlinerCount.AddThemeFontSizeOverride("font_size",14);_outlinerBody.AddChild(_outlinerCount);
         _outlinerScroll=new ScrollContainer { SizeFlagsVertical=SizeFlags.ExpandFill,HorizontalScrollMode=ScrollContainer.ScrollMode.Disabled };_outlinerBody.AddChild(_outlinerScroll);
         _outlinerList=new VBoxContainer { SizeFlagsHorizontal=SizeFlags.ExpandFill };_outlinerList.AddThemeConstantOverride("separation",5);_outlinerScroll.AddChild(_outlinerList);
     }
@@ -51,7 +52,7 @@ public partial class Desktop
         if(armies)_lastOperationPage="army";
         SaveHumanDraft();SaveMarketDraft();CancelHumanTarget();CloseDrawers();_humanPage=armies?"army":"land";_outlinerArmies=armies;_outlinerCollapsed=false;
         _outlinerSearch.Text=armies?_armySearch:_landSearch;_outlinerScroll.ScrollVertical=0;
-        RenderHumanOutliner();
+        RenderHumanOutliner();RefreshNavSelection();
     }
     private void LayoutHumanOutliner()
     {
@@ -226,7 +227,7 @@ public partial class Desktop
         var tint=new Color(healing?"e8c87e":"8cddca");
         var badge=new PanelContainer { Name="OutlinerMarch_"+I(order["aid"]),SizeFlagsVertical=SizeFlags.ShrinkCenter,
             MouseFilter=MouseFilterEnum.Pass,TooltipText=$"持续军令 · 剩余 {nodes.Count} 个节点\n下个目标：{next}\n"+(S(order["reason"]) is {Length:>0} reason?reason:"按路线逐期执行") };
-        badge.AddThemeStyleboxOverride("panel",new StyleBoxFlat { BgColor=new Color("18352e"),BorderColor=tint,BorderWidthBottom=1,
+        badge.AddThemeStyleboxOverride("panel",new StyleBoxFlat { BgColor=new Color("2a1d12"),BorderColor=tint,BorderWidthBottom=1,
             ContentMarginLeft=3,ContentMarginRight=3,ContentMarginTop=2,ContentMarginBottom=2 });
         line.AddChild(badge);
         var text=new Label { Text=healing?"回血":"路线 "+nodes.Count,Modulate=tint,MouseFilter=MouseFilterEnum.Ignore };
@@ -235,11 +236,12 @@ public partial class Desktop
     private void AddOutlinerRow(Vector2I p,string title,string detail,IEnumerable<Texture2D> textures,Action action)
     {
         var button=new Button { Name=$"Outliner_{p.X}_{p.Y}",ToggleMode=true,ButtonPressed=_outlinerArmies?OwnArmies.Any(u=>I(u["x"])==p.X&&I(u["y"])==p.Y&&_selectedArmies.Contains(I(u["id"]))):_humanCell==p,CustomMinimumSize=new Vector2(0,94),SizeFlagsHorizontal=SizeFlags.ExpandFill,TooltipText=title+"\n"+detail+(_outlinerArmies?"\n点击全选／取消本组；下方可逐军勾选":"\n点击定位并操作驻地") };
-        HumanArt.Style(button);_outlinerList.AddChild(button);_outlinerRows[p]=button;button.Pressed+=action;
+        HumanArt.Style(button);button.AddThemeStyleboxOverride("pressed",UiSkin.Box("button-selected"));button.AddThemeStyleboxOverride("hover_pressed",UiSkin.Box("button-selected"));
+        _outlinerList.AddChild(button);_outlinerRows[p]=button;button.Pressed+=action;
         var margin=new MarginContainer { MouseFilter=MouseFilterEnum.Ignore };margin.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         margin.OffsetLeft=6;margin.OffsetRight=-6;margin.OffsetTop=5;margin.OffsetBottom=-5;button.AddChild(margin);
         var box=new VBoxContainer { MouseFilter=MouseFilterEnum.Ignore };margin.AddChild(box);
-        var name=new Label { Text=title,MouseFilter=MouseFilterEnum.Ignore,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };name.AddThemeFontSizeOverride("font_size",16);box.AddChild(name);
+        var name=new Label { Text=title,MouseFilter=MouseFilterEnum.Ignore,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };name.AddThemeFontSizeOverride("font_size",16);name.AddThemeFontOverride("font",UiSkin.Bold);name.AddThemeColorOverride("font_color",UiSkin.BronzeLight);box.AddChild(name);
         var row=new HBoxContainer { MouseFilter=MouseFilterEnum.Ignore };box.AddChild(row);
         foreach(var texture in textures)row.AddChild(new TextureRect { Texture=texture,CustomMinimumSize=new Vector2(24,28),ExpandMode=TextureRect.ExpandModeEnum.IgnoreSize,StretchMode=TextureRect.StretchModeEnum.KeepAspectCentered,MouseFilter=MouseFilterEnum.Ignore });
         var info=new Label { Text=detail,MouseFilter=MouseFilterEnum.Ignore,SizeFlagsHorizontal=SizeFlags.ExpandFill,AutowrapMode=TextServer.AutowrapMode.WordSmart };info.AddThemeFontSizeOverride("font_size",14);row.AddChild(info);

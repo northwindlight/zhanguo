@@ -13,7 +13,7 @@ public partial class Desktop
         ClearHumanChildren(_market);
         foreach(var row in frame["market"]!.AsArray())
         {
-            var panel=new PanelContainer();panel.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));_market.AddChild(panel);
+            var panel=new PanelContainer();panel.AddThemeStyleboxOverride("panel",UiSkin.Box("card"));_market.AddChild(panel);
             var line=new HBoxContainer();line.AddThemeConstantOverride("separation",14);panel.AddChild(line);
             line.AddChild(new TextureRect { Texture=RtsArt.Resource(S(row!["id"])),CustomMinimumSize=new Vector2(42,42),ExpandMode=TextureRect.ExpandModeEnum.IgnoreSize,StretchMode=TextureRect.StretchModeEnum.KeepAspectCentered });
             var info=new VBoxContainer { SizeFlagsHorizontal=SizeFlags.ExpandFill };line.AddChild(info);

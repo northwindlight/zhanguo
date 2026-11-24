@@ -68,28 +68,7 @@ public partial class Desktop : Control
         catch(Exception e){GD.PrintErr(e.Message);GetTree().Quit(3);return;}
         for(int i=0;i<args.Length-1;i++)if(args[i]=="--portable-check")
         { _portableCheck=true;_=PortableCheck(args[i+1]);return; }
-        var theme=PixelTheme.Create();
-        Theme = theme;
-        foreach (string type in new[] { "Button", "OptionButton", "LineEdit", "PanelContainer", "TabContainer" })
-        {
-            var style = new StyleBoxFlat { BgColor = new Color("243332"), BorderColor = new Color("4d5c4c"),
-                ContentMarginLeft = 12, ContentMarginRight = 12, ContentMarginTop = 8, ContentMarginBottom = 8 };
-            style.SetBorderWidthAll(2);
-            style.SetCornerRadiusAll(0);
-            bool field=type is "Button" or "OptionButton" or "LineEdit";
-            theme.SetStylebox(field?"normal":"panel", type, style);
-            if(field)
-            {
-                var hover=(StyleBoxFlat)style.Duplicate();hover.BgColor=new Color("354b46");hover.BorderColor=new Color("a5ac85");
-                theme.SetStylebox("hover",type,hover);
-                var pressed=(StyleBoxFlat)style.Duplicate();pressed.BgColor=new Color("162723");pressed.BorderColor=new Color("b6c597");
-                theme.SetStylebox("pressed",type,pressed);
-                var disabled=(StyleBoxFlat)style.Duplicate();disabled.BgColor=new Color("1c2927");
-                theme.SetStylebox("disabled",type,disabled);
-                theme.SetColor("font_color",type,new Color("e5e5d2"));
-                theme.SetColor("font_disabled_color",type,new Color("78837b"));
-            }
-        }
+        Theme=UiSkin.CreateTheme();
         _map=new WorldMap();_map.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);AddChild(_map);
         _map.SelectionChanged=tile=>{if(HumanMode){HumanTileSelected(tile);return;}ShowTile(tile);if(tile!=null){if(S(tile["owner"])!="")RefreshNationLedger(S(tile["owner"]));OpenDrawer(_details);}};
         _bubbles=new SpeechBubbles();_bubbles.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);_bubbles.ZIndex=8;AddChild(_bubbles);
@@ -121,9 +100,11 @@ public partial class Desktop : Control
         top.AddThemeConstantOverride("separation",12);AddChild(top);
         var title=new Label { Text="战国 · 观天下",MouseFilter=MouseFilterEnum.Ignore };
         _desktopTitle=title;
-        title.AddThemeFontSizeOverride("font_size",24);title.AddThemeColorOverride("font_color",new Color("e4d8ae"));top.AddChild(title);
+        title.AddThemeFontOverride("font",UiSkin.Brush);title.AddThemeFontSizeOverride("font_size",32);title.AddThemeColorOverride("font_color",UiSkin.BronzeLight);
+        title.AddThemeColorOverride("font_outline_color",UiSkin.InkDeep);title.AddThemeConstantOverride("outline_size",6);top.AddChild(title);
 
-        _status=new Label { Text="正在创建离线八国世界…",MouseFilter=MouseFilterEnum.Ignore,SizeFlagsHorizontal=SizeFlags.ExpandFill,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };top.AddChild(_status);
+        _status=new Label { Text="正在创建离线八国世界…",MouseFilter=MouseFilterEnum.Ignore,SizeFlagsHorizontal=SizeFlags.ExpandFill,TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis };
+        _status.AddThemeColorOverride("font_outline_color",UiSkin.InkDeep);_status.AddThemeConstantOverride("outline_size",5);top.AddChild(_status);
         BuildPlaybackControls(top);
         _play=Button(top,"继续",TogglePlayback);
         _step=Button(top,"下一回合",StepPlayback);
@@ -141,6 +122,7 @@ public partial class Desktop : Control
         _chronicleButton=Button(dock,"纪事",()=>ToggleDrawer(_chronicle));
         var hint=new Label { Text="F 总览 · 空格 暂停/继续 · Esc 菜单 · 滚轮缩放 / 右键拖动",MouseFilter=MouseFilterEnum.Ignore,ZIndex=5,
             HorizontalAlignment=HorizontalAlignment.Right,Modulate=new Color("c0c9b2") };
+        hint.AddThemeColorOverride("font_outline_color",UiSkin.InkDeep);hint.AddThemeConstantOverride("outline_size",4);
         hint.SetAnchorsAndOffsetsPreset(LayoutPreset.BottomRight);hint.OffsetLeft=-660;hint.AddThemeFontSizeOverride("font_size",14);hint.OffsetRight=-18;hint.OffsetTop=-44;hint.OffsetBottom=-18;AddChild(hint);
         _mapHint=hint;BuildHumanControls();
         BuildMapTools();Resized+=LayoutDrawers;LayoutDrawers();
@@ -620,7 +602,7 @@ public partial class Desktop : Control
                 save=_savePath,artwork=_map.ArtworkMode,terrain_builds=_map.TerrainBuilds,static_draws=_map.ArtworkPasses,
                 surfaces=_map.SurfaceCount,structures=_map.StructureCount,source_buildings=expected,
                 initial_armies=_initialArmies,residents=_map.Residents,potential_guards=_map.Guards,region_nodes=_map.RegionNodes,
-                bubble_segments=_bubbles.SegmentsShown,readable_font=Theme?.DefaultFont is FontFile,pixel_font=PixelTheme.FontPath,
+                bubble_segments=_bubbles.SegmentsShown,readable_font=Theme?.DefaultFont is Font,pixel_font=PixelTheme.FontPath,
                 activity_events=_activitySeen,
                 action_batches=_actionBatches,settlement_batches=_settlementBatches,pause_menu_checked=_pauseMenuChecked,
                 action_marches=_actionMarches,settlement_marches=_settlementMarches,
@@ -653,6 +635,12 @@ public partial class Desktop : Control
         if(_pauseMenu.Visible)return;
         if(key.Keycode==Key.F){_map.Fit();CloseDrawers();}
         if(key.Keycode==Key.Space && !_closing)TogglePlayback();
+        // 真人模式：数字键 1–8 打开底栏对应政务页。
+        if(HumanMode&&!_closing&&key.Keycode>=Key.Key1&&key.Keycode<=Key.Key8&&!key.CtrlPressed&&!key.AltPressed)
+        {
+            string page=new[]{"build","army","market","bank","diplomacy","alliance","intel","nation"}[key.Keycode-Key.Key1];
+            OpenHumanPage(page);GetViewport().SetInputAsHandled();
+        }
     }
     public override void _Notification(int what)
     {

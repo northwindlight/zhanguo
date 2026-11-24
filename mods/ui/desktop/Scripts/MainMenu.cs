@@ -76,28 +76,38 @@ public partial class MainMenu : Control
         StartRequested = start;
     }
 
+    private ColorRect? _shade;
     public override void _Ready()
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        var back = new ColorRect { Color = new Color(.043f, .075f, .08f) };
+        // 背景：原创山水落日（assets/ui-lacquer/menu-landscape.svg）；进入子页面时压暗，保证表单可读。
+        var back = new ColorRect { Color = UiSkin.InkDeep };
         back.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); AddChild(back);
+        var landscape = new TextureRect { Texture=UiSkin.Texture("menu-landscape"),ExpandMode=TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode=TextureRect.StretchModeEnum.KeepAspectCovered,MouseFilter=MouseFilterEnum.Ignore };
+        landscape.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); AddChild(landscape);
+        _shade = new ColorRect { Color = new Color(UiSkin.InkDeep,.84f),MouseFilter=MouseFilterEnum.Ignore,Visible=false };
+        _shade.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect); AddChild(_shade);
         var center = new Control();
         center.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        center.OffsetLeft = 32; center.OffsetRight = -32; center.OffsetTop = 24; center.OffsetBottom = -24; AddChild(center);
-        var title = new Label { Text = "战 国", HorizontalAlignment = HorizontalAlignment.Center };
-        title.SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide); title.OffsetBottom=58;
-        title.AddThemeFontSizeOverride("font_size", 42);
-        title.AddThemeColorOverride("font_color", new Color("e8d9a8"));
+        center.OffsetLeft = 32; center.OffsetRight = -32; center.OffsetTop = 18; center.OffsetBottom = -24; AddChild(center);
+        var title = new Label { Text = "战国", HorizontalAlignment = HorizontalAlignment.Center };
+        title.SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide); title.OffsetTop=-6; title.OffsetBottom=70;
+        title.AddThemeFontOverride("font", UiSkin.Brush); title.AddThemeFontSizeOverride("font_size", 64);
+        title.AddThemeColorOverride("font_color", UiSkin.BronzeLight);
+        title.AddThemeColorOverride("font_outline_color", UiSkin.InkDeep); title.AddThemeConstantOverride("outline_size", 10);
         center.AddChild(title);
-        var subtitle = new Label { Text = "单机执政 · 观天下", HorizontalAlignment = HorizontalAlignment.Center,
-            Modulate = new Color("a4b09c") };
-        subtitle.SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide); subtitle.OffsetTop=60; subtitle.OffsetBottom=88;
-        subtitle.AddThemeFontSizeOverride("font_size", 18); center.AddChild(subtitle);
+        var subtitle = new Label { Text = "单机执政 · 观天下", HorizontalAlignment = HorizontalAlignment.Center };
+        subtitle.SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide); subtitle.OffsetTop=70; subtitle.OffsetBottom=100;
+        subtitle.AddThemeFontOverride("font", UiSkin.Brush); subtitle.AddThemeColorOverride("font_color", UiSkin.Paper);
+        subtitle.AddThemeColorOverride("font_outline_color", UiSkin.InkDeep); subtitle.AddThemeConstantOverride("outline_size", 6);
+        subtitle.AddThemeFontSizeOverride("font_size", 22); center.AddChild(subtitle);
         string[] palette = { "9eb5cf", "e5a47c", "c69ddd", "91bd98", "e8cc83", "76bdbb", "d68c95", "ddd9af" };
-        var strip = new HBoxContainer(); strip.SetAnchorsAndOffsetsPreset(LayoutPreset.TopWide); strip.OffsetTop=98; strip.OffsetBottom=104; strip.AddThemeConstantOverride("separation", 4);
+        var strip = new HBoxContainer(); strip.SetAnchorsAndOffsetsPreset(LayoutPreset.CenterTop); strip.OffsetLeft=-260; strip.OffsetRight=260;
+        strip.OffsetTop=106; strip.OffsetBottom=110; strip.AddThemeConstantOverride("separation", 6);
         for (int i = 0; i < 8; i++)
         {
-            var cell = new ColorRect { Color = new Color(palette[i]), CustomMinimumSize = new Vector2(64, 6), SizeFlagsHorizontal = SizeFlags.ExpandFill };
+            var cell = new ColorRect { Color = new Color(palette[i]), CustomMinimumSize = new Vector2(24, 4), SizeFlagsHorizontal = SizeFlags.ExpandFill };
             strip.AddChild(cell);
         }
         center.AddChild(strip);
@@ -107,8 +117,8 @@ public partial class MainMenu : Control
 
         _home = Section(center);
         _home.SetAnchorsAndOffsetsPreset(LayoutPreset.Center);
-        _home.OffsetLeft=-220; _home.OffsetRight=220; _home.OffsetTop=-120; _home.OffsetBottom=210;
-        BigButton(_home, "玩家模式 · 亲自执政", OpenPlayerGame);
+        _home.OffsetLeft=-210; _home.OffsetRight=210; _home.OffsetTop=-110; _home.OffsetBottom=230;
+        UiSkin.Style(BigButton(_home, "玩家模式 · 亲自执政", OpenPlayerGame), "nation", "seal");
         BigButton(_home, "看海模式 · 观天下", OpenNewGame);
         BigButton(_home, "加载存档", () => { OpenPanel(_load, RefreshSaves); });
         BigButton(_home, "设置 · API 档案", () => { OpenPanel(_settings, RefreshProfiles); });
@@ -131,13 +141,14 @@ public partial class MainMenu : Control
     }
     private static Button BigButton(Control parent, string text, Action pressed)
     {
-        var button = new Button { Text = text, CustomMinimumSize = new Vector2(0, 46), FocusMode = FocusModeEnum.None };
-        button.AddThemeFontSizeOverride("font_size", 20);
+        var button = new Button { Text = text, CustomMinimumSize = new Vector2(0, 50), FocusMode = FocusModeEnum.None };
+        button.AddThemeFontOverride("font", UiSkin.Brush); button.AddThemeFontSizeOverride("font_size", 26);
         button.Pressed += pressed; parent.AddChild(button); return button;
     }
     private void OpenPanel(Control panel, Action? after = null)
     {
         foreach (var section in new[] { _home, _newGame, _load, _settings, _playerSetup }) section.Visible = section == panel;
+        if(_shade!=null)_shade.Visible = panel != _home;
         _hint.Text = "";
         if(panel==_newGame)foreach(var (box,draft) in _profilePickers)RefreshProfileOptions(box,draft);
         if(panel==_newGame||panel==_playerSetup)RefreshEditionControls(false);
@@ -243,8 +254,8 @@ public partial class MainMenu : Control
     {
         _nations.Add(draft);
         var card=new PanelContainer();
-        var cardStyle=new StyleBoxFlat { BgColor=new Color("1b2b2c"),ContentMarginLeft=12,ContentMarginRight=12,ContentMarginTop=10,ContentMarginBottom=10 };
-        cardStyle.SetCornerRadiusAll(0);card.AddThemeStyleboxOverride("panel",cardStyle);
+        var cardStyle=UiSkin.Box("card");cardStyle.ContentMarginLeft=12;cardStyle.ContentMarginRight=12;cardStyle.ContentMarginTop=10;cardStyle.ContentMarginBottom=10;
+        card.AddThemeStyleboxOverride("panel",cardStyle);
         var stack=new VBoxContainer();stack.AddThemeConstantOverride("separation",8);card.AddChild(stack);
         var row = new HBoxContainer(); stack.AddChild(row);
         row.AddThemeConstantOverride("separation", 8);

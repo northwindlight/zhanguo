@@ -22,7 +22,7 @@ public partial class Desktop
         if(_resourceTooltip==null)
         {
             _resourceTooltip=new PanelContainer { Name="ResourceBreakdown",ZIndex=80,MouseFilter=MouseFilterEnum.Ignore };
-            _resourceTooltip.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));AddChild(_resourceTooltip);
+            _resourceTooltip.AddThemeStyleboxOverride("panel",UiSkin.Box("tooltip"));AddChild(_resourceTooltip);
         }
         ClearHumanChildren(_resourceTooltip);
         var box=new VBoxContainer { MouseFilter=MouseFilterEnum.Ignore,CustomMinimumSize=new Vector2(340,0) };box.AddThemeConstantOverride("separation",7);_resourceTooltip.AddChild(box);

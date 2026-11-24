@@ -59,7 +59,7 @@ public partial class Desktop
             foreach(var item in rows)
             {
                 var row=item!.AsObject();bool complete=Yes(row["completed"]),available=Yes(row["available"]);
-                var panel=new PanelContainer();panel.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));_humanContent.AddChild(panel);
+                var panel=new PanelContainer();panel.AddThemeStyleboxOverride("panel",UiSkin.Box("card"));_humanContent.AddChild(panel);
                 var body=new HBoxContainer();panel.AddChild(body);
                 body.AddChild(new TextureRect { Texture=RtsArt.Building(S(row["kind"])),CustomMinimumSize=new Vector2(58,72),ExpandMode=TextureRect.ExpandModeEnum.IgnoreSize,StretchMode=TextureRect.StretchModeEnum.KeepAspectCentered });
                 var info=new VBoxContainer { SizeFlagsHorizontal=SizeFlags.ExpandFill };body.AddChild(info);

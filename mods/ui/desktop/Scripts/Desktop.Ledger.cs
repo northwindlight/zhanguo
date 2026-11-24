@@ -21,26 +21,25 @@ public partial class Desktop
     private static PanelContainer LedgerCard(Control parent,int z)
     {
         var panel=new PanelContainer { ZIndex=z,MouseFilter=MouseFilterEnum.Stop,Visible=false };
-        var style=new StyleBoxFlat { BgColor=new Color(.045f,.08f,.08f,.96f),BorderColor=new Color("63766a"),
-            ContentMarginLeft=14,ContentMarginRight=14,ContentMarginTop=12,ContentMarginBottom=12 };
-        style.SetBorderWidthAll(1);panel.AddThemeStyleboxOverride("panel",style);parent.AddChild(panel);return panel;
+        var style=UiSkin.Box("panel-glass");style.ContentMarginLeft=18;style.ContentMarginRight=18;style.ContentMarginTop=14;style.ContentMarginBottom=14;
+        panel.AddThemeStyleboxOverride("panel",style);parent.AddChild(panel);return panel;
     }
     private static Label LedgerLabel(string text,string color="e7e9db",bool right=false)
     {
         var label=new Label { Text=text,MouseFilter=MouseFilterEnum.Ignore,SizeFlagsHorizontal=SizeFlags.ExpandFill,
             HorizontalAlignment=right?HorizontalAlignment.Right:HorizontalAlignment.Left };
-        label.AddThemeColorOverride("font_color",new Color(color));return label;
+        label.AddThemeColorOverride("font_color",color=="e7e9db"?UiSkin.Paper:UiSkin.Text(color));return label;
     }
     private static void ClearLedgerRows(GridContainer grid)
     {
         foreach(Node child in grid.GetChildren()){grid.RemoveChild(child);child.QueueFree();}
     }
-    private static string DeltaColor(double value)=>value>0?"a2e4a6":value<0?"ff9891":"91a49b";
+    private static string DeltaColor(double value)=>value>0?"abd08a":value<0?"f08f76":"8c806b";
 
     private void BuildNationLedger()
     {
         _ledgerPanel=LedgerCard(this,6);var box=new VBoxContainer();box.AddThemeConstantOverride("separation",7);_ledgerPanel.AddChild(box);
-        _ledgerHeading=LedgerLabel("列国收支");_ledgerHeading.TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis;box.AddChild(_ledgerHeading);
+        _ledgerHeading=LedgerLabel("列国收支");_ledgerHeading.AddThemeFontOverride("font",UiSkin.Brush);_ledgerHeading.AddThemeColorOverride("font_color",new Color("fff6e0"));_ledgerHeading.AddThemeFontSizeOverride("font_size",24);_ledgerHeading.TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis;box.AddChild(_ledgerHeading);
         _ledgerPeriod=LedgerLabel("","a5b8ac");_ledgerPeriod.TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis;box.AddChild(_ledgerPeriod);
         _ledgerPowerBox=new VBoxContainer { MouseFilter=MouseFilterEnum.Stop };_ledgerPowerBox.AddThemeConstantOverride("separation",2);box.AddChild(_ledgerPowerBox);
         var powerRow=new HBoxContainer();_ledgerPowerBox.AddChild(powerRow);

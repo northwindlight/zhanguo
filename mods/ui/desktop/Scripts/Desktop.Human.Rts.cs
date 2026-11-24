@@ -65,7 +65,7 @@ public partial class Desktop
     {
         var header=new HBoxContainer();_humanContent.AddChild(header);
         var title=new Label { Text=$"{data["name"]}  ({_humanCell.X}, {_humanCell.Y})",SizeFlagsHorizontal=SizeFlags.ExpandFill };
-        title.AddThemeFontSizeOverride("font_size",20);header.AddChild(title);
+        title.TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis;UiSkin.Heading(title,22);header.AddChild(title);
         var locate=Button(header,"定位",()=>_map.SelectAndFocus(_humanCell));HumanArt.Style(locate,"pin");
         var sites=HumanFacts["building_sites"]!["sites"]!.AsArray();
         if(sites.Count>1)
@@ -74,22 +74,25 @@ public partial class Desktop
             foreach(var (step,text) in new[]{(-1,"←"),(1,"→")})
             {
                 int target=(index+step+sites.Count)%sites.Count;var p=sites[target]!["position"]!;var at=new Vector2I(I(p[0]),I(p[1]));
-                var button=Button(header,text,()=>RtsChangeCell(at));button.TooltipText=$"{(step<0?"上一":"下一")}本国地块 ({at.X}, {at.Y})";HumanArt.Style(button);
+                var button=Button(header,"",()=>RtsChangeCell(at));button.TooltipText=$"{(step<0?"上一":"下一")}本国地块 ({at.X}, {at.Y})";HumanArt.Style(button,step<0?"prev":"next");
             }
         }
         var tabs=new HBoxContainer();_humanContent.AddChild(tabs);
-        foreach(var (page,text,icon) in new[]{("build","建造","build"),("recruit","征兵","army"),("demolish","管理","disband"),("tile","地块","map")})
-        {string selected=page;var b=Button(tabs,text,()=>OpenHumanPage(selected));b.SizeFlagsHorizontal=SizeFlags.ExpandFill;HumanArt.Style(b,icon);b.Disabled=page==_humanPage;}
+        foreach(var (page,text,icon) in new[]{("build","建造","build"),("recruit","征兵","recruit"),("demolish","管理","manage"),("tile","地块","tile")})
+        {
+            string selected=page;var b=Button(tabs,text,()=>OpenHumanPage(selected));b.SizeFlagsHorizontal=SizeFlags.ExpandFill;HumanArt.Style(b,icon);b.Disabled=page==_humanPage;
+            if(b.Disabled){b.AddThemeStyleboxOverride("disabled",UiSkin.Box("button-selected"));b.AddThemeColorOverride("font_disabled_color",UiSkin.Gold);b.AddThemeColorOverride("icon_disabled_color",Colors.White);}
+        }
         if(data["terrain"] is JsonObject terrain)
         {
-            var ground=HumanText($"地形：{terrain["label"]} · "+(recruit?"征兵按兵种报价":$"建设地形惩罚 +{data["penalty"]}% 金币"),color:"dec58f");
+            var ground=HumanText($"地形：{terrain["label"]} · "+(recruit?"征兵按兵种报价":$"建设地形惩罚 +{data["penalty"]}% 金币"),color:"e2c27e");
             ground.Name="RtsTerrain";ground.AddThemeFontSizeOverride("font_size",15);
             ground.TooltipText="本格资源容量与建筑要求见各图标悬浮说明；建设的地形、工程院和国策加成按正式报价分步取整，征兵读取独立兵种报价。";
         }
         bool ordered=Yes(data["ordered"]);var construction=data["construction"]!.AsArray();
         string pending=string.Join("、",construction.Select(b=>HumanLabel(S(b!["kind"]))));
         HumanText((construction.Count>0?$"施工中：{pending} · ":"尚未施工 · ")+
-            (ordered?"本期剩余 0/1":"本期可建 1/1")+$" · 建筑位 {data["occupied"]}/{data["capacity"]}",color:ordered?"dfbc75":"a7d5aa");
+            (ordered?"本期剩余 0/1":"本期可建 1/1")+$" · 建筑位 {data["occupied"]}/{data["capacity"]}",color:ordered?"f0a060":"abd08a");
         if(!recruit)foreach(var item in data["demolitions"]!.AsArray().Where(b=>!Yes(b!["completed"])))
         {
             var row=item!.AsObject();string name=HumanLabel(S(row["kind"]));
@@ -212,7 +215,7 @@ public partial class Desktop
         if(_rtsTooltip==null)
         {
             _rtsTooltip=new PanelContainer { ZIndex=70,MouseFilter=MouseFilterEnum.Ignore,TextureFilter=TextureFilterEnum.Nearest };
-            _rtsTooltip.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));AddChild(_rtsTooltip);
+            _rtsTooltip.AddThemeStyleboxOverride("panel",UiSkin.Box("tooltip"));AddChild(_rtsTooltip);
             _rtsTooltipBody=new VBoxContainer { MouseFilter=MouseFilterEnum.Ignore };_rtsTooltipBody.AddThemeConstantOverride("separation",7);_rtsTooltip.AddChild(_rtsTooltipBody);
         }
         ClearHumanChildren(_rtsTooltipBody!);
