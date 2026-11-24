@@ -232,6 +232,9 @@
  "icon-warning": {
   "sha256": "7685e5507d00839130245e23539834e9cee6e43395a5dd2c914149a52c02e7a9"
  },
+ "window-close": {
+  "sha256": "99d93efe973ee498e87c50047235ebc7a321e098929a6beca0dee85035e38bf6"
+ },
  "title-seal": {
   "sha256": "4a909f0c90d924e92cf564550e6c6ee5d29e545494de5c593f1c6bbacc2d0c49"
  },

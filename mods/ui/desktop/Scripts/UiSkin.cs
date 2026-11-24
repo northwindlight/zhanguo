@@ -200,7 +200,7 @@ public static class UiSkin
         theme.SetStylebox("embedded_border","Window",border);theme.SetStylebox("embedded_unfocused_border","Window",border);
         theme.SetFont("title_font","Window",Brush);theme.SetFontSize("title_font_size","Window",22);
         theme.SetColor("title_color","Window",BronzeLight);theme.SetConstant("title_height","Window",30);
-        theme.SetIcon("close","Window",Icon("close"));theme.SetIcon("close_pressed","Window",Icon("close"));
+        theme.SetIcon("close","Window",Texture("window-close"));theme.SetIcon("close_pressed","Window",Texture("window-close"));
         foreach(string bar in new[]{"VScrollBar","HScrollBar"})
         {
             var track=new StyleBoxFlat { BgColor=new Color(0,0,0,.25f) };track.SetCornerRadiusAll(3);

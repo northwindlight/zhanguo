@@ -115,7 +115,9 @@ public partial class Desktop
         _humanDrawer.Body.AddChild(_humanReceipt);
         _humanConfirm=new ConfirmationDialog { Title="确认操作",DialogText="",MinSize=new Vector2I(460,180),OkButtonText="确认",CancelButtonText="返回",Theme=Theme,DialogAutowrap=true };
         AddChild(_humanConfirm);_humanConfirm.Confirmed+=RunHumanConfirmation;
-        _humanConfirm.AddThemeStyleboxOverride("panel",HumanArt.Box("panel"));
+        _humanConfirm.AddThemeStyleboxOverride("panel",new StyleBoxFlat { BgColor=UiSkin.Ink,ContentMarginLeft=18,ContentMarginRight=18,ContentMarginTop=14,ContentMarginBottom=14 });
+        _humanConfirm.AddThemeFontOverride("title_font",UiSkin.Brush);_humanConfirm.AddThemeFontSizeOverride("title_font_size",22);
+        _humanConfirm.AddThemeColorOverride("title_color",UiSkin.BronzeLight);
         HumanArt.Style(_humanConfirm.GetOkButton(),"check","primary");HumanArt.Style(_humanConfirm.GetCancelButton(),"close");
         BuildHumanOutliner();
         BuildReportNotice();

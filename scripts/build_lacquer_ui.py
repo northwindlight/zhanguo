@@ -248,6 +248,8 @@ ICONS = {
 for key, body in ICONS.items():
     add('icon-' + key, svg(48, 48, body))
 
+add('window-close', svg(20, 20, f'<path d="M5 5 L15 15 M15 5 L5 15" fill="none" stroke="{BRONZE_LT}" stroke-width="2.2" stroke-linecap="round"/>'))
+
 # 标题印章（主菜单）
 add('title-seal', svg(120, 120,
     f'<rect x="6" y="6" width="108" height="108" rx="6" fill="{LACQUER_LT}"/>'

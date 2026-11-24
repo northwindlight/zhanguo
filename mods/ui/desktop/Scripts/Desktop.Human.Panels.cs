@@ -115,11 +115,12 @@ public partial class Desktop
         if(state!="unknown")
         {
             var owner=new Label { Name="HumanOwnership",Text=$"{tile["terrain_name"]} · {DesktopScene.OwnershipLabel(_map.Frame!,tile)}",
-                AutowrapMode=TextServer.AutowrapMode.WordSmart,SizeFlagsHorizontal=SizeFlags.ExpandFill };
+                AutowrapMode=TextServer.AutowrapMode.WordSmart,SizeFlagsHorizontal=SizeFlags.ExpandFill,CustomMinimumSize=new Vector2(120,0) };
             owner.AddThemeColorOverride("font_color",UiSkin.Paper);facts.AddChild(owner);
         }
         // 视野口径与地形归属同行，省出首屏高度给驻军。
-        var sight=new Label { Text=VisibilityText(tile),AutowrapMode=TextServer.AutowrapMode.WordSmart,
+        var sight=new Label { Text=VisibilityText(tile),TooltipText=VisibilityText(tile),MouseFilter=Control.MouseFilterEnum.Pass,
+            AutowrapMode=state=="unknown"?TextServer.AutowrapMode.WordSmart:TextServer.AutowrapMode.Off,
             SizeFlagsHorizontal=state=="unknown"?SizeFlags.ExpandFill:SizeFlags.ShrinkEnd,HorizontalAlignment=state=="unknown"?HorizontalAlignment.Left:HorizontalAlignment.Right };
         sight.AddThemeColorOverride("font_color",UiSkin.PaperMuted);sight.AddThemeFontSizeOverride("font_size",14);facts.AddChild(sight);
         RenderHumanGarrison(tile);
