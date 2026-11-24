@@ -9,8 +9,9 @@ public static class PixelTheme
     {
         if((path??UiSkin.BodyFontPath)==UiSkin.BodyFontPath)
         {
-            var serif=new Theme{DefaultFont=UiSkin.Body,DefaultFontSize=size};
-            serif.SetConstant("line_spacing","Label",3);serif.SetConstant("line_separation","RichTextLabel",5);
+            // 宋体字面比像素字体高，账目档位按 0.8 缩放：大字 20→16、标准 16→13。
+            var serif=new Theme{DefaultFont=UiSkin.Body,DefaultFontSize=Mathf.RoundToInt(size*.8f)};
+            serif.SetConstant("line_spacing","Label",0);serif.SetConstant("line_separation","RichTextLabel",5);
             return serif;
         }
         var font=GD.Load<FontFile>(path);

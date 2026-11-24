@@ -66,7 +66,7 @@ public partial class WorldMap : Control
         if(_layout?.GeometryKey!=nextLayout.GeometryKey)_guardAnchors.Clear();
         var live=nextLayout.Regions.ToHashSet();foreach(var stale in _walks.Keys.Where(k=>!live.Contains(k)).ToArray())_walks.Remove(stale);
         Frame = frame;
-        _backdrop.Color=new Color(PlayerMode?"0e1c1c":"365b80");
+        _backdrop.Color=new Color(PlayerMode?"130e0a":"365b80");
         _tiles.Clear();
         foreach (var item in frame["tiles"]!.AsArray())
         {

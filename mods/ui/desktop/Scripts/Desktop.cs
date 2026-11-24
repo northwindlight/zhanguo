@@ -109,7 +109,7 @@ public partial class Desktop : Control
         _play=Button(top,"继续",TogglePlayback);
         _step=Button(top,"下一回合",StepPlayback);
         _save=Button(top,"菜单 · Esc",OpenPauseMenu);
-        _save.TooltipText="自动暂停演出，打开继续、保存与退出菜单";
+        _save.TooltipText="自动暂停演出，打开继续、保存与退出菜单";UiSkin.Style(_save,"menu");UiSkin.Style(_play,"pause");UiSkin.Style(_step,"next");
         BuildPauseMenu();
         BuildNationLedger();
         var dock=new HBoxContainer { MouseFilter=MouseFilterEnum.Ignore,ZIndex=5 };
@@ -407,7 +407,7 @@ public partial class Desktop : Control
                 "stopping"=>"正在完成回合并保存","paused"=>"已暂停","stopped"=>"已保存并停止",_=>state};
             _status.Text=$"第 {I(row["period"])} 回合 · {status} · 已存 {row["saved_period"]}";
             _status.TooltipText=_savePath;
-            _play.Text=_running?"暂停":"继续";
+            _play.Text=_running?"暂停":"继续";_play.Icon=UiSkin.Icon(_running?"pause":"play");
             _play.Disabled=_closing;
             _step.Disabled=_closing||_running;
             _save.Disabled=_closing;

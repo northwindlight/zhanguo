@@ -33,7 +33,7 @@ public partial class SpeechBubbles : Control
     {
         MouseFilter = MouseFilterEnum.Ignore;
         _panel = new PanelContainer { MouseFilter = MouseFilterEnum.Stop };
-        _panel.AddThemeStyleboxOverride("panel", Frame(new Color("132222"), new Color("647369"), 16));
+        _panel.AddThemeStyleboxOverride("panel", Frame(new Color(.075f,.055f,.04f,.95f), UiSkin.Bronze, 16));
         AddChild(_panel);
         _column = new VBoxContainer(); _column.AddThemeConstantOverride("separation", 8); _panel.AddChild(_column);
         var header = new HBoxContainer(); _column.AddChild(header);
@@ -54,13 +54,13 @@ public partial class SpeechBubbles : Control
         _fold.Pressed += () => { _expanded = !_expanded; Refresh(); };
         _column.AddChild(_fold);
         _thinkingPanel = new PanelContainer();
-        _thinkingPanel.AddThemeStyleboxOverride("panel", Frame(new Color("1b2932"), new Color("374951"), 10));
+        _thinkingPanel.AddThemeStyleboxOverride("panel", Frame(new Color("22190f"), UiSkin.BronzeDeep, 10));
         _thinking = Text("b4c7d3", 16); _thinkingPanel.AddChild(_thinking); _column.AddChild(_thinkingPanel);
         _body = Text("efe5ca", 19); _column.AddChild(_body);
         _summary = Text("b8ceac", 16); _column.AddChild(_summary);
 
         _portraitFrame = new PanelContainer { MouseFilter = MouseFilterEnum.Ignore };
-        _portraitStyle = Frame(new Color(.055f, .09f, .10f, .9f), new Color("8b9b82"), 8);
+        _portraitStyle = Frame(new Color(.075f,.055f,.04f,.9f), UiSkin.BronzeDark, 8);
         _portraitFrame.AddThemeStyleboxOverride("panel", _portraitStyle); AddChild(_portraitFrame);
         var portraitBox = new VBoxContainer(); _portraitFrame.AddChild(portraitBox);
         _portraitName = Label("", 15, "efe5ca");
@@ -98,7 +98,7 @@ public partial class SpeechBubbles : Control
     {
         var style = new StyleBoxFlat { BgColor = background, BorderColor = border,
             ContentMarginLeft = margin, ContentMarginRight = margin, ContentMarginTop = 10, ContentMarginBottom = 10 };
-        style.SetBorderWidthAll(1); style.SetCornerRadiusAll(0); return style;
+        style.SetBorderWidthAll(1); style.SetCornerRadiusAll(3); return style;
     }
     public void SetSpeaker(string actor, string nationName, string model, Color color)
     {

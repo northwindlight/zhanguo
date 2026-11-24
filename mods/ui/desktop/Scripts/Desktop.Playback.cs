@@ -210,7 +210,7 @@ public partial class Desktop
     private void RefreshPlaybackControls()
     {
         if(_play==null)return;
-        _play.Text=HasTimeline?(_playbackPaused?"继续演出":"暂停演出"):_running?"暂停":"继续";
+        _play.Text=HasTimeline?(_playbackPaused?"继续演出":"暂停演出"):_running?"暂停":"继续";_play.Icon=UiSkin.Icon(_play.Text.StartsWith("暂停")?"pause":"play");
         _step.Disabled=_closing||_running||HasTimeline;_play.Disabled=_closing;
         if(HumanMode){_step.Visible=false;RefreshHumanButtons();}
         if(HasTimeline)_status.Text=$"第 {_timelinePeriod+1} 回合 · {(_playbackPaused?"演出暂停":"演出中")} · {_beatNumber}/{_beatTotal}";

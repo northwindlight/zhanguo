@@ -21,7 +21,7 @@ public partial class Desktop
     private static PanelContainer LedgerCard(Control parent,int z)
     {
         var panel=new PanelContainer { ZIndex=z,MouseFilter=MouseFilterEnum.Stop,Visible=false };
-        var style=UiSkin.Box("panel-glass");style.ContentMarginLeft=18;style.ContentMarginRight=18;style.ContentMarginTop=14;style.ContentMarginBottom=14;
+        var style=UiSkin.Box("panel-glass");style.ContentMarginLeft=16;style.ContentMarginRight=16;style.ContentMarginTop=10;style.ContentMarginBottom=10;
         panel.AddThemeStyleboxOverride("panel",style);parent.AddChild(panel);return panel;
     }
     private static Label LedgerLabel(string text,string color="e7e9db",bool right=false)
@@ -38,8 +38,8 @@ public partial class Desktop
 
     private void BuildNationLedger()
     {
-        _ledgerPanel=LedgerCard(this,6);var box=new VBoxContainer();box.AddThemeConstantOverride("separation",7);_ledgerPanel.AddChild(box);
-        _ledgerHeading=LedgerLabel("列国收支");_ledgerHeading.AddThemeFontOverride("font",UiSkin.Brush);_ledgerHeading.AddThemeColorOverride("font_color",new Color("fff6e0"));_ledgerHeading.AddThemeFontSizeOverride("font_size",24);_ledgerHeading.TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis;box.AddChild(_ledgerHeading);
+        _ledgerPanel=LedgerCard(this,6);var box=new VBoxContainer();box.AddThemeConstantOverride("separation",3);_ledgerPanel.AddChild(box);
+        _ledgerHeading=LedgerLabel("列国收支");_ledgerHeading.AddThemeFontOverride("font",UiSkin.Brush);_ledgerHeading.AddThemeColorOverride("font_color",new Color("fff6e0"));_ledgerHeading.AddThemeFontSizeOverride("font_size",21);_ledgerHeading.TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis;box.AddChild(_ledgerHeading);
         _ledgerPeriod=LedgerLabel("","a5b8ac");_ledgerPeriod.TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis;box.AddChild(_ledgerPeriod);
         _ledgerPowerBox=new VBoxContainer { MouseFilter=MouseFilterEnum.Stop };_ledgerPowerBox.AddThemeConstantOverride("separation",2);box.AddChild(_ledgerPowerBox);
         var powerRow=new HBoxContainer();_ledgerPowerBox.AddChild(powerRow);
@@ -47,7 +47,7 @@ public partial class Desktop
         _ledgerPower=LedgerLabel("");_ledgerPower.Name="CountryPower";_ledgerPower.TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis;powerRow.AddChild(_ledgerPower);
         _ledgerPowerLast=LedgerLabel("","a5b8ac");_ledgerPowerBox.AddChild(_ledgerPowerLast);
         _ledgerStocks=new GridContainer { Columns=3 };_ledgerStocks.AddThemeConstantOverride("h_separation",10);
-        _ledgerStocks.AddThemeConstantOverride("v_separation",4);box.AddChild(_ledgerStocks);
+        _ledgerStocks.AddThemeConstantOverride("v_separation",1);box.AddChild(_ledgerStocks);
         var note=LedgerLabel("生产／军耗／贡赋净变化","a5b8ac");box.AddChild(note);
         note.TooltipText="变化为标注期的生产、军队消耗和贡赋净值；不含交易与赠礼。悬停资源行查看实际来源。";
 
