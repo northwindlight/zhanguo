@@ -5,8 +5,13 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
+from torch.nn import functional as F
+
 from memory_map import MAX_THOUGHTS, MIN_THOUGHTS, MemoryMap, Op, TurnThought
-from model import EVENT_WIDTH, Event, Policy
+from model import EVENT_WIDTH, FEAT_DIM, Event, Policy
+
+
+TRACE_FORMAT = "zhanguo.seat-trace/1"
 
 
 @dataclass(frozen=True)
@@ -18,6 +23,94 @@ class Record:
     writes: int | None = None
     logp: float | None = None
     payload: Tensor | None = None
+    value: float | None = None
+
+
+@dataclass(frozen=True)
+class GameRecord:
+    """A sampled game action, logged before its ACTION history event."""
+
+    revision: int
+    index: int
+    logp: float
+    value: float
+
+
+@dataclass(frozen=True)
+class TurnBoundary:
+    """The seat entered a new turn; thought state and decoder cache restart."""
+
+
+@dataclass(frozen=True)
+class TraceHeader:
+    """Sampling contract that a replay must reproduce before scoring any record."""
+
+    thought_budget: int | None
+    retain_thought_kv: bool
+    format: str = TRACE_FORMAT
+
+    def __post_init__(self):
+        if self.format != TRACE_FORMAT:
+            raise ValueError(f"unsupported trace format {self.format!r}")
+        if self.thought_budget not in (None, 0, MIN_THOUGHTS, MAX_THOUGHTS):
+            raise ValueError("thought budget must be adaptive, 0, 8, or 30")
+        if self.retain_thought_kv and self.thought_budget == 0:
+            raise ValueError("thought K/V requires at least one thought")
+
+    def as_dict(self):
+        return {"format": self.format, "thought_budget": self.thought_budget,
+                "retain_thought_kv": self.retain_thought_kv}
+
+    @classmethod
+    def from_dict(cls, value: dict):
+        return cls(value["thought_budget"], value["retain_thought_kv"], value["format"])
+
+
+def thought_mask(thought: TurnThought, budget: int | None) -> tuple[bool, ...]:
+    """Fixed budgets never offer STOP; the engine closes the phase at the limit."""
+    legal = thought.mask()
+    return legal if budget is None else legal[:-1] + (False,)
+
+
+def advance_thought(thought: TurnThought, operation: int, budget: int | None):
+    """Apply one sampled operation. Returns the new state and whether the engine forced the switch."""
+    if budget is not None and operation == Op.STOP:
+        raise ValueError("fixed thought budgets end automatically")
+    if not thought_mask(thought, budget)[operation]:
+        raise ValueError("illegal thought action for this phase")
+    updated = thought.choose(operation)
+    limit = MAX_THOUGHTS if budget is None else budget
+    forced = operation != Op.STOP and updated.writes == limit
+    if forced:
+        updated = TurnThought(updated.graph, updated.writes, closed=True)
+    return updated, forced
+
+
+def opening_thought(graph: MemoryMap, budget: int | None):
+    return TurnThought(graph, closed=budget == 0)
+
+
+def action_event(obs: dict[str, Tensor], index: int) -> Tensor:
+    """The BC observation/action contract: the chosen candidate's features as the ACTION payload."""
+    return F.pad(obs["cand"][0, index], (0, EVENT_WIDTH - FEAT_DIM))
+
+
+def is_event(record) -> bool:
+    return isinstance(record, Record)
+
+
+@dataclass(frozen=True)
+class _ThoughtPending:
+    logits: Tensor
+    cache: tuple | None
+    value: float
+
+
+@dataclass(frozen=True)
+class _GamePending:
+    logits: Tensor
+    value: Tensor
+    state: Tensor
 
 
 @dataclass(frozen=True)
@@ -89,25 +182,34 @@ class SeatTrace:
 
     Observation revisions and visibility are supplied by the engine adapter.
     The archive can be serialized independently of the model's inference state.
+    `records` interleaves history events (`Record`), sampled game actions
+    (`GameRecord`) and turn boundaries, in the order the seat experienced them.
     """
 
     def __init__(self, policy: Policy, *, thought_budget: int | None = None, retain_thought_kv: bool = False):
-        if thought_budget not in (None, 0, MIN_THOUGHTS, MAX_THOUGHTS):
-            raise ValueError("thought budget must be adaptive, 0, 8, or 30")
-        if retain_thought_kv and thought_budget == 0:
-            raise ValueError("thought K/V requires at least one thought")
+        self.header = TraceHeader(thought_budget, retain_thought_kv)
         self.policy = policy
-        self.thought_budget = thought_budget
-        self.retain_thought_kv = retain_thought_kv
         self.history = None
         self.board = None
         self.obs = None
-        self.thought = TurnThought(closed=thought_budget == 0)
+        self.thought = opening_thought(MemoryMap(), thought_budget)
         self.previous_operation = Op.START
         self.decoder_cache = None
         self.pending = None
-        self.records: list[Record] = []
+        self.records: list[Record | GameRecord | TurnBoundary] = []
         self.observations = ObservationArchive()
+
+    @classmethod
+    def from_header(cls, policy: Policy, header: TraceHeader):
+        return cls(policy, thought_budget=header.thought_budget, retain_thought_kv=header.retain_thought_kv)
+
+    @property
+    def thought_budget(self):
+        return self.header.thought_budget
+
+    @property
+    def retain_thought_kv(self):
+        return self.header.retain_thought_kv
 
     @property
     def device(self):
@@ -136,15 +238,18 @@ class SeatTrace:
 
     @torch.inference_mode()
     def add_event(self, kind: Event, visible_payload: Tensor):
-        if kind in (Event.OBSERVATION, Event.THOUGHT, Event.THOUGHT_LIMIT):
-            raise ValueError("use observe or the thought transition to record this event")
+        if kind in (Event.OBSERVATION, Event.THOUGHT, Event.THOUGHT_LIMIT, Event.ACTION):
+            raise ValueError("use observe, the thought transition or commit_game to record this event")
+        self._append_event(kind, visible_payload)
+
+    def _append_event(self, kind: Event, visible_payload: Tensor, operation: int | None = None):
         if self.board is None or self.pending is not None:
             raise ValueError("events require a current observation and no undecided action")
         if visible_payload.shape != (EVENT_WIDTH,):
             raise ValueError("expected one event payload")
         _, self.history, _ = self.policy.events(self._number(kind), visible_payload.to(self.device)[None, None],
                                                 self.history)
-        self.records.append(Record(kind, self.board.revision,
+        self.records.append(Record(kind, self.board.revision, operation,
                                    payload=visible_payload.detach().to("cpu", copy=True)))
 
     @torch.inference_mode()
@@ -154,31 +259,26 @@ class SeatTrace:
         hidden, next_cache, _ = self.policy.decode(
             self._map(self.thought.graph), self._number(self.previous_operation),
             self._number(self.thought.writes), self.board, self.history, self.decoder_cache)
-        legal = self.thought.mask()
-        if self.thought_budget is not None:
-            legal = legal[:-1] + (False,)
-        mask = torch.tensor(legal, dtype=torch.bool, device=self.device)
+        mask = torch.tensor(thought_mask(self.thought, self.thought_budget), dtype=torch.bool, device=self.device)
         logits = self.policy.thought_logits(hidden[0, 0], mask)
-        self.pending = (logits, next_cache)
+        self.pending = _ThoughtPending(logits, next_cache, float(self.policy.estimate_value(hidden[0, 0])))
         return logits
 
     @torch.inference_mode()
     def commit_thought(self, operation: int):
-        if self.pending is None:
+        if not isinstance(self.pending, _ThoughtPending):
             raise ValueError("score the thought before committing it")
-        if self.thought_budget is not None and operation == Op.STOP:
-            raise ValueError("fixed thought budgets end automatically")
-        updated = self.thought.choose(operation)
-        logits, cache = self.pending
-        logp = float(logits.log_softmax(dim=-1)[operation])
+        updated, forced = advance_thought(self.thought, operation, self.thought_budget)
+        pending = self.pending
+        logp = float(pending.logits.log_softmax(dim=-1)[operation])
         revision = self.board.revision
         _, self.history, _ = self.policy.thought_event(
             Event.THOUGHT, self._map(updated.graph), self._number(operation),
             self._number(updated.writes), self.board, self.history)
-        self.records.append(Record(Event.THOUGHT, revision, operation, updated.graph, updated.writes, logp))
-        limit = MAX_THOUGHTS if self.thought_budget is None else self.thought_budget
-        if operation != Op.STOP and updated.writes == limit:
-            updated = TurnThought(updated.graph, updated.writes, closed=True)
+        self.records.append(Record(Event.THOUGHT, revision, operation, updated.graph, updated.writes, logp,
+                                   value=pending.value))
+        if forced:
+            # The engine's switch is an event, not a policy choice, and carries no probability.
             _, self.history, _ = self.policy.thought_event(
                 Event.THOUGHT_LIMIT, self._map(updated.graph), self._number(Op.GAME),
                 self._number(updated.writes), self.board, self.history)
@@ -186,7 +286,7 @@ class SeatTrace:
 
         self.thought = updated
         self.previous_operation = operation
-        self.decoder_cache = None if updated.closed and not self.retain_thought_kv else cache
+        self.decoder_cache = None if updated.closed and not self.retain_thought_kv else pending.cache
         self.pending = None
 
     @torch.inference_mode()
@@ -200,12 +300,31 @@ class SeatTrace:
 
     @torch.inference_mode()
     def score_game(self):
+        if self.pending is not None:
+            raise ValueError("commit the pending decision first")
         state = self.game_embedding()
-        return self.policy.action_logits(state, self.obs, self.board), self.policy.estimate_value(state)
+        logits = self.policy.action_logits(state, self.obs, self.board)
+        value = self.policy.estimate_value(state)
+        self.pending = _GamePending(logits, value, state)
+        return logits, value
+
+    @torch.inference_mode()
+    def commit_game(self, index: int):
+        """Log the sampled candidate with its sampling log-probability and pre-action value."""
+        if not isinstance(self.pending, _GamePending):
+            raise ValueError("score the game action before committing it")
+        if not 0 <= index < self.obs["cand_mask"].shape[1] or not bool(self.obs["cand_mask"][0, index]):
+            raise ValueError("game action is not an offered candidate")
+        pending = self.pending
+        logp = float(pending.logits[0].float().log_softmax(dim=-1)[index])
+        self.records.append(GameRecord(self.board.revision, index, logp, float(pending.value[0])))
+        self.pending = None
+        self._append_event(Event.ACTION, action_event(self.obs, index), index)
 
     def next_turn(self):
-        self.thought = self.thought.next_turn()
-        if self.thought_budget == 0:
-            self.thought = TurnThought(self.thought.graph, closed=True)
+        if self.pending is not None:
+            raise ValueError("commit the pending decision before the turn ends")
+        self.thought = opening_thought(self.thought.next_turn().graph, self.thought_budget)
         self.decoder_cache = None
         self.previous_operation = Op.START
+        self.records.append(TurnBoundary())

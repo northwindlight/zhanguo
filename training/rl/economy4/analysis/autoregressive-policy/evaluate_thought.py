@@ -11,8 +11,8 @@ import time
 import torch
 from torch.nn import functional as F
 
-from bc_train import SEED, action_payload, atomic_save, emit, publish, sha
-from model import Event, Policy
+from bc_train import SEED, atomic_save, emit, publish, sha
+from model import Policy
 from native_eval import Engine
 from rollout_trace import SeatTrace
 
@@ -66,17 +66,15 @@ def play(policy, engine, *, mode, seed, size, horizon, collect_value):
                 encoded = trace.score_thought()
                 trace.commit_thought(sample(encoded, thought_rng))
                 thoughts += 1
-            state = trace.game_embedding()
-            logits = policy.action_logits(state, trace.obs, trace.board)
+            logits, _ = trace.score_game()
             action = sample(logits[0], action_rng)
             if collect_value:
-                value_states.append(state.cpu())
+                value_states.append(trace.pending.state.cpu())
                 value_turns.append(turn)
+            # Logs the game record and the BC-format ACTION event. Real outcomes stay in the rollout record.
+            trace.commit_game(action)
             previous_period = result.turn
             result = game.play(action)
-            payload = action_payload(trace.obs, torch.tensor([action], device=device))[0]
-            # Match the BC observation/action input contract. Real outcomes stay in the rollout record.
-            trace.add_event(Event.ACTION, payload)
             if result.turn != previous_period:
                 if result.turn != previous_period + 1:
                     raise ValueError("native evaluation skipped a settlement")

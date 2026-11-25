@@ -14,7 +14,8 @@ from rl.obs import collate
 
 from memory_map import Draft, MemoryMap, Op, TurnThought
 from model import EVENT_WIDTH, Event, Policy
-from rollout_trace import ObservationArchive, SeatTrace
+from replay import max_errors, replay_batched, replay_stepwise
+from rollout_trace import GameRecord, ObservationArchive, SeatTrace, is_event
 
 
 def close(a, b, atol=2e-5):
@@ -233,6 +234,9 @@ def trace_checks(model, obs, action):
     game_seconds = time.perf_counter() - begin
     assert action_logits.shape == obs["cand_mask"].shape
     assert torch.isfinite(action_logits[0, action]) and torch.isfinite(value).all()
+    seat.commit_game(action)
+    assert isinstance(seat.records[-2], GameRecord) and seat.records[-2].index == action
+    assert seat.records[-1].kind is Event.ACTION
     graph = seat.thought.graph
     seat.next_turn()
     seat.add_event(Event.TURN_OPEN, torch.ones(EVENT_WIDTH))
@@ -242,30 +246,19 @@ def trace_checks(model, obs, action):
         seat.commit_thought(Op.CLEAR_FIRST)
     assert seat.records[-1].kind is Event.THOUGHT_LIMIT and seat.records[-1].logp is None
     assert seat.thought.closed
-    assert all(r.revision in seat.observations for r in seat.records)
-    assert sum(r.kind is Event.THOUGHT for r in seat.records) == 39
-    assert seat.history.sparse.key.shape[1] == len(seat.records)
+    events = [r for r in seat.records if is_event(r)]
+    assert all(r.revision in seat.observations for r in events)
+    assert sum(r.kind is Event.THOUGHT for r in events) == 39
+    assert seat.history.sparse.key.shape[1] == len(events)
     rejects(seat.score_thought)
-    replay = SeatTrace(model)
-    replay_error = 0.0
-    for record in seat.records:
-        if record.kind is Event.OBSERVATION:
-            replay.observe(record.revision, seat.observations[record.revision])
-        elif record.kind is Event.THOUGHT:
-            logp = float(replay.score_thought().log_softmax(dim=-1)[record.operation])
-            replay_error = max(replay_error, abs(logp - record.logp))
-            replay.commit_thought(record.operation)
-            assert replay.thought.graph == record.graph
-        elif record.kind is Event.THOUGHT_LIMIT:
-            assert replay.thought.closed and replay.records[-1] == record
-        else:
-            if record.kind is Event.TURN_OPEN and replay.thought.closed:
-                replay.next_turn()
-            replay.add_event(record.kind, record.payload)
+    decisions, replay = replay_stepwise(model, seat.header, seat.records, seat.observations)
+    replay_error = max(max_errors(decisions))
     assert replay_error < 2e-5
     close(replay.history.sparse.key, seat.history.sparse.key)
+    batched_error = max(max_errors(replay_batched(model, seat.header, seat.records, seat.observations)))
+    assert batched_error < 2e-5
     return dict(record_count=len(seat.records), exact_snapshots=len(seat.observations),
-                replay_logp_error=replay_error,
+                replay_logp_error=replay_error, batched_replay_error=batched_error,
                 board_ms=round(board_seconds * 1000, 2), eight_thought_steps_ms=round(thought_seconds * 1000, 2),
                 game_score_ms=round(game_seconds * 1000, 2))
 

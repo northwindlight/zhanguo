@@ -84,3 +84,24 @@ python3 -B evaluate_thought.py --library build-eval/libzhanguo_eval.so \
 ```
 
 Kaggle 跑法由 `watch_thought_eval.py --bc-results <BC 结果目录> --output <回测结果目录>` 等待 BC10 本地校验，再挂载同一私有检查点，回拉对照与价值头报告。
+
+## PPO 回放契约
+
+`SeatTrace.header`（`TraceHeader`）记录轨迹格式、思考预算和是否保留思考 K/V。回放必须按轨迹头重建。`records` 按发生顺序交错保存以下三类条目：
+
+- 历史事件 `Record`。思考记录带采样时的 logp 和动作前的 V。强制切换 `THOUGHT_LIMIT` 只记事件，不带概率。
+- 游戏决策 `GameRecord`，保存修订号、候选下标、采样时的 logp 和动作前的 V。它后面紧跟 BC 格式的 ACTION 事件。
+- 回合边界 `TurnBoundary`，标记思考状态和解码器缓存在此重置。
+
+`replay.py` 提供两条回放路径。
+
+- `replay_stepwise` 逐条重走采样时的代码。
+- `replay_batched` 用于 PPO 训练，保留梯度。历史事件整段编码。同回合的思考步沿时间维解码，只在快照修订号变化处分段。同回合的游戏 token 放在 batch 维，每条只读三样东西：同一份思考 K/V（轨迹头保留时）、自己的 token、自己修订号的棋盘 K/V。所以每条游戏 token 的 RoPE 位置都等于思考缓存长度，游戏动作之间互不可见。
+- `require_adaptive` 是自适应 PPO 的入口校验，固定预算轨迹和 K/V 设置不一致的轨迹都会被拒绝。
+
+`verify_replay.py` 只用合成观测，不需要示范数据和引擎。它覆盖 `0`、`8`、`30`、`8-kv`、自适应主动 STOP（含思考中途刷新观测）、自适应撞 30 步上限，以及保留 K/V 的自适应 STOP。每个场景都要求两条回放路径的 logp 和 V 与记录误差在 2×10⁻⁵ 以内。它还检查错误轨迹头必然报错或明显不一致，以及各模块梯度有限且非零。
+
+```bash
+PYTHONPATH=../dynamic-turn-dual-ppo-20261124/reference/python \
+  OPENBLAS_NUM_THREADS=1 python3 -B verify_replay.py --threads 2
+```
