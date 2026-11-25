@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """Anthropic 提供方（`provider="anthropic"`）的翻译层与失败语义。
 
-★ 这一路**只用标准库**（urllib + 手写 SSE 解析），所以这些测试**不需要 `anthropic` 包**，
-  也不需要 `openai` 包——把 `llm_provider._anthropic_open` 换成一个假的传输层就能把
-  整条路跑完（翻译 → 发请求 → 聚合 → 用量/重试/续写）。
+★ 2026-11-25 起这一路走 `anthropic` 官方 SDK。假端点（`tests/sdk_fakes.py`）接在 SDK 的
+  httpx2 传输层上，整条路——翻译 → SDK 发请求 → SDK 解析事件流 → 聚合 → 用量/重试/续写——
+  都离线跑完，不联网。
 
 口径来源（2026-10-01 对 `api.deepseek.com/anthropic` 的实测，见交付目录里的
 `tools/anthropic_probe.py` 与 `tools/anthropic_edge*.py`）：
@@ -33,6 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from clients import provider as llm_provider  # noqa: E402
+from tests.sdk_fakes import fake_endpoint  # noqa: E402
 
 
 def _cfg(**kw) -> dict:
@@ -75,7 +76,8 @@ def _sse(*events) -> list[str]:
     out: list[str] = []
     for name, payload in events:
         out.append(f"event: {name}")
-        out.append("data: " + json.dumps(payload, ensure_ascii=False))
+        # 真端点的 data 里都带 type（SDK 按它选事件类型）；用例只写事件名，这里补上
+        out.append("data: " + json.dumps({"type": name, **payload}, ensure_ascii=False))
         out.append("")
     return out
 
@@ -142,8 +144,6 @@ class _Transport:
         self._orig = None
 
     def __enter__(self):
-        self._orig = llm_provider._anthropic_open
-
         def fake(url, headers, body, timeout):
             self.calls.append({"url": url, "headers": headers, "body": body, "timeout": timeout})
             item = self.script[min(len(self.calls) - 1, len(self.script) - 1)]
@@ -151,11 +151,12 @@ class _Transport:
                 raise item
             return _FakeResp(lines=_sse(*item))
 
-        llm_provider._anthropic_open = fake
+        self._endpoint = fake_endpoint(fake)
+        self._endpoint.__enter__()
         return self
 
     def __exit__(self, *exc):
-        llm_provider._anthropic_open = self._orig
+        self._endpoint.__exit__(*exc)
         return False
 
 
@@ -272,13 +273,33 @@ class TestTranslation(unittest.TestCase):
 
 
 class TestUrlAndHeaders(unittest.TestCase):
+    def _call(self, **cfgkw):
+        ok = [_msg_start(), *_text_block(0, "好"), *_stop("end_turn")]
+        with _Transport(ok) as t:
+            llm_provider.AnthropicCompat(_cfg(**cfgkw))._stream_once(
+                [{"role": "user", "content": "u"}], None, _cfg(**cfgkw))
+        return t.calls[0]
+
     def test_messages_url_never_doubles_v1(self):
-        self.assertEqual(llm_provider.anthropic_messages_url("https://api.deepseek.com/anthropic"),
-                         "https://api.deepseek.com/anthropic/v1/messages")
-        self.assertEqual(llm_provider.anthropic_messages_url("https://x/apps/anthropic/"),
-                         "https://x/apps/anthropic/v1/messages")
-        self.assertEqual(llm_provider.anthropic_messages_url("https://x/v1"),
-                         "https://x/v1/messages")
+        for base, url in (("https://api.deepseek.com/anthropic",
+                           "https://api.deepseek.com/anthropic/v1/messages"),
+                          ("https://x/apps/anthropic/", "https://x/apps/anthropic/v1/messages"),
+                          ("https://x/v1", "https://x/v1/messages")):
+            self.assertEqual(self._call(base_url=base)["url"], url)
+
+    def test_sdk_request_headers_follow_auth_mode(self):
+        """SDK 实际发出的头与 `_anthropic_headers` 一致：版本钉在 2023-06-01（不用 SDK 自带的
+        新版本号），x-api-key 模式不带 Authorization，凭据不从环境变量里拿。"""
+        h = self._call()["headers"]
+        self.assertEqual(h["authorization"], "Bearer sk-test")
+        self.assertNotIn("x-api-key", h)
+        self.assertEqual(h["anthropic-version"], "2023-06-01")
+        h = self._call(anthropic_auth="x-api-key")["headers"]
+        self.assertEqual(h["x-api-key"], "sk-test")
+        self.assertNotIn("authorization", h)
+        h = self._call(anthropic_auth="both", anthropic_beta=["a", "b"])["headers"]
+        self.assertEqual((h["authorization"], h["x-api-key"]), ("Bearer sk-test", "sk-test"))
+        self.assertEqual(h["anthropic-beta"], "a,b")
 
     def test_auth_modes(self):
         h = llm_provider._anthropic_headers(_cfg())
@@ -473,22 +494,18 @@ class TestCompleteText(unittest.TestCase):
                             'stop_reason':'max_tokens','usage':_usage()})
         self.assertEqual(stats['stop_reason'],'max_tokens')
 
-    def _run(self, payload, tools=None, **cfgkw):
+    def _run(self, payload, tools=None, max_tokens=None, **cfgkw):
         captured: dict = {}
-        orig = llm_provider._anthropic_open
 
         def fake(url, headers, body, timeout):
             captured.update(body)
             return _FakeResp(payload=json.dumps(payload).encode("utf-8"))
 
-        llm_provider._anthropic_open = fake
-        try:
+        with fake_endpoint(fake):
             b = llm_provider.AnthropicCompat(_cfg(**cfgkw))
             text, stats = b.complete_text([{"role": "system", "content": "S"},
                                            {"role": "user", "content": "U"}],
-                                          _cfg(**cfgkw), tools=tools)
-        finally:
-            llm_provider._anthropic_open = orig
+                                          _cfg(**cfgkw), tools=tools, max_tokens=max_tokens)
         return text, stats, captured
 
     def test_reads_text_blocks_and_disables_thinking(self):
@@ -507,6 +524,15 @@ class TestCompleteText(unittest.TestCase):
         self.assertEqual(stats["miss"], 100)
         self.assertEqual(stats["out_tokens"], 7)
         self.assertTrue(stats["usage_reported"])
+
+    def test_no_output_limit_lands_on_the_protocol_maximum(self):
+        """★ 取消压缩文本上限（2026-11-19）：这条协议**必填** max_tokens，无上限只能
+        落成大常数。8047（antigravity→Gemini）实测接受 65536 并正常 end_turn；更严
+        的端点若按模型上限拒绝会 400 直接抛 ⇒ 压缩走失败回退，不收腰斩摘要。"""
+        payload = {"content": [{"type": "text", "text": "记忆"}], "usage": _usage()}
+        _text, _stats, captured = self._run(payload, max_tokens=llm_provider.NO_OUTPUT_LIMIT)
+        self.assertEqual(captured["max_tokens"], 65536)
+        self.assertEqual(captured["thinking"], {"type": "disabled"})
 
     def test_tools_are_sent_for_prefix_reuse_and_tool_choice_stays_auto(self):
         """★ 这条协议的前缀顺序是 tools → system → messages：压缩调用要复用主请求的

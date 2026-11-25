@@ -1,3 +1,4 @@
-# LLM protocols remain standard-library implementations, without an OpenAI SDK.
+# Official LLM SDKs (OpenAI, Anthropic, Google Gen AI).
+-r requirements/llm.txt
 # The optional v14 economic planner uses a real MILP solver.
--r requirements-ruleai.txt
+-r requirements/ruleai.txt

@@ -10,14 +10,14 @@ stock 是独立发行版，使用独立配置和存档；共享宿主与模型�
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt -r requirements-stock.txt
-.venv/bin/python mp_run.py --config mp_config.stock.offline.example.json
-# 或 ./start.sh --config mp_config.stock.offline.example.json
+.venv/bin/python -m pip install -r requirements.txt -r requirements/stock.txt
+.venv/bin/python mp_run.py --config configs/mp_config.stock.offline.example.json
+# 或 ./start.sh --config configs/mp_config.stock.offline.example.json
 ```
 
-模型配置复制 `mp_config.stock.example.json` 为本地 `mp_config.stock.local.json` 后填写密钥，再通过 `--config` 指定；离线配置使用内置 `sim`，不需要密钥。
+模型配置复制 `configs/mp_config.stock.example.json` 为本地 `mp_config.stock.local.json` 后填写密钥，再通过 `--config` 指定；离线配置使用内置 `sim`，不需要密钥。
 示例使用独立的 `stock_v2_save.json` / `stock_v2_journal.md`，不会覆盖旧 stock 1.0 的文件。
-Windows 用 `start.ps1 --config mp_config.stock.offline.example.json`，也可手动安装依赖后运行 mp_run。
+Windows 用 `start.ps1 --config configs/mp_config.stock.offline.example.json`，也可手动安装依赖后运行 mp_run。
 
 这是新的发行版状态协议，市场动力学 2.2.0（存档带 dynamics 标记与个股个性/股票池状态，旧存档拒绝混载，不自动迁移）。
 原版 native/experimental 不需要 PAMS。
@@ -220,8 +220,8 @@ PAMS 的软件出处与许可证见 [第三方说明](THIRD_PARTY.md)。
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -p test_stock_game.py -v
-.venv/bin/python probe_review.py
-.venv/bin/python probe_review.py --causal-controls
+.venv/bin/python scripts/stock_probe_review.py
+.venv/bin/python scripts/stock_probe_review.py --causal-controls
 ```
 
 公开消息对照在种子 1～6 各跑一个完整交易日：同场顺向、反向和持币策略，分别在每只股票自己的

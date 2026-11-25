@@ -13,10 +13,10 @@ unzip stock-bench-<version>.zip
 cd stock-bench-<version>
 python3 -m venv .venv
 . .venv/bin/activate              # Windows: .venv\Scripts\activate
-pip install -r requirements-stock.txt
+pip install -r requirements/stock.txt
 ```
 
-`requirements-stock.txt` installs one package: `pams==0.3.0` (the matching engine). The stock
+`requirements/stock.txt` installs one package: `pams==0.3.0` (the matching engine). The stock
 distribution refuses to start without it — that is a deliberate guard, not a missing dependency.
 
 Sanity check:
@@ -171,7 +171,7 @@ is safe: the game saves at round boundaries and `mp_run.py` resumes from the sam
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements-stock.txt
+pip install -r requirements/stock.txt
 $env:OPENAI_API_KEY="sk-..."
 $env:STOCK_EVAL_BASE_URL="https://api.deepseek.com/v1"
 $env:STOCK_EVAL_MODEL="deepseek-v4-flash"
@@ -187,7 +187,7 @@ current shell only.
 
 | symptom | cause / fix |
 |---|---|
-| `stock requires pams==0.3.0` | run `pip install -r requirements-stock.txt` in the same interpreter used to launch |
+| `stock requires pams==0.3.0` | run `pip install -r requirements/stock.txt` in the same interpreter used to launch |
 | `no API key` | export `OPENAI_API_KEY` or pass `--api-key` |
 | HTTP 400 / 401 from provider | wrong base URL or model id; check `--dry-run` output and the provider's OpenAI-compatible path (usually `/v1`) |
 | a seat ends with `script failed: budget` | the policy exceeded the per-callback sandbox budget; that is a legitimate outcome (buy a compute tier, or write a cheaper script) |

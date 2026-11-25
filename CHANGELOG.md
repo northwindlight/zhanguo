@@ -1,5 +1,21 @@
 # 更新记录
 
+## 未发布 — 整理 main 与重写 Mod 文档站（2026-11-25）
+
+- Mod 文档站以 `docs/site/content/` 为唯一来源，按当前代码重写：补上 `[PlayerAPI]`＋发行版工具层的正式接入路径，新增「配方」栏目（由旧《Mod 开发指南》的配方迁入并核对），报错速查只收引擎里实际存在的报错文字；`docs/发行版Session.md`、`配置层.md`、`客户端接线.md`、`真人玩家接口.md` 由站点直接从源文件发布。研究页不再收进 Mod 站。
+- `docs/Mod开发指南.md` 改为指向站点的入口页；`mods/examples/tour.py` 与其测试同步改为输出站点地址。
+- `research/game-records/` 与 `experiments/` 移到 `archive/research` 分支，main 上删除，各文档中的链接改为该分支地址；`research/papers/` 保留。
+- `docs/design/` 顶层 126 个截图与录像收进 `docs/design/media/`，引用与 Windows 打包脚本同步更新。
+- 第二轮收纳：`research/papers/` 并入 `docs/research/papers/`，根目录不再有 `research/`；附加依赖收进 `requirements/`（`llm.txt`、`ruleai.txt`、`stock.txt`、`vision.txt`）；`docs/` 顶层的契约文档收进 `docs/接口/`，使用指南收进 `docs/指南/`，`错误实现.md` 归入 `docs/reviews/`；复核用的 json／log 测量数据收进 `docs/reviews/data/`。
+- 根目录配置模板 `mp_config*.example.json` 收进 `configs/`；`probe_review.py` 改为 `scripts/stock_probe_review.py`；启动脚本的协议提示更新为四种 provider。
+
+## 未发布 — 取消压缩文本上限（2026-11-19）
+
+- 正式取消记忆压缩的输出文本上限（用户口径「正式取消压缩文本上限」）：`clients/llm.py` 的压缩调用改传 `max_tokens=NO_OUTPUT_LIMIT`，不再读 `ctx_compact_tokens`；openai / responses 两路请求体**不发** `max_tokens` / `max_output_tokens`，anthropic 路协议必填、落成 65536（8047 实测接受）。stock、议会评审、结算厅等其他调用方走原 `ctx_compact_tokens` 缺省链不变。
+- 根因（hy4-flash-free 八国局实测）：旧长期记忆涨到 7k+ 字后，一次压缩的自然输出 ≈13.3k token（≈6.1k 上游强开的思考 + ≈1 万字新记忆正文），8192 上限让**每一轮**都 `finish_reason=length` 腰斩、按既有截断纪律判失败重试，十次耗尽退回逐期小结；取消上限后同一 prompt 以 stop 自然收尾。
+- 压缩输入侧只留 `SAFETY_TOKENS` 估算余量（不再为输出预留 8192），“指令放不下窗口→不请求模型”的回退门改为纯输入口径；`length`/`max_tokens` 截断拒绝与 ≥20 字有效性检查照旧——上游自己的硬顶截断依然判失败，绝不收腰斩摘要。
+- 新增三条路的 NO_OUTPUT_LIMIT 回归（openai 省字段 / anthropic 65536 / responses 省字段）与高层压缩调用断言。
+
 ## 开发中 — 第二版旧地图灭国残影修复
 
 - 玩家A持有B旧地图并灭掉B后，清除已失效的B国色，标注“原属B（已灭国）·现归属待确认”；保留地形、建筑及日期，不泄露视野外新领主。

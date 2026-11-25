@@ -29,7 +29,7 @@ native 的 `build/recruit/move/attack/retreat/tile` 都接受 `site` 或 `place`
 }
 ```
 
-这些配置可在顶层设置并由各国继承；单个国家可覆盖语言和视觉选项。`vision` 默认关闭，开启后给 LLM 发送图形地图。PNG 需要 `python -m pip install -r requirements-vision.txt`；缺少 Pillow 时发送文本地图。SVG 和文字地图不需要 Pillow。
+这些配置可在顶层设置并由各国继承；单个国家可覆盖语言和视觉选项。`vision` 默认关闭，开启后给 LLM 发送图形地图。PNG 需要 `python -m pip install -r requirements/vision.txt`；缺少 Pillow 时发送文本地图。SVG 和文字地图不需要 Pillow。
 
 终端：`map 秦` 显示文字地图，`map 秦 output/qin.png` 或 `map 秦 output/qin.svg` 导出图形地图。输出只含该国当时可见事实。命令中的文件路径有空格时用引号包住。
 

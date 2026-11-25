@@ -114,5 +114,10 @@
   "query.reachable": "tool.frontier.reachable",
   "query.speed": "tool.army.speed",
   "query.valid": "tool.government.valid",
-  "relation.unowned": "tool.unowned"
+  "relation.unowned": "tool.unowned",
+  "console.relation.war": "tool.relation.war",
+  "console.relation.ally": "tool.relation.ally",
+  "console.relation.neutral": "tool.relation.neutral",
+  "console.none": "tool.diplomacy.none",
+  "console.selected_site": "tool.selected_tile"
 }

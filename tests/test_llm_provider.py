@@ -10,10 +10,9 @@
 
 窗口长度 = `api_retries × api_retry_wait`（都是配置项；想给"续费"留更长时间就调它们）。
 
-★ 2026-10-24 原生化：openai SDK 已移除，本文件**不再 import openai**。假传输层的打法
-与 Anthropic 那套（test_llm_provider_anthropic.py）一致——把 `llm_provider._post_json`
-换成一个假的，就能把整条路跑完（翻译 → 发请求 → SSE 聚合 → 用量/重试）；
-重试语义那些用例则直接在 backend 上打 `_stream_once` 的桩，连传输层都不用碰。
+★ 2026-11-25 起传输走 `openai` 官方 SDK。假端点（`tests/sdk_fakes.py`）接在 SDK 的
+httpx2 传输层上，整条路——翻译 → SDK 发请求 → SDK 解析 SSE → 本层聚合 → 用量/重试——
+都离线跑完；重试语义那些用例则直接在 backend 上打 `_stream_once` 的桩，连传输层都不用碰。
 
 跑法：python -m unittest discover -s tests -v
 """
@@ -31,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from clients import provider as llm_provider  # noqa: E402
+from tests.sdk_fakes import fake_endpoint  # noqa: E402
 
 QUOTA_MSG = ("Error code: 429 - {'error': {'message': 'Your token-plan 1-week quota has been "
              "exhausted. The quota will reset at 09-25 18:11:00 UTC.', "
@@ -90,8 +90,6 @@ class _Transport:
         self.calls: list[dict] = []
 
     def __enter__(self):
-        self._orig = llm_provider._post_json
-
         def fake(url, headers, body, timeout):
             self.calls.append({"url": url, "headers": headers, "body": body, "timeout": timeout})
             item = self.script[min(len(self.calls) - 1, len(self.script) - 1)]
@@ -99,11 +97,12 @@ class _Transport:
                 raise item
             return _FakeResp(lines=item)
 
-        llm_provider._post_json = fake
+        self._endpoint = fake_endpoint(fake)
+        self._endpoint.__enter__()
         return self
 
     def __exit__(self, *exc):
-        llm_provider._post_json = self._orig
+        self._endpoint.__exit__(*exc)
         return False
 
 
@@ -242,23 +241,19 @@ class TestCompleteText(unittest.TestCase):
     前缀缓存**，压缩调用要接在主请求后面）、② 回 `(text, stats)`，好让压缩调用自己的
     命中率看得见——在那之前它没有任何统计，改造的收益无法验证。"""
 
-    def _run(self, payload, tools=None, **cfgkw):
+    def _run(self, payload, tools=None, max_tokens=None, **cfgkw):
         captured: dict = {}
-        orig = llm_provider._post_json
 
         def fake(url, headers, body, timeout):
             captured.update(body)
             captured["_url"] = url
             return _FakeResp(payload=json.dumps(payload).encode("utf-8"))
 
-        llm_provider._post_json = fake
-        try:
+        with fake_endpoint(fake):
             b = llm_provider.make_backend(_cfg(**cfgkw))
             text, stats = b.complete_text([{"role": "system", "content": "S"},
                                            {"role": "user", "content": "U"}],
-                                          _cfg(**cfgkw), tools=tools)
-        finally:
-            llm_provider._post_json = orig
+                                          _cfg(**cfgkw), tools=tools, max_tokens=max_tokens)
         return text, stats, captured
 
     def _payload(self, text="长期记忆摘要", usage=None, finish_reason=None):
@@ -281,6 +276,14 @@ class TestCompleteText(unittest.TestCase):
         _text, _st, captured = self._run(self._payload())
         self.assertNotIn("tools", captured)
         self.assertNotIn("tool_choice", captured)
+
+    def test_no_output_limit_omits_the_cap_field(self):
+        """★ 取消压缩文本上限（2026-11-19）：`max_tokens=NO_OUTPUT_LIMIT` 时请求体
+        **不发** max_tokens——opencode/hy4-flash 网关实测：省略后 13.3k token 以
+        stop 自然收尾；旧的 8192 上限让每轮都在 length 处腰斩、十次重试全废。"""
+        _text, _st, captured = self._run(self._payload(), max_tokens=llm_provider.NO_OUTPUT_LIMIT)
+        self.assertNotIn("max_tokens", captured)
+        self.assertEqual(captured["thinking"], {"type": "disabled"})
 
     def test_compression_preserves_truncation_reason(self):
         _text, stats, _c = self._run(self._payload(finish_reason="length"))
@@ -378,18 +381,38 @@ class TestGatewayHtmlErrorRetries(unittest.TestCase):
 
 
 class TestUrlAndHeaders(unittest.TestCase):
+    def _url(self, base_url):
+        lines = _chat_sse({"choices": [{"delta": {"content": "好"}}]})
+        with _Transport(lines) as t:
+            llm_provider.make_backend(_cfg(base_url=base_url)).chat_turn(
+                [], [], _cfg(base_url=base_url, max_tokens=100))
+        return t.calls[0]
+
     def test_chat_url_matches_sdk_join(self):
-        self.assertEqual(llm_provider.openai_chat_url("https://api.deepseek.com/v1"),
+        self.assertEqual(self._url("https://api.deepseek.com/v1")["url"],
                          "https://api.deepseek.com/v1/chat/completions")
-        self.assertEqual(llm_provider.openai_chat_url("https://x/"),
+        self.assertEqual(self._url("https://x/")["url"],
                          "https://x/chat/completions", "base 不擅自补 /v1（与 SDK 一致）")
 
     def test_bearer_auth_and_missing_key(self):
-        h = llm_provider._bearer_headers({"api_key": "sk-k"})
-        self.assertEqual(h["authorization"], "Bearer sk-k")
-        self.assertEqual(h["content-type"], "application/json")
+        call = self._url("https://x")
+        self.assertEqual(call["headers"]["authorization"], "Bearer k")
+        self.assertEqual(call["headers"]["content-type"], "application/json")
         with self.assertRaises(ValueError):
-            llm_provider._bearer_headers({"api_key": ""})
+            llm_provider.make_backend(_cfg(api_key="")).chat_turn(
+                [], [], _cfg(api_key="", api_retries=1))
+
+    def test_extension_fields_reach_the_endpoint(self):
+        """SDK 不认识的 DeepSeek 扩展字段经 extra_body 原样进请求体，增量里的
+        `reasoning_content` 也由 SDK 原样交回（不被模型类型丢掉）。"""
+        lines = _chat_sse({"choices": [{"delta": {"reasoning_content": "想"}}]},
+                          {"choices": [{"delta": {"content": "好"}}]})
+        with _Transport(lines) as t:
+            msg, _st = llm_provider.make_backend(_cfg()).chat_turn(
+                [], [], _cfg(max_tokens=100, thinking="disabled"))
+        self.assertEqual(t.calls[0]["body"]["thinking"], {"type": "disabled"})
+        self.assertNotIn("extra_body", t.calls[0]["body"])
+        self.assertEqual((msg["reasoning_content"], msg["content"]), ("想", "好"))
 
 
 class TestStreamTimeout(unittest.TestCase):
@@ -453,14 +476,14 @@ class TestStreamTimeout(unittest.TestCase):
                 yield ""
             return _FakeResp(lines=lines())
 
-        orig = llm_provider._post_json
         calls: list[int] = []
 
         def counting_fake(*a, **k):
             calls.append(1)
             return fake(*a, **k)
-        llm_provider._post_json = counting_fake
-        self.addCleanup(lambda: setattr(llm_provider, "_post_json", orig))
+        endpoint = fake_endpoint(counting_fake)
+        endpoint.__enter__()
+        self.addCleanup(endpoint.__exit__, None, None, None)
         b = llm_provider.make_backend(_cfg())
         cfg = _cfg(max_tokens=100, api_ttft_timeout=0.2, api_retries=2, api_retry_wait=0)
         tags: list[str] = []

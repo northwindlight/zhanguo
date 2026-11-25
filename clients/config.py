@@ -5,7 +5,10 @@ from clients.context import CTX_KEYS
 TRANSPORT_FIELDS={key:Field((str,)) for key in (
     'base_url','api_key','model','reasoning_effort','anthropic_version')}
 TRANSPORT_FIELDS.update({
-    'provider':Field((str,),choices=('openai','responses','anthropic')),
+    'provider':Field((str,),choices=('openai','responses','anthropic','gemini')),
+    'gemini_api_version':Field((str,),choices=('v1','v1beta','v1alpha')),
+    'gemini_thinking_budget':Field((int,),minimum=-1),
+    'gemini_legacy_tool_batches':Field((int,),minimum=0),
     'thinking':Field((str,),choices=('enabled','disabled','adaptive')),
     'temperature':Field((int,float),minimum=0,maximum=2,nullable=True),
     'max_tokens':Field((int,),minimum=1), 'api_retries':Field((int,),minimum=0),
@@ -40,7 +43,7 @@ normalize.fields=LLM_SCHEMA.fields
 # 少填就在开局前说清楚，别等第一次请求时抛一个 KeyError。
 MODEL_FIELDS=('base_url','api_key','model')
 MODEL_FIELD_HELP={
-    'base_url':'API 端点地址（provider 可选 openai/responses/anthropic，缺省 openai）',
+    'base_url':'API 端点地址（provider 可选 openai/responses/anthropic/gemini，缺省 openai）',
     'api_key':'该端点的密钥',
     'model':'模型名（如 deepseek-v4-flash）',
 }
@@ -86,5 +89,5 @@ def require_model_fields(cfg,*,path='config',clients=()):
         lines.append('  不想接模型就把这个国家的 "client" 改成 '
                      + '、'.join(sorted(name for name in clients if name != 'llm'))
                      + '（本发行版声明的其它客户端）。')
-    lines.append('  模板见 mp_config.example.json；密钥只写进 mp_config.json（该文件不入库）。')
+    lines.append('  模板见 configs/mp_config.example.json；密钥只写进 mp_config.json（该文件不入库）。')
     raise ConfigError('\n'.join(lines))

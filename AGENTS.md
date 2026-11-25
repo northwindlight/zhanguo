@@ -16,7 +16,7 @@
 | 通用引擎 | `engine/runtime.py`、`engine/player.py`、`engine/session.py`、`engine/config.py` | 模块装配、绑定玩家 API、Session、配置与状态契约 |
 | 宿主与发行版 | `host.py`、`mods.toml`、`mods.experimental.toml`、各发行版 `mod.toml`／`session.py` | 选择发行版、场景、客户端、服务与存读档 |
 | 战国规则 | `mods/native/<领域>/api.py`、领域对象及内容声明 | 建设、军令、市场、银行、外交、视野、结算等正式语义 |
-| 真人应用接口 | `mods/native/human.py`、[接口说明](docs/真人玩家接口.md) | 绑定真人身份、操作目录、查询和正式提交 |
+| 真人应用接口 | `mods/native/human.py`、[接口说明](docs/接口/真人玩家接口.md) | 绑定真人身份、操作目录、查询和正式提交 |
 | 桌面宿主与投影 | `ui/desktop.py`、`mods/ui/desktop_player.py`、`desktop_human.py`、`desktop_catalog.py` | 输入协议、玩家快照、演出数据、卡片呈现 |
 | Godot GUI | `mods/ui/desktop/Scripts/`，重点 `Desktop.Human*.cs`、`WorldMap*.cs`、`MainMenu*.cs` | 选择、输入、面板、地图、动画与设置 |
 | 启动与打包 | `desktop.py`、`scripts/package_windows.py`、`scripts/verify_windows_package.ps1`、`.github/workflows/` | 源码启动、Windows 便携包及 CI |
@@ -87,6 +87,6 @@ GUI变更还要检查实际窗口和相关尺寸、输入与状态切换。Linux
 - 用户要求完成版本由 CI 验收成功后直接公开 **Pre-release**，附 Windows ZIP、源码 ZIP 与 `SHA256SUMS`，试玩确认后再转正式。自动发布已接入`ci.yml`：`VERSION`对应待发标签时，全部检查及Windows便携包验收成功后发预发布。脚本核对包内提交／版本和上传摘要，已公开附件不覆盖。
 - 构建范围由`scripts/ci_release_scope.py`核对，包含所有随包规则源码。已发布版本后的日常代码改动仅构建工件；完成下一版时递增`VERSION`并补`docs/releases/v<版本>.md`。失败可重跑同提交，草稿续传；不要修改已发布标签。
 - 仅计划／说明文档更新不另发游戏版本。发布新实现使用新版本，不静默改已发布标签或附件；转正式须遵从用户试玩确认。
-- 发布步骤和当前下载入口见[Windows便携包](docs/Windows便携包.md)，CI定义见 [ci.yml](.github/workflows/ci.yml) 与 [windows-portable.yml](.github/workflows/windows-portable.yml)。
+- 发布步骤和当前下载入口见[Windows便携包](docs/指南/Windows便携包.md)，CI定义见 [ci.yml](.github/workflows/ci.yml) 与 [windows-portable.yml](.github/workflows/windows-portable.yml)。
 
 任务结束时更新相关计划／验收记录，清楚说明实际改动、验证结果和未完成项。此文件保持接手入口规模；详细设计与历史放在链接文档中。

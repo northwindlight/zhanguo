@@ -20,15 +20,14 @@
 - [v0.6.3军令规则与自动预发布验收](reviews/GUI军令规则与自动预发布-20261028.md)。
 
 - [Agent开发接手入口](../AGENTS.md)：架构与规则API入口、当前待办、验证命令、真实对局边界及预发布流程。
-- [单机真人玩家接口](真人玩家接口.md)：一位真人混合 AI、轮转等待、命令去重、玩家视野与地图知识；Godot 真人操作已接线，包含建设、军令、外交、历史地图与保存退出。
+- [单机真人玩家接口](接口/真人玩家接口.md)：一位真人混合 AI、轮转等待、命令去重、玩家视野与地图知识；Godot 真人操作已接线，包含建设、军令、外交、历史地图与保存退出。
 
-- [Windows 便携体验包](Windows便携包.md)：自带运行环境、解压双击启动，附音乐与美术评审材料。
+- [Windows 便携体验包](指南/Windows便携包.md)：自带运行环境、解压双击启动，附音乐与美术评审材料。
 
 - **[Mod 开发文档站](https://northwindlight.github.io/zhanguo/)**：按开发流程组织，带可搜索的 API 参考（API 参考页由 `scripts/api_doc.py` 从源码生成）。本地预览：`python3 docs/site/build.py --serve`。
 - [游戏说明书](../mods/native/docs/游戏说明书.md)：面向人类读者的玩法说明，包含国土存亡、回合流程、生产、市场、战争、外交、八国剧本与观察者操作；游戏内也可按需读取。
-- [Mod 开发指南](Mod开发指南.md)：示例、模块声明与开发接口。
-- [发行版 Session 与剧本胜利钩子](发行版Session.md)：宿主、服务、剧本挂载及存取契约。
-- [配置层](配置层.md)、[客户端接线](客户端接线.md)：配置提供者与绑定玩家 API。
+- [发行版 Session 与剧本胜利钩子](接口/发行版Session.md)：宿主、服务、剧本挂载及存取契约。
+- [配置层](接口/配置层.md)、[客户端接线](接口/客户端接线.md)：配置提供者与绑定玩家 API。
 - [native](../mods/native/README.md)、[experimental](../mods/experimental/README.md)、[UI](../mods/ui/README.md)：发行版和界面入口。
 - [presentation](../presentation/)：中立的呈现原语（语言目录、终端渲染、回执、简报、地图），UI Mod 与模型客户端共用。
 
@@ -94,22 +93,23 @@
 - [玩家侧呈现重做（2026-10-17）](reviews/玩家侧呈现重做-20261017.md)、[玩家侧 UX 对比（2026-10-17）](reviews/玩家侧UX对比-20261017.md)：面向模型的呈现改中文语义，以及两版真实上下文同局对照。
 - [架构复核：纵向已切开，横向仍耦合（2026-10-17）](reviews/架构复核-20261017.md)：模块化的剩余耦合与优先级。
 - [UI 退步复核与修复验收（2026-10-16）](reviews/UI退步复核-20261016.md)：对照旧版注释，记录 14 项信息错误、遗漏与阅读能力退步及逐项修复验收。
-- [错误实现总表](错误实现.md)：保留原入口及审计证据。
+- [错误实现总表](reviews/错误实现.md)：保留原入口及审计证据。
 - [0.2.3 修复验收](reviews/错误实现-修复验收.md)、[结盟意愿差异复核](reviews/结盟意愿差异复核.md)。
 - [toolcall 对照](reviews/toolcall对照.md)、[正规化语义审查](reviews/正规化语义审查.md)、[说明书核对](reviews/正规化说明书核对.md)、[阶段 A 记录](plans/阶段A改造记录.md)：对应阶段的历史工程记录。
-- [审计实验](../experiments/implementation_audit/README.md)：合成基准和离线续算材料。
+- [审计实验](https://github.com/northwindlight/zhanguo/blob/archive/research/experiments/implementation_audit/README.md)：合成基准和离线续算材料。
+- 2026-11-25 起，`experiments/` 与 `research/game-records/` 只保存在 [`archive/research`](https://github.com/northwindlight/zhanguo/tree/archive/research) 分支；各文档里指向它们的链接已改为该分支地址。`docs/design/` 下的截图与录像统一放在 `docs/design/media/`。 契约文档在 `接口/`，使用指南在 `指南/`，复核用的测量数据在 `reviews/data/`，研究论文在 `research/papers/`。
 
 ## 版本与发布
 
 - [v0.7.1 试玩版](releases/v0.7.1.md)、[v0.7.0 试玩版](releases/v0.7.0.md)、[v0.6.3 试玩版](releases/v0.6.3.md)：各版发布说明与下载入口。
-- [更新记录](../CHANGELOG.md)、[Windows 便携包](Windows便携包.md)：版本变更汇总与打包、下载说明。
+- [更新记录](../CHANGELOG.md)、[Windows 便携包](指南/Windows便携包.md)：版本变更汇总与打包、下载说明。
 
 ## 研究与历史资料
 
-- [研究文章与长任务野榜](../research/papers/README.md)：四模型的主观观察、评分规则、来源与局限。
+- [研究文章与长任务野榜](research/papers/README.md)：四模型的主观观察、评分规则、来源与局限。
 
-- [消费总量评测口径论文](research/消费总量评测指标论证.md)：消费与投资、资本积累、有效需求、充分市场下的消费价值证明、内生价格的跨局比较与探针识别边界；[实现与复现附录](research/消费指标实现与复现.md)、[消费指标实验](../experiments/consumption_metric/README.md)。2026-10-15 的[静态核对快照](research/消费指标实现核对.json)保留其各自口径与源码指纹。
-- [公开真实对局资料](../research/game-records/README.md)：历史原始资料，独立于源码发行包和自动测试。
+- [消费总量评测口径论文](research/消费总量评测指标论证.md)：消费与投资、资本积累、有效需求、充分市场下的消费价值证明、内生价格的跨局比较与探针识别边界；[实现与复现附录](research/消费指标实现与复现.md)、[消费指标实验](https://github.com/northwindlight/zhanguo/blob/archive/research/experiments/consumption_metric/README.md)。2026-10-15 的[静态核对快照](research/消费指标实现核对.json)保留其各自口径与源码指纹。
+- [公开真实对局资料](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/README.md)：历史原始资料，独立于源码发行包和自动测试。
 - [历史匈奴教义](archive/strategy/匈奴教义.md)：旧版人类侧策略资料；当前政体入口见 [huns](../mods/native/polities/huns/README.md)。
 - [旧领域声明](archive/legacy-domain-declarations/)：保留作历史对照。
 - [旧规则和讲义](archive/legacy-rules/README.md)：退役说明书、四篇旧手册和原领域规则片段。
