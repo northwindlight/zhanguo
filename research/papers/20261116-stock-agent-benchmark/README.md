@@ -2,7 +2,7 @@
 
 2026-11-16 · 观点 + 规格 + 实证 · 核心主张：不以模型为尺
 
-> 代码与材料：仓库 <https://github.com/northwindlight/zhanguo>；stock 发行版说明 [`mods/stock/README.md`](../../../mods/stock/README.md)；两局存档与审计 [`research/game-records/`](../../game-records/README.md)；文档站 <https://northwindlight.github.io/zhanguo/>。
+> 代码与材料：仓库 <https://github.com/northwindlight/zhanguo>；stock 发行版说明 [`mods/stock/README.md`](../../../mods/stock/README.md)；两局存档与审计 [`research/game-records/`](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/README.md)；文档站 <https://northwindlight.github.io/zhanguo/>。
 
 > 本文先给观点，再给能支撑它的设计与证据。凡证据不足处写成条件、不写成结论；凡本文拒绝的用法（用静态基线定标、用模型分布定阈值、用重复采样代替审计），都明确列出并说明理由，而不是一边拒绝一边偷偷使用。
 
@@ -554,7 +554,7 @@ stock 不是替代它们，而是补上它们没有的一类能力：**在代价
 
 ### 6.8 引擎内实验：零 LLM 成本的对照与干预
 
-本节全部结果来自**本地起一局确定性引擎**（不调用任何模型、网络或付费接口），脚本与结果在 [`experiments/stock_benchmark/`](../../../experiments/stock_benchmark/README.md)，可一键复跑。协议分两档：**全尺寸 F**（20000 tick/日、60 回合，约 7–9 分钟/局）只用于对论文数字；**缩放 S**（4000 tick/日、20 回合或更少）用于多种子/多干预，**只作机制方向**。
+本节全部结果来自**本地起一局确定性引擎**（不调用任何模型、网络或付费接口），脚本与结果在 [`experiments/stock_benchmark/`](https://github.com/northwindlight/zhanguo/blob/archive/research/experiments/stock_benchmark/README.md)，可一键复跑。协议分两档：**全尺寸 F**（20000 tick/日、60 回合，约 7–9 分钟/局）只用于对论文数字；**缩放 S**（4000 tick/日、20 回合或更少）用于多种子/多干预，**只作机制方向**。
 
 **6.8.1 重放确定性（C1a）.** 同 seed + 同脚本序列（含每回合买一档算力池）跑两遍：逐回合账本、成交序列、`save_mod_state()` 世界哈希**逐字节相同**；`planning_workers=1` 与 `4` 也得到同一世界哈希与同一成交序列（3 个配置，哈希如 ledger `844e6665…`、fills `e4e57dbf…`）。这补上了 §8.3 D3 此前缺失的「重放确定性」实测，也支持 §3.5 的「并发只重叠等待」。边界：只验证到「给定脚本 + 采购」，模型采样仍是 C1b 的事。
 
@@ -570,7 +570,7 @@ stock 不是替代它们，而是补上它们没有的一类能力：**在代价
 
 ### 6.9 引擎探针（可选）：环境机制与防静态刷分
 
-本文不做联赛。这里用**脚本选手池**在本地引擎里验证的是「环境机制与防静态刷分」，不是动态代理的评估（协议 S：4000 tick/日 × 20 回合；48 局 × 4 席；选手池 5 种风格：`mom` 趋势、`rev` 反转、`news` 顺消息多空、`cash` 空仓、`short_heavy` 偏空；每局随机种子；脚本与结果在 [`experiments/stock_benchmark/`](../../../experiments/stock_benchmark/README.md)，零模型调用）。
+本文不做联赛。这里用**脚本选手池**在本地引擎里验证的是「环境机制与防静态刷分」，不是动态代理的评估（协议 S：4000 tick/日 × 20 回合；48 局 × 4 席；选手池 5 种风格：`mom` 趋势、`rev` 反转、`news` 顺消息多空、`cash` 空仓、`short_heavy` 偏空；每局随机种子；脚本与结果在 [`experiments/stock_benchmark/`](https://github.com/northwindlight/zhanguo/blob/archive/research/experiments/stock_benchmark/README.md)，零模型调用）。
 
 **Elo（初始 1000，48 局）**：cash 1169.25 > rev 1069.70 > short_heavy 1048.76 > mom 948.11 > news 764.18，与平均名次排序一致；cash 与 news 的 95% CI 不重叠（[1055,1255] vs [677,893]），中间三档大幅重叠。前 24 局 vs 后 24 局排序 Spearman = 0.6：头尾稳定、中间换位；约 20 局后头尾收敛、中间仍 ±60 波动。
 
@@ -739,9 +739,9 @@ Layer 1 的分数低、分布窄、八席全负，都**不能**推断尺子可�
 ## 附录 C：复算入口与已执行的校验
 
 - 仓库：<https://github.com/northwindlight/zhanguo>（stock 发行版在 `mods/stock/`，发行版说明见 [`mods/stock/README.md`](../../../mods/stock/README.md)）
-- 两局原始存档：[3.8 Flash 局](../../game-records/stock-gemini38-flash-20261114/README.md)、[Hydrogen 局](../../game-records/stock-gemini-hydrogen-20261113/README.md)
+- 两局原始存档：[3.8 Flash 局](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/stock-gemini38-flash-20261114/README.md)、[Hydrogen 局](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/stock-gemini-hydrogen-20261113/README.md)
 - 复算脚本：[evidence/extract.py](evidence/extract.py)；说明与文件清单：[evidence/README.md](evidence/README.md)
-- 零模型引擎实验：[`experiments/stock_benchmark/`](../../../experiments/stock_benchmark/README.md)（确定性重放、基线梯子、佣金/深度干预、结算价探针；一键复跑 `run_all.py`）
+- 零模型引擎实验：[`experiments/stock_benchmark/`](https://github.com/northwindlight/zhanguo/blob/archive/research/experiments/stock_benchmark/README.md)（确定性重放、基线梯子、佣金/深度干预、结算价探针；一键复跑 `run_all.py`）
 - 已执行（23 项全部通过，输出见 [evidence/checks.json](evidence/checks.json)）：8 席会计恒等式；8 席成交现金流 = `realized_pnl`；差异分解合计 = 每席平均现金差；公开消息 160/160 对齐；被动等权基准两局相差 < 2 个百分点。
 - 结算厅自述逐条核对：[evidence/claims-check.md](evidence/claims-check.md)
 

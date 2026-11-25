@@ -6,7 +6,7 @@ Zhanguo is a turn-based grand strategy game played by AI nations. Starting with 
 
 You can put different models in the same world, mix them with built-in rule players, or run an entirely offline game.
 
-[中文](README.md) · [Game manual, Chinese](mods/native/docs/游戏说明书.md) · [Real games](research/game-records/README.md) · [Developer documentation](docs/README.md)
+[中文](README.md) · [Game manual, Chinese](mods/native/docs/游戏说明书.md) · [Real games](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/README.md) · [Developer documentation](docs/README.md)
 
 ## What happens in a game
 
@@ -51,7 +51,7 @@ New games default to v13. The [v14 joint economic planner](ruleai/v14/README.md)
 
 ## Put models in charge
 
-Copy the [configuration template](mp_config.example.json) for a new game. Set each model-controlled nation to `"client": "llm"` and fill in its `provider`, `base_url`, `api_key` and `model`. Keep other nations as `client=rule` if desired. OpenAI-compatible, OpenAI Responses, Anthropic and native Gemini protocols are supported. They use the official OpenAI, Anthropic and Google Gen AI SDKs (pinned in `requirements-llm.txt`), all included in the Windows portable bundle. See the [Gemini setup guide](docs/Gemini接入.md).
+Copy the [configuration template](configs/mp_config.example.json) for a new game. Set each model-controlled nation to `"client": "llm"` and fill in its `provider`, `base_url`, `api_key` and `model`. Keep other nations as `client=rule` if desired. OpenAI-compatible, OpenAI Responses, Anthropic and native Gemini protocols are supported. They use the official OpenAI, Anthropic and Google Gen AI SDKs (pinned in `requirements-llm.txt`), all included in the Windows portable bundle. See the [Gemini setup guide](docs/Gemini接入.md).
 
 On Linux or macOS:
 
@@ -95,23 +95,23 @@ Commands are processed between model calls. `Ctrl-C` interrupts immediately and 
 
 ### Desktop view
 
-![Desktop observer](docs/design/gui-live-actor-20261024.png)
+![Desktop observer](docs/design/media/gui-live-actor-20261024.png)
 
 The desktop prototype provides a full-window map, political colors that fade on zoom, busy residents, dense troop groups and overlay drawers. Country banners, camera follow and five playback speeds show individual actions, followed by end-of-round marching, production, upkeep and each battle. Run `python3 desktop.py` after installing Godot .NET, the .NET SDK and Python; see the [desktop guide](mods/ui/desktop/README.md) for exact requirements.
 
-The start menu supports normal v13 rule games without gifted troops, and configurable LLM games. Model reasoning and prose use actual provider stream fragments; transparent half-body portraits keep their aspect ratio. Attaching to a running terminal process and standalone installers remain pending. See the [32-second window recording](docs/design/gui-live-battle-tour-20261024.mp4) and [implementation review](docs/reviews/GUI逐动作与聚落军团-20261024.md).
+The start menu supports normal v13 rule games without gifted troops, and configurable LLM games. Model reasoning and prose use actual provider stream fragments; transparent half-body portraits keep their aspect ratio. Attaching to a running terminal process and standalone installers remain pending. See the [32-second window recording](docs/design/media/gui-live-battle-tour-20261024.mp4) and [implementation review](docs/reviews/GUI逐动作与聚落军团-20261024.md).
 
 ## Optional experiments
 
 The default **native** game includes national plans, manuals and the finite-inventory market. It runs **without a council**. Briefing tips and prewar checks provide reminders while leaving decisions to the players.
 
-The optional [experimental distribution](mods/experimental/README.md) retains council review. Initial plans take effect directly; revisions are reviewed against prior plans and actions. Rejection in three consecutive rounds triggers monarch replacement. It also provides saved Python routines and research combat probabilities available only to rule clients. Use its [configuration template](mp_config.experimental.example.json) and a separate save.
+The optional [experimental distribution](mods/experimental/README.md) retains council review. Initial plans take effect directly; revisions are reviewed against prior plans and actions. Rejection in three consecutive rounds triggers monarch replacement. It also provides saved Python routines and research combat probabilities available only to rule clients. Use its [configuration template](configs/mp_config.experimental.example.json) and a separate save.
 
 The separate [stock market 2.0](mods/stock/README.md) uses a PAMS order book with 20,000 shared ticks, long and short positions, rented compute pools and trading slots, manual research, and paid competitor snapshots. Install `requirements-stock.txt` and use its separate configuration and save.
 
 ## Observing models
 
-The [real-game collection](research/game-records/README.md) and [research articles](research/papers/README.md) document planning, execution, memory, diplomacy and failure. Results depend on prompts, tool descriptions, memory, reasoning budgets and opponents. Identical prompts do not ensure equal suitability for every model; a single game's outcome or subjective score is not a general capability ranking.
+The [real-game collection](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/README.md) and [research articles](research/papers/README.md) document planning, execution, memory, diplomacy and failure. Results depend on prompts, tool descriptions, memory, reasoning budgets and opponents. Identical prompts do not ensure equal suitability for every model; a single game's outcome or subjective score is not a general capability ranking.
 
 Each published game documents its source and version. Historical saves require matching code and module dependencies; current development builds do not automatically migrate them. The older monolithic implementation remains on [legacy](https://github.com/northwindlight/zhanguo/tree/legacy).
 
@@ -119,7 +119,7 @@ Each published game documents its source and version. Historical saves require m
 
 Start with the [game manual](mods/native/docs/游戏说明书.md), [basic guide](mods/native/docs/基础指南.md), [economics](mods/native/docs/经济学手册.md), [warfare](mods/native/docs/战争手册.md) and [strategy](mods/native/docs/战略手册.md) handbooks. These documents are in Chinese and can also be requested inside the game.
 
-For development, see the [documentation site](https://northwindlight.github.io/zhanguo/), [Mod guide](docs/Mod开发指南.md), [documentation index](docs/README.md) and [changelog](CHANGELOG.md). Rules live in `mods/native/`, model clients in `clients/`, rule players in `ruleai/`, and presentation in `mods/ui/` and `presentation/`. The terminal entry point is `mp_run.py`; the desktop entry point is `desktop.py`.
+For development, see the [Mod documentation site](https://northwindlight.github.io/zhanguo/) (sources in `docs/site/content/`), [documentation index](docs/README.md) and [changelog](CHANGELOG.md). Rules live in `mods/native/`, model clients in `clients/`, rule players in `ruleai/`, and presentation in `mods/ui/` and `presentation/`. The terminal entry point is `mp_run.py`; the desktop entry point is `desktop.py`.
 
 ```bash
 python3 -m unittest discover -s tests -q

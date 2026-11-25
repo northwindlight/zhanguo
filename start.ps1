@@ -26,8 +26,8 @@ for ($index = 0; $index -lt $args.Count; $index++) {
 # ---- 配置：没有 mp_config.json 就从模板生成并提示填写 ----
 if (-not (Test-Path $ConfigPath)) {
     if ($ConfigPath -ne "mp_config.json") { throw "找不到配置 $ConfigPath" }
-    Copy-Item mp_config.example.json mp_config.json
-    Write-Host "[初始化] 已从模板生成 mp_config.json —— 请先填好每国的 base_url / api_key / model 再运行（provider 可选，只有 openai / anthropic 两种，缺省 openai）。" -ForegroundColor Yellow
+    Copy-Item configs/mp_config.example.json mp_config.json
+    Write-Host "[初始化] 已从模板生成 mp_config.json —— 请先填好每国的 base_url / api_key / model 再运行（provider 可选：openai / responses / anthropic / gemini，缺省 openai）。" -ForegroundColor Yellow
     Read-Host "回车退出"
     exit 1
 }

@@ -39,19 +39,19 @@ done
 
 # ---- 离线模式：直接用零依赖的 minigame 发行版 ----
 if [ "$OFFLINE" = "1" ]; then
-    CONFIG_PATH=mp_config.minigame.example.json
+    CONFIG_PATH=configs/mp_config.minigame.example.json
     if [ ! -f "$CONFIG_PATH" ]; then
-        echo "[错误] 找不到 $CONFIG_PATH（仓库里应有 mp_config.minigame.example.json）"
+        echo "[错误] 找不到 $CONFIG_PATH（仓库里应有 configs/mp_config.minigame.example.json）"
         exit 1
     fi
 fi
 
 # ---- 配置：没有 mp_config.json 就从模板生成并提示填写 ----
 if [ ! -f "$CONFIG_PATH" ] && [ "$CONFIG_PATH" = mp_config.json ]; then
-    cp mp_config.example.json mp_config.json
+    cp configs/mp_config.example.json mp_config.json
     echo "[初始化] 已从模板生成 mp_config.json（默认发行版：native）"
     echo "          请先填好每国要接模型的 base_url / api_key / model"
-    echo "          （provider 可选，只有 openai / anthropic 两种，缺省 openai）"
+    echo "          （provider 可选：openai / responses / anthropic / gemini，缺省 openai）"
     echo "          填完先跑 ./start.sh --check 体检；不想接模型就先用 ./start.sh --offline。"
     exit 1
 fi

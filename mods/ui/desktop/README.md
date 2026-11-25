@@ -3,7 +3,7 @@
 Godot 4.7.2 .NET / C# 原生桌面。全窗地图看各国经营与交战，侧边功能收进抽屉；
 Python 继续持有世界、规则、AI 与存档。默认 Compatibility，也可通过启动参数使用 Vulkan。
 
-![统一像素城镇](../../../docs/design/gui-unified-town-20261024.png)
+![统一像素城镇](../../../docs/design/media/gui-unified-town-20261024.png)
 
 当前地图使用 [unified-v1 原创图集](assets/unified-v1/README.md)，参考 WorldBox 的格状地貌与
 小比例聚落组织：16×16 地形小格、每档8像素高的岩壁、阶梯海岸与深浅海水。

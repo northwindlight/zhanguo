@@ -30,7 +30,7 @@ class TestWindowsPackage(unittest.TestCase):
             root = Path(tmp) / "checkout"
             bundle = Path(tmp) / "bundle"
             names = ["host.py", "mods.toml", "ui.toml", "clients/provider.py", "mods/native/mod.toml",
-                     "mp_config.json", "mp_config.example.json", "archive/session.json",
+                     "mp_config.json", "configs/mp_config.example.json", "archive/session.json",
                      "userdata/desktop-settings.json", "mods/ui/desktop/assets/unified-v1/manifest.json"]
             for name in names + ["clients/not-tracked.json"]:
                 path = root / name

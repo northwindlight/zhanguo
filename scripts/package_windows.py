@@ -197,7 +197,7 @@ def stage_sources(bundle, root=ROOT):
     for relative in tracked_files(root):
         if relative.parts[:4] == ("mods", "ui", "desktop", "Scripts") and relative.suffix == ".cs":
             shutil.copy2(root / relative, code / relative.name)
-    shutil.copy2(root / "docs/design/gui-unified-tour-20261024.mp4", bundle / "演出参考.mp4")
+    shutil.copy2(root / "docs/design/media/gui-unified-tour-20261024.mp4", bundle / "演出参考.mp4")
     (bundle / "music").mkdir()
     (bundle / "music/README.txt").write_text("音乐交付材料放这里；本版不会自动播放。详见根目录给音乐和美术的说明。\n", encoding="utf-8")
     licenses = bundle / "LICENSES"
