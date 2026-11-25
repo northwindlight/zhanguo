@@ -53,7 +53,7 @@ INCLUDE_FILES = (
     "mods/native/__init__.py",
     "VERSION",
     "LICENSE",
-    "requirements-stock.txt",
+    "requirements/stock.txt",
 )
 # 发行版要用的 UI mod 后端在 mods/ui/*.py；desktop/ 是 Godot 界面资产，整目录排除。
 UI_MOD_FILES = "mods/ui/*.py"

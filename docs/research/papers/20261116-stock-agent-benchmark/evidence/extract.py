@@ -21,7 +21,7 @@ import tarfile
 from collections import defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[4]  # research/papers/<paper>/evidence -> repo root
+ROOT = Path(__file__).resolve().parents[5]  # docs/research/papers/<paper>/evidence -> repo root
 DEFAULTS = {
     'hydrogen': ROOT / 'research/game-records/stock-gemini-hydrogen-20261113/session.json.gz',
     'flash': ROOT / 'research/game-records/stock-gemini38-flash-20261114/session.json.gz',

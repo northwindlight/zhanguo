@@ -19,7 +19,7 @@ if (-not (Test-Path "mp_config.json")) {
 
 & $py -c "import pams" 2>$null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "pams==0.3.0 is missing: $py -m pip install -r requirements-stock.txt" -ForegroundColor Red
+    Write-Host "pams==0.3.0 is missing: $py -m pip install -r requirements/stock.txt" -ForegroundColor Red
     exit 2
 }
 

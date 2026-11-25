@@ -14,7 +14,7 @@ You do **not** need to spend any money to try it: offline policy seats run with 
 ## 1. Requirements
 
 * Python 3.11+ (3.12/3.13 tested)
-* `pams==0.3.0` — `pip install -r requirements-stock.txt`
+* `pams==0.3.0` — `pip install -r requirements/stock.txt`
 * Linux, macOS or Windows; no network needed for offline runs
 
 ## 2. First run (no API key, ~1 minute)
@@ -120,7 +120,7 @@ mp_run.py         interactive/headless game host
 快速开始（不需要 API key）：
 
 ```bash
-pip install -r requirements-stock.txt
+pip install -r requirements/stock.txt
 python bench/evaluate.py --client sim --seats 4 --turns 20 --ticks 4000
 ```
 
@@ -144,5 +144,5 @@ python bench/evaluate.py --seats 4 --turns 60 --ticks 20000
 
 The matching engine is [PAMS](https://pypi.org/project/pams/0.3.0/) (Platform for Artificial
 Market Simulations, EPL-1.0), used unmodified from PyPI and pinned in
-`requirements-stock.txt`; it is installed by the reviewer, not redistributed in this archive.
+`requirements/stock.txt`; it is installed by the reviewer, not redistributed in this archive.
 The archive itself is licensed under the Mozilla Public License 2.0 (`LICENSE`).

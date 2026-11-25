@@ -91,9 +91,9 @@ else
 fi
 
 if [ "$NEED_STOCK" = "1" ] && ! "$PY" -c 'from importlib.metadata import version; import pams; assert version("pams") == "0.3.0"' >/dev/null 2>&1; then
-    echo "[初始化] 安装模拟股市后端（requirements-stock.txt）…"
-    if ! "$PY" -m pip install -i "$PIP_MIRROR" --timeout 60 -r requirements-stock.txt; then
-        "$PY" -m pip install --timeout 60 -r requirements-stock.txt
+    echo "[初始化] 安装模拟股市后端（requirements/stock.txt）…"
+    if ! "$PY" -m pip install -i "$PIP_MIRROR" --timeout 60 -r requirements/stock.txt; then
+        "$PY" -m pip install --timeout 60 -r requirements/stock.txt
     fi
 fi
 

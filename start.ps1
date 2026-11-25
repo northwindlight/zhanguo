@@ -54,8 +54,8 @@ $StockConfig = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json
 if ([System.IO.Path]::GetFileName([string]$StockConfig.mods) -eq "mods.stock.toml") {
     & $venvPy -c "from importlib.metadata import version; import pams; assert version('pams') == '0.3.0'"
     if ($LASTEXITCODE -ne 0) {
-        & $venvPy -m pip install -i $PipMirror --timeout 60 -r requirements-stock.txt
-        if ($LASTEXITCODE -ne 0) { & $venvPy -m pip install --timeout 60 -r requirements-stock.txt }
+        & $venvPy -m pip install -i $PipMirror --timeout 60 -r requirements/stock.txt
+        if ($LASTEXITCODE -ne 0) { & $venvPy -m pip install --timeout 60 -r requirements/stock.txt }
         if ($LASTEXITCODE -ne 0) { throw "无法安装股票后端依赖" }
     }
 }

@@ -2,7 +2,7 @@
 
 2026-11-16 · 观点 + 规格 + 实证 · 核心主张：不以模型为尺
 
-> 代码与材料：仓库 <https://github.com/northwindlight/zhanguo>；stock 发行版说明 [`mods/stock/README.md`](../../../mods/stock/README.md)；两局存档与审计 [`research/game-records/`](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/README.md)；文档站 <https://northwindlight.github.io/zhanguo/>。
+> 代码与材料：仓库 <https://github.com/northwindlight/zhanguo>；stock 发行版说明 [`mods/stock/README.md`](../../../../mods/stock/README.md)；两局存档与审计 [`research/game-records/`](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/README.md)；文档站 <https://northwindlight.github.io/zhanguo/>。
 
 > 本文先给观点，再给能支撑它的设计与证据。凡证据不足处写成条件、不写成结论；凡本文拒绝的用法（用静态基线定标、用模型分布定阈值、用重复采样代替审计），都明确列出并说明理由，而不是一边拒绝一边偷偷使用。
 
@@ -738,7 +738,7 @@ Layer 1 的分数低、分布窄、八席全负，都**不能**推断尺子可�
 
 ## 附录 C：复算入口与已执行的校验
 
-- 仓库：<https://github.com/northwindlight/zhanguo>（stock 发行版在 `mods/stock/`，发行版说明见 [`mods/stock/README.md`](../../../mods/stock/README.md)）
+- 仓库：<https://github.com/northwindlight/zhanguo>（stock 发行版在 `mods/stock/`，发行版说明见 [`mods/stock/README.md`](../../../../mods/stock/README.md)）
 - 两局原始存档：[3.8 Flash 局](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/stock-gemini38-flash-20261114/README.md)、[Hydrogen 局](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/stock-gemini-hydrogen-20261113/README.md)
 - 复算脚本：[evidence/extract.py](evidence/extract.py)；说明与文件清单：[evidence/README.md](evidence/README.md)
 - 零模型引擎实验：[`experiments/stock_benchmark/`](https://github.com/northwindlight/zhanguo/blob/archive/research/experiments/stock_benchmark/README.md)（确定性重放、基线梯子、佣金/深度干预、结算价探针；一键复跑 `run_all.py`）

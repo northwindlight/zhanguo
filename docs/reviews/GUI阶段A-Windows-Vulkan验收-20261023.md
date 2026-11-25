@@ -4,7 +4,7 @@
 日志确认 Godot 4.7.2 .NET / Vulkan 1.4.323 / Forward Mobile，显卡为 Intel Iris Xe，
 以 `TERRAIN_TOUR_OK` 结束。本次通过启动器完成巡览，之前直接使用 WinGet 命令别名的程序集加载问题未再出现。
 
-原始证据：[运行日志](gui-stage-a-windows-vulkan.log)、[巡览指标](gui-stage-a-windows-vulkan-metrics.json)。
+原始证据：[运行日志](data/gui-stage-a-windows-vulkan.log)、[巡览指标](data/gui-stage-a-windows-vulkan-metrics.json)。
 本次收到日志与 JSON，依据自动检查验收样板功能与短时性能；Windows 截图的画面观感另行审阅。
 
 ## 输入与结果

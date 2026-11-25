@@ -7,7 +7,7 @@ on:
     branches: [main]
     paths:
       - 'docs/site/**'
-      - 'docs/*.md'
+      - 'docs/接口/**'
       - 'scripts/api_doc.py'
       - 'engine/**'
       - 'clients/**'

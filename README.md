@@ -65,9 +65,9 @@ Linux / macOS 可用启动脚本检查并运行：
 ./start.sh --config mp_config.json --new
 ```
 
-脚本会准备本地虚拟环境并安装所需依赖，包含三家官方LLM SDK与v14候选的求解器。Windows可运行`.\start.ps1 --config mp_config.json --new`，或准备好Python环境后直接调用`mp_run.py`。支持OpenAI兼容、OpenAI Responses、Anthropic及原生Gemini API，分别使用OpenAI、Anthropic与Google Gen AI官方SDK（版本固定在`requirements-llm.txt`），便携包内置依赖。
+脚本会准备本地虚拟环境并安装所需依赖，包含三家官方LLM SDK与v14候选的求解器。Windows可运行`.\start.ps1 --config mp_config.json --new`，或准备好Python环境后直接调用`mp_run.py`。支持OpenAI兼容、OpenAI Responses、Anthropic及原生Gemini API，分别使用OpenAI、Anthropic与Google Gen AI官方SDK（版本固定在`requirements/llm.txt`），便携包内置依赖。
 
-原生Gemini接入使用`"provider": "gemini"`，`base_url`填`https://generativelanguage.googleapis.com`或兼容服务地址，`model`填该服务的真实模型ID。可用`reasoning_effort`指定思考强度；配置与工具签名的保存规则见[原生Gemini接入](docs/Gemini接入.md)。
+原生Gemini接入使用`"provider": "gemini"`，`base_url`填`https://generativelanguage.googleapis.com`或兼容服务地址，`model`填该服务的真实模型ID。可用`reasoning_effort`指定思考强度；配置与工具签名的保存规则见[原生Gemini接入](docs/指南/Gemini接入.md)。
 
 配置中的 API key 留在本地，整局存档不包含接入凭据。详细字段、上下文窗口和模型预算见[配置与启动](https://northwindlight.github.io/zhanguo/开始/03-配置与启动.html)。
 
@@ -121,21 +121,21 @@ python3 settlement.py --save mp_save.json --table
 桌面版采用正常v13离线八国开局：全窗地图、远景国色与近景地貌、居民与密集小队，以及列国、山河、市集、纪事抽屉。每次模型响应的工具全部执行后，统一播放这一批操作，播完才继续调用；行军随对应调用展示，回合末播放生产/军需与逐场战斗。按 Esc 或右上角菜单自动暂停，可继续、保存或退出。
 军团显示真实血条、防御与步骑兵数量；市政厅旁的集市展示买卖，街道绕开建筑，油区可见地表沥青。左上角显示当前国家的资源及上期红绿变化，生产与补给各阶段按国汇总，原有结算顺序保留。真人操作、规则AI和结算沿用同一倍速，LLM自动1×。默认 Z 工坊中文像素字体，菜单可切回旧字体或调整账目字号；开局可选正式八国或自由列国。见[桌面版说明](mods/ui/desktop/README.md)。
 
-安装 Godot .NET、.NET SDK 和 Python 后运行 `python3 desktop.py`。具体版本和安装方法见[桌面版说明](mods/ui/desktop/README.md)。启动后可在主菜单配置真人、规则 AI 或 LLM 对局。模型思考和发言按真实返回片段显示，支持半身图；默认规则 AI 无需 API。Windows可用[便携构建](docs/Windows便携包.md)，解压后双击启动；附音乐与美术评审资料。尚未接管运行中的终端会话。[32秒实际窗口录像](docs/design/media/gui-live-battle-tour-20261024.mp4)与[实现范围](docs/reviews/GUI逐动作与聚落军团-20261024.md)。
+安装 Godot .NET、.NET SDK 和 Python 后运行 `python3 desktop.py`。具体版本和安装方法见[桌面版说明](mods/ui/desktop/README.md)。启动后可在主菜单配置真人、规则 AI 或 LLM 对局。模型思考和发言按真实返回片段显示，支持半身图；默认规则 AI 无需 API。Windows可用[便携构建](docs/指南/Windows便携包.md)，解压后双击启动；附音乐与美术评审资料。尚未接管运行中的终端会话。[32秒实际窗口录像](docs/design/media/gui-live-battle-tour-20261024.mp4)与[实现范围](docs/reviews/GUI逐动作与聚落军团-20261024.md)。
 
 ## 可选玩法与实验
 
-单机真人模式已接入[玩家侧接口与 GUI](docs/真人玩家接口.md)：先选“玩家模式”，第一步定制自己的国家、颜色和地图，第二步添加修改 AI 对手；“看海模式”则全部交给 AI。点本国地块使用建设／征兵图标格，可用项在前、缺条件变暗；短悬停显示本格实际价格、加成与要求，长悬停展开作用及预计收益。面板明确每地块每回合一次建设和当前施工状态。点地块勾选驻军，下达独立移动或攻击；世界地图有本国视野、静态历史与未知遮罩。Esc 暂停，明确结束回合；回合中保存排队，退出可保留最近完整档。[图标操作验收](docs/reviews/真人GUI图标与交互-20261027.md)。
+单机真人模式已接入[玩家侧接口与 GUI](docs/接口/真人玩家接口.md)：先选“玩家模式”，第一步定制自己的国家、颜色和地图，第二步添加修改 AI 对手；“看海模式”则全部交给 AI。点本国地块使用建设／征兵图标格，可用项在前、缺条件变暗；短悬停显示本格实际价格、加成与要求，长悬停展开作用及预计收益。面板明确每地块每回合一次建设和当前施工状态。点地块勾选驻军，下达独立移动或攻击；世界地图有本国视野、静态历史与未知遮罩。Esc 暂停，明确结束回合；回合中保存排队，退出可保留最近完整档。[图标操作验收](docs/reviews/真人GUI图标与交互-20261027.md)。
 
 默认的 **native** 就是完整的战国玩法，包含库存市场、国策和手册，**不加载议会**。简报中的 tips 与宣战前自检为玩家提供提醒，怎样行动仍由玩家决定。
 
 [experimental](mods/experimental/README.md) 保留议会实验：第一次国策直接生效，从修订起由议长检查旧国策的执行与新版方案；连续三个相邻回合未通过会触发君主更替。它还提供保存并运行 Python 短脚本的能力，以及仅供规则 AI 使用的战斗概率研究。启用需使用[专用配置](configs/mp_config.experimental.example.json)和独立存档。
 
-[模拟股市 stock 2.0](mods/stock/README.md) 使用 PAMS 订单簿，让模型在共同的 20000 tick 中交易，支持多空、算力池与交易槽租赁、行动内研究和商业谍报。先安装 `requirements-stock.txt`；它使用独立配置与存档。
+[模拟股市 stock 2.0](mods/stock/README.md) 使用 PAMS 订单簿，让模型在共同的 20000 tick 中交易，支持多空、算力池与交易槽租赁、行动内研究和商业谍报。先安装 `requirements/stock.txt`；它使用独立配置与存档。
 
 ## 从对局中观察模型
 
-战国适合观察长期规划、执行、外交、纠错和记忆，也保留了[真实存档与原始日志](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/README.md)、[研究文章与行为野榜](research/papers/README.md)。其中包含胜利，也包含停滞、错误、人工干预和未完成的实验。
+战国适合观察长期规划、执行、外交、纠错和记忆，也保留了[真实存档与原始日志](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/README.md)、[研究文章与行为野榜](docs/research/papers/README.md)。其中包含胜利，也包含停滞、错误、人工干预和未完成的实验。
 
 模型表现受提示词、工具说明、记忆、推理预算和对手影响。相同提示不保证各模型同样适应，规则与提示改动也可能改变表现。阅读对局结论时，应同时看当时的版本、配置与过程；单局胜负或主观评分不足以推出通用能力排名。
 
@@ -157,15 +157,16 @@ python3 settlement.py --save mp_save.json --table
 
 | 位置 | 内容 |
 | --- | --- |
-| 根目录 | 入口：`mp_run.py`（终端宿主）、`desktop.py`（桌面版）、`host.py`、`settlement.py`（终局结算），`start.*`／`settle.*` 启动脚本，发行版入口 `mods*.toml` 与 `ui.toml` |
+| 根目录 | 入口：`mp_run.py`（终端宿主）、`desktop.py`（桌面版）、`host.py`、`settlement.py`（终局结算），`start.*`／`settle.*` 启动脚本，发行版入口 `mods*.toml` 与 `ui.toml`，依赖 `requirements.txt` |
 | `engine/` | 通用引擎：装载、裁决、结算调度、会话与存档 |
 | `mods/` | 发行版与模块：`native/`、`experimental/`、`stock/`、`ui/`（桌面版与呈现）、`examples/`（Mod 示例）、`scenarios/` |
 | `clients/`、`ruleai/`、`presentation/`、`ui/` | 模型客户端、规则玩家、中立呈现层、终端与桌面宿主 |
 | `configs/` | 配置模板：`mp_config.example.json` 及 experimental／minigame／stock 的样例 |
+| `requirements/` | 分项依赖：`llm.txt`（官方 SDK）、`ruleai.txt`（v14 求解器）、`stock.txt`（PAMS）、`vision.txt`（地图 PNG）；根目录 `requirements.txt` 汇总前两项 |
 | `scripts/`、`packaging/`、`bench/` | 开发与发布脚本、打包材料、stock 评测封装 |
 | `tests/` | 离线回归 |
-| `docs/` | 文档索引、设计、计划、复核记录；`docs/site/` 是 Mod 文档站源文件 |
-| `research/papers/` | 研究文章；对局存档与实验脚本在 [`archive/research`](https://github.com/northwindlight/zhanguo/tree/archive/research) 分支 |
+| `docs/` | [文档索引](docs/README.md)：`接口/`（发行版、配置、客户端、真人接口契约）、`指南/`（Windows 便携包、Gemini 接入）、`design/`（媒体在 `design/media/`）、`plans/`、`reviews/`（测量数据在 `reviews/data/`）、`research/`（论文与 `research/papers/`）、`site/`（Mod 文档站源文件） |
+| 归档分支 | 对局存档与实验脚本在 [`archive/research`](https://github.com/northwindlight/zhanguo/tree/archive/research) |
 
 开发检查：
 

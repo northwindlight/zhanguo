@@ -17,7 +17,7 @@ def _sdk():
         from google import genai
         from google.genai import types
     except ImportError as exc:
-        raise ValueError('Gemini 接入需要 google-genai；请在虚拟环境运行 pip install -r requirements-llm.txt') from exc
+        raise ValueError('Gemini 接入需要 google-genai；请在虚拟环境运行 pip install -r requirements/llm.txt') from exc
     return genai, types
 
 
