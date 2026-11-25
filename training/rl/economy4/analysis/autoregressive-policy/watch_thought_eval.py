@@ -33,18 +33,22 @@ def wait_parent(args):
         time.sleep(30)
 
 
-def package(stage, parent):
+def source_bundle(extra=()):
     bundle = BytesIO()
     with ZipFile(bundle, "w", ZIP_DEFLATED) as archive:
         for path in sorted((ROOT / "cpp").iterdir()):
             if path.suffix in (".cpp", ".hpp", ".py") or path.name == "CMakeLists.txt":
                 archive.write(path, path.relative_to(ROOT))
         for name in ("evaluate_thought.py","native_eval.py","rollout_trace.py","model.py","history.py",
-                     "memory_map.py","bc_train.py"):
+                     "memory_map.py","bc_train.py",*extra):
             archive.write(HERE / name, f"analysis/autoregressive-policy/{name}")
+    return bundle.getvalue()
+
+
+def package(stage, parent):
     template = (HERE / "kaggle_thought_eval.py").read_text()
     code = template.replace("CHECKPOINT_SHA = None", f"CHECKPOINT_SHA = {parent['sha256']!r}", 1)
-    code = code.replace("SOURCES = None", f"SOURCES = {b64encode(bundle.getvalue()).decode()!r}", 1)
+    code = code.replace("SOURCES = None", f"SOURCES = {b64encode(source_bundle()).decode()!r}", 1)
     compile(code, str(stage / "kernel.py"), "exec")
     (stage / "kernel.py").write_text(code)
     remote.publish(stage / "kernel-metadata.json", dict(id=KERNEL, title="Zhanguo Thought Budget Eval",

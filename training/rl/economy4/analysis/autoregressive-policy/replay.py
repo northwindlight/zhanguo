@@ -16,8 +16,9 @@ import torch
 from torch import Tensor
 from torch.nn import functional as F
 
+from history import DeltaState, SparseCache
 from memory_map import MemoryMap, Op
-from model import KV, Event, Policy, Snapshot
+from model import KV, Event, History, Policy, Snapshot
 from rollout_trace import (GameRecord, ObservationArchive, Record, SeatTrace, TraceHeader, TurnBoundary,
                            action_event, advance_thought, opening_thought, thought_mask)
 
@@ -125,10 +126,10 @@ class _Turn:
     games: list
 
 
-def _plan(header: TraceHeader, records):
+def _plan(header: TraceHeader, records, graph=MemoryMap()):
     """Walk the records with the same state machine as sampling, without touching the network."""
     events, turns = [], [_Turn([], [])]
-    thought = opening_thought(MemoryMap(), header.thought_budget)
+    thought = opening_thought(graph, header.thought_budget)
     previous = Op.START
     revision = None
     expect_limit = expect_action = None
@@ -193,19 +194,18 @@ def _graphs(graphs, device):
     return torch.tensor([[g.padded() for g in graphs]], device=device, dtype=torch.long)
 
 
-def _event_inputs(policy: Policy, events, boards, observations, device):
+def _event_inputs(policy: Policy, events, summaries, observations, device):
     width = policy.event_proj.weight.shape[0]
     x = torch.zeros(1, len(events), width, device=device)
     kind = policy.event_kind.weight
     for n, record in enumerate(events):
-        board = boards[record.revision]
         if record.kind is Event.OBSERVATION:
-            x[0, n] = board.global_token[0, 0] + kind[Event.OBSERVATION]
+            x[0, n] = summaries[record.revision][0, 0] + kind[Event.OBSERVATION]
         elif record.kind in (Event.THOUGHT, Event.THOUGHT_LIMIT):
             operation = record.operation if record.kind is Event.THOUGHT else Op.GAME
             vector = (policy.encode_graph(_graphs([record.graph], device))[0, 0]
                       + policy.operation.weight[operation] + policy.thought_position.weight[record.writes])
-            x[0, n] = vector + board.global_token[0, 0] + kind[record.kind]
+            x[0, n] = vector + summaries[record.revision][0, 0] + kind[record.kind]
         else:
             # Records are written under inference mode; a clone makes them usable in autograd.
             payload = record.payload.to(device).clone()
@@ -244,11 +244,61 @@ def replay_batched(policy: Policy, header: TraceHeader, records, observations: O
                    *, sparse: bool = True) -> list[Decision]:
     """Teacher-forced recomputation of every sampled decision, differentiable for PPO."""
     events, turns = _plan(header, records)
+    return _replay(policy, header, events, turns, observations, None, sparse, full_board_gradient=True)
+
+
+def move_history(history, device):
+    """Detach the recurrent prefix at a truncated training boundary."""
+    if history is None:
+        return None
+
+    def copy(tensor):
+        return tensor.detach().to(device=device, copy=True)
+
+    sparse = history.sparse
+    return History(tuple(DeltaState(copy(x.matrix), copy(x.conv_tail)) for x in history.delta),
+                   SparseCache(copy(sparse.key), copy(sparse.value), copy(sparse.block_key), copy(sparse.index_tail)),
+                   copy(history.latest))
+
+
+def replay_turn(policy, header, records, observations, prefix, graph, game_records):
+    """Train one turn, conditioning on the detached history at its opening.
+
+    Replay all sampled thoughts and one consecutive game-action fragment. Earlier
+    observations still enter history, but retain board gradients only at scored views.
+    """
+    require_adaptive(header, retain_thought_kv=False)
+    events, turns = _plan(header, records, graph)
+    if len(turns) != 1:
+        raise ValueError("Expected a single turn fragment")
+    turn = turns[0]
+    turn.games = [g for g in turn.games if g.record in game_records]
+    if len(turn.games) != len(game_records) or not turn.games:
+        raise ValueError("Incomplete game action fragment")
+    return _replay(policy, header, events, turns, observations, prefix, True, full_board_gradient=False)
+
+
+def _replay(policy, header, events, turns, observations, prefix, sparse, *, full_board_gradient):
     device = policy.event_proj.weight.device
-    obs = {rev: {k: v.to(device).clone() for k, v in observations[rev].items()}
-           for rev in {r.revision for r in events if r.kind is Event.OBSERVATION}}
-    boards = {rev: policy.snapshot(o, rev) for rev, o in obs.items()}
-    timeline, history, _ = policy._encode_events(_event_inputs(policy, events, boards, obs, device), None,
+    scored = {step.revision for turn in turns for step in (*turn.thoughts, *turn.games)}
+    obs, boards, summaries = {}, {}, {}
+    for record in events:
+        if record.kind is not Event.OBSERVATION:
+            continue
+        rev = record.revision
+        if full_board_gradient or rev in scored:
+            obs[rev] = {k: v.to(device=device, copy=True) for k, v in observations[rev].items()}
+            boards[rev] = policy.snapshot(obs[rev], rev)
+            summaries[rev] = boards[rev].global_token
+        else:
+            obs[rev] = observations[rev]
+            with torch.no_grad():
+                view = {k: v.to(device) for k, v in obs[rev].items()}
+                encoded, _, _ = policy.board.encode(view)
+                summaries[rev] = policy.board_proj(encoded)[:, :1].clone()
+    prefix = move_history(prefix, device)
+    offset = 0 if prefix is None else prefix.sparse.key.shape[1]
+    timeline, history, _ = policy._encode_events(_event_inputs(policy, events, summaries, obs, device), prefix,
                                                  sparse=sparse)
     decisions = []
     for turn in turns:
@@ -260,7 +310,7 @@ def replay_batched(policy: Policy, header: TraceHeader, records, observations: O
                  + policy.operation(_numbers([s.previous for s in steps], device))
                  + policy.thought_position(_numbers([s.writes for s in steps], device)))
             x = x + torch.cat([boards[s.revision].global_token for s in steps], dim=1)
-            x, _ = policy.sparse.read(x + timeline[:, cutoff], history.sparse, cutoff=cutoff, sparse=sparse)
+            x, _ = policy.sparse.read(x + timeline[:, cutoff], history.sparse, cutoff=cutoff + offset, sparse=sparse)
             hidden = []
             start = 0
             while start < len(steps):
@@ -285,7 +335,7 @@ def replay_batched(policy: Policy, header: TraceHeader, records, observations: O
         x = (policy.encode_graph(_graphs([g.graph for g in games], device))
              + policy.operation.weight[Op.GAME] + policy.thought_position.weight[0])
         x = x + torch.cat([boards[g.revision].global_token for g in games], dim=1)
-        x, _ = policy.sparse.read(x + timeline[:, cutoff], history.sparse, cutoff=cutoff, sparse=sparse)
+        x, _ = policy.sparse.read(x + timeline[:, cutoff], history.sparse, cutoff=cutoff + offset, sparse=sparse)
         previous = _expand(cache, len(games)) if header.retain_thought_kv else None
         hidden, _ = policy.decode_tokens(x[0, :, None], _pad_boards(policy, [boards[g.revision] for g in games]),
                                          previous)

@@ -101,6 +101,53 @@ private:
     std::array<rl::OpponentState, 4> opponents;
 };
 
+class SelfPlay {
+public:
+    SelfPlay(uint64_t seed, int size, int turns)
+        : episode(seed, size, turns, {}, rl::Scenario::Market4SelfPlay) {
+        episode.enable_dynamic();
+    }
+
+    int actor() {
+        if (episode.done) return -1;
+        if (cursor == wave.size()) {
+            wave = episode.ready_actors();
+            if (wave.empty()) throw std::logic_error("self-play scheduler is blocked");
+            for (int seat : wave) views[seat] = episode.observe(seat);
+            cursor = 0;
+        }
+        return wave[cursor];
+    }
+
+    void play(int index) {
+        const int seat = actor();
+        if (seat < 0 || index < 0 || index >= static_cast<int>(views[seat].choices.size()))
+            throw std::out_of_range("action index is outside the self-play observation");
+        episode.act(seat, views[seat].choices[index]);
+        ++cursor;
+    }
+
+    Result result(int seat) const {
+        const World& w = episode.world;
+        const auto& p = episode.player(seat);
+        int opponents_alive = 0;
+        for (int other = 0; other < 4; ++other)
+            if (other != seat && w.alive(other)) ++opponents_alive;
+        const auto& nation = w.nations[seat];
+        return {episode.done, w.mperiod, seat, w.alive(seat), opponents_alive,
+                p.initial_land, land(w, seat), p.decisions, p.invalid, p.recruits, p.attacks,
+                nation.starved_units, nation.supply_short_turns, p.blackout_turns,
+                p.last_current_gdp, p.last_fixed_gdp, p.total_current_gdp};
+    }
+
+    rl::Episode episode;
+    std::array<rl::View, 4> views;
+
+private:
+    std::vector<int> wave;
+    size_t cursor = 0;
+};
+
 template <class Function>
 int handle_error(Function&& f) {
     try {
@@ -115,6 +162,14 @@ int handle_error(Function&& f) {
 template <class T>
 auto vector_data(const std::vector<T>& rows) {
     return rows.empty() ? nullptr : rows.front().data();
+}
+
+void write_view(ObservationView* out, const rl::View& view, int turn) {
+    const auto& o = view.obs;
+    *out = {turn, view.new_turn, int(o.tiles.size()), int(o.nations.size()), int(o.armies.size()),
+            int(o.cand.size()), o.globals.data(), o.market.front().data(), vector_data(o.nations),
+            vector_data(o.tiles), vector_data(o.armies), vector_data(o.cand), o.cand_exec.data(),
+            vector_data(o.cand_ptr), o.cand_type.data()};
 }
 
 }  // namespace
@@ -137,12 +192,7 @@ void zhanguo_eval_destroy(Match* match) { delete match; }
 
 int zhanguo_eval_observe(Match* match, ObservationView* out) {
     return handle_error([&] {
-        const auto& view = match->observe();
-        const auto& o = view.obs;
-        *out = {match->episode.world.turn, view.new_turn, int(o.tiles.size()), int(o.nations.size()),
-                int(o.armies.size()), int(o.cand.size()), o.globals.data(), o.market.front().data(),
-                vector_data(o.nations), vector_data(o.tiles), vector_data(o.armies), vector_data(o.cand),
-                o.cand_exec.data(), vector_data(o.cand_ptr), o.cand_type.data()};
+        write_view(out, match->observe(), match->episode.world.turn);
     });
 }
 
@@ -151,5 +201,33 @@ int zhanguo_eval_play(Match* match, int index) {
 }
 
 void zhanguo_eval_result(const Match* match, Result* out) { *out = match->result(); }
+
+SelfPlay* zhanguo_eval_self_create(uint64_t seed, int size, int turns) {
+    SelfPlay* match = nullptr;
+    handle_error([&] {
+        if (size < 8 || size > 40 || turns < 1)
+            throw std::invalid_argument("invalid self-play dimensions");
+        match = new SelfPlay(seed, size, turns);
+    });
+    return match;
+}
+
+void zhanguo_eval_self_destroy(SelfPlay* match) { delete match; }
+
+int zhanguo_eval_self_observe(SelfPlay* match, ObservationView* out, int* actor) {
+    return handle_error([&] {
+        *actor = match->actor();
+        if (*actor >= 0)
+            write_view(out, match->views[*actor], match->episode.world.turn);
+    });
+}
+
+int zhanguo_eval_self_play(SelfPlay* match, int index) {
+    return handle_error([&] { match->play(index); });
+}
+
+void zhanguo_eval_self_result(const SelfPlay* match, Result* out) {
+    for (int seat = 0; seat < 4; ++seat) out[seat] = match->result(seat);
+}
 
 }
