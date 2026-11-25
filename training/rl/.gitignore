@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pt
+*.pth
+*.pkl
+*.zgrl
+*.log
+.venv*/
+build*/
+.env
+/economy4/script-bc-results/chunks

@@ -1,0 +1,10 @@
+{
+  "main_base": "5ab58029ed5efc5850434ef19184550331ba7fbe",
+  "python_reference": "d32c340331a66c2a81db436438b26020742f257f",
+  "sealed_source_sha256": {
+    "economy4/autoregressive-bc-results/campaign-code.zip": "830adc484ef81f81ebf3d232df1d0e5a40cc8cb9eed2e6d90bcb120699789f37",
+    "economy4/industry-bc-results/code.zip": "ccbdc3506daf5525bbe009378273dbf4bd70ba9711eda78a88b7241e0012f136",
+    "economy4/pure-script-bc/code-data/script-code.bundle": "96decbb52664d91d9e6ff425faa87a26e4d75df10c7f15588b5f61ee02ade489",
+    "economy4/script-global-ppo/code-data/ab-code.bundle": "fed4e575874e631c9209d0ed554a81a1e0474144f539e56d82c2852113fdfe33"
+  }
+}
