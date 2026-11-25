@@ -99,7 +99,7 @@ native 与 GUI 均保留原来的结算阶段顺序；不采用“一国完成�
 
 朋友反馈原字体难读；已将默认字体改为 Z 工坊像素圆体 16px，配合 16px 界面字号、20px 账目、行距与战斗标签调整。Esc 菜单可以切回 Fusion Pixel，也可将账目改为 16px。
 
-下表保留立项时查阅的候选。实际导入作者官方 ZLabs `Build_20260501` 的 CN 字型并附 OFL 许可；[同屏对比](../design/gui-pixel-font-comparison-20261026.png)保留原 Fusion 12px 在 18px 下的现状，以及 ZLabs 在 16px／20px 下的效果。寒蝉未引入，未声称完成三者比较。
+下表保留立项时查阅的候选。实际导入作者官方 ZLabs `Build_20260501` 的 CN 字型并附 OFL 许可；[同屏对比](../design/media/gui-pixel-font-comparison-20261026.png)保留原 Fusion 12px 在 18px 下的现状，以及 ZLabs 在 16px／20px 下的效果。寒蝉未引入，未声称完成三者比较。
 
 | 候选 | 已核实的作者说明 | 后续比较重点 |
 | --- | --- | --- |

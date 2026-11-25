@@ -1,5 +1,13 @@
 # 更新记录
 
+## 未发布 — 整理 main 与重写 Mod 文档站（2026-11-25）
+
+- Mod 文档站以 `docs/site/content/` 为唯一来源，按当前代码重写：补上 `[PlayerAPI]`＋发行版工具层的正式接入路径，新增「配方」栏目（由旧《Mod 开发指南》的配方迁入并核对），报错速查只收引擎里实际存在的报错文字；`docs/发行版Session.md`、`配置层.md`、`客户端接线.md`、`真人玩家接口.md` 由站点直接从源文件发布。研究页不再收进 Mod 站。
+- `docs/Mod开发指南.md` 改为指向站点的入口页；`mods/examples/tour.py` 与其测试同步改为输出站点地址。
+- `research/game-records/` 与 `experiments/` 移到 `archive/research` 分支，main 上删除，各文档中的链接改为该分支地址；`research/papers/` 保留。
+- `docs/design/` 顶层 126 个截图与录像收进 `docs/design/media/`，引用与 Windows 打包脚本同步更新。
+- 根目录配置模板 `mp_config*.example.json` 收进 `configs/`；`probe_review.py` 改为 `scripts/stock_probe_review.py`；启动脚本的协议提示更新为四种 provider。
+
 ## 未发布 — 取消压缩文本上限（2026-11-19）
 
 - 正式取消记忆压缩的输出文本上限（用户口径「正式取消压缩文本上限」）：`clients/llm.py` 的压缩调用改传 `max_tokens=NO_OUTPUT_LIMIT`，不再读 `ctx_compact_tokens`；openai / responses 两路请求体**不发** `max_tokens` / `max_output_tokens`，anthropic 路协议必填、落成 65536（8047 实测接受）。stock、议会评审、结算厅等其他调用方走原 `ctx_compact_tokens` 缺省链不变。

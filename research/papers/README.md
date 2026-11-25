@@ -2,7 +2,7 @@
 
 这里收录研究论证、真实对局观察与明确标注的主观评价。每篇文章的证据范围、评分口径和限制以正文为准。
 
-[网页版：研究与评测](https://northwindlight.github.io/zhanguo/研究与评测/01-长任务野榜.html)采用文档站的导航、搜索与表格样式，构建时直接读取这里的正文。
+研究正文只在这里维护，不再发布到 Mod 文档站。文中引用的对局存档与实验脚本已移到 [`archive/research`](https://github.com/northwindlight/zhanguo/tree/archive/research) 分支。
 
 | 日期 | 文章 | 性质 |
 | --- | --- | --- |
@@ -15,7 +15,7 @@
 
 另读：[MiniMax第14回合停局报告](20261020-long-horizon-wild-ranking/minimax-retrospective.md)、[评测归一化与宏观口径](20261020-long-horizon-wild-ranking/normalization.md)。
 
-原始历史材料见[真实对局资料](../game-records/README.md)，经济学论证见[消费总量评测指标论文](../../docs/research/消费总量评测指标论证.md)。
+原始历史材料见[真实对局资料](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/README.md)，经济学论证见[消费总量评测指标论文](../../docs/research/消费总量评测指标论证.md)。
 
 
 

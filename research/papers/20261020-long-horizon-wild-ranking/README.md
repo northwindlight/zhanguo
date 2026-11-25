@@ -74,6 +74,6 @@ Gemini的自身行为不需要同局DeepSeek、Qwen开high才有资格评价。�
 - [当前评分](scores.json)、[直接行为链材料](behavior-evidence.json)
 - [0—13期指标及摘录](followup-evidence.json)、[完整行动计时块](followup-turns.json)
 - [最初前9期观察](observations.md)、[累计指标误读原文](excerpts.md)
-- [历史Gemini报告](../../game-records/eight-nations-20261018/report.md)
+- [历史Gemini报告](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/eight-nations-20261018/report.md)
 
 旧[v0.1](scores-v0.1-withdrawn.json)、[v0.2](scores-v0.2-withdrawn.json)、[v0.3](scores-v0.3-withdrawn.json)计分保留作修订记录，不是现行榜单。随文材料可复核选定案例与算术，源文件哈希标识本次冻结样本，不替代未公开完整日志的端到端复现。`verify.py`只验证资料一致性，不能把主观判分自动证明成客观真理。

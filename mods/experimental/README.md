@@ -4,7 +4,7 @@
 
 在 native 领域上按开局选择装配实验模块与服务。默认 `mods.toml` 装配 native；选择 `mods.experimental.toml` 才支持实验功能。旧 World v4 代码保存在 legacy；本发行版不自动迁移旧存档。
 
-配置顶层填写 `"mods":"mods.experimental.toml"`，用新的 save/journal 路径开局。议会默认使用该 LLM 玩家自己的模型与接入；只有单国条目显式写 `parliament.reviewer` 才另换。顶层 `parliament.reviewer` 只作为规则客户端的兜底，不再覆盖 LLM 玩家。示例见 [独立配置模板](../../mp_config.experimental.example.json)。用 `.venv/bin/python mp_run.py --config mp_config.experimental.example.json --new` 启动前填好接入参数，示例路径只用于新局。
+配置顶层填写 `"mods":"mods.experimental.toml"`，用新的 save/journal 路径开局。议会默认使用该 LLM 玩家自己的模型与接入；只有单国条目显式写 `parliament.reviewer` 才另换。顶层 `parliament.reviewer` 只作为规则客户端的兜底，不再覆盖 LLM 玩家。示例见 [独立配置模板](../../configs/mp_config.experimental.example.json)。用 `.venv/bin/python mp_run.py --config configs/mp_config.experimental.example.json --new` 启动前填好接入参数，示例路径只用于新局。
 
 ## 开局选择实验功能
 
@@ -109,4 +109,4 @@ experimental 在 native 的领域与 UI 基础上增加议会审核与库存市�
 
 ## v13 市场经营
 
-v13 随机选择并保存五种经营偏好，按公开市场库存变化评估集中增产的风险，统一预留燃料、原料、军需与现金，并使用本账户整单试算核对采购。设置 `rule_strategy` 可指定偏好，缺省 `random`；详见 [v13 说明](../../ruleai/v13/README.md) 与 [对照实验](../../experiments/rule_market/README.md)。本版规则客户端工厂不再写死 v11plus。模块版本已变化，旧局不自动迁移，也不热更新运行中的对局。
+v13 随机选择并保存五种经营偏好，按公开市场库存变化评估集中增产的风险，统一预留燃料、原料、军需与现金，并使用本账户整单试算核对采购。设置 `rule_strategy` 可指定偏好，缺省 `random`；详见 [v13 说明](../../ruleai/v13/README.md) 与 [对照实验](https://github.com/northwindlight/zhanguo/blob/archive/research/experiments/rule_market/README.md)。本版规则客户端工厂不再写死 v11plus。模块版本已变化，旧局不自动迁移，也不热更新运行中的对局。

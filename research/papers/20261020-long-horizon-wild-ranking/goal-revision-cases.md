@@ -35,7 +35,7 @@ T86的理由不只是“大家都加入所以我也加入”，而包含当时�
 
 这些解释并不证明每个判断都最优。例如日志将“一国增长永远比不过联盟增长”的广播当成规则，这不是已经证明的普遍经济定律，公告干预也影响了决策；它声称奖励可落袋仍要核对全部覆盖条件。肯定解释完整性，不等于把模型的小结或广播当成全知真相。
 
-直接回执与小结摘录见[goal-revision-evidence.json](goal-revision-evidence.json)的`OLD_YAN_*`；原文见[历史158局日志](../../game-records/eight-nations-158/journal.md)。
+直接回执与小结摘录见[goal-revision-evidence.json](goal-revision-evidence.json)的`OLD_YAN_*`；原文见[历史158局日志](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/eight-nations-158/journal.md)。
 
 ## 三、本局Qwen赵：接受邀约、按条件退回独立、随后维持
 

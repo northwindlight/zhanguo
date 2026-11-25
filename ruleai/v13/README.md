@@ -30,4 +30,4 @@ v13 沿用 v11plus 的军事分组与战斗判断，重新实现经济规划。�
 
 v13 保存独立的策略偏好、市场观测、上期本国成交和军事目标。不能把 v11plus 的状态解释成 v13；加载时显式改版本会拒绝。未指定版本时按存档记录恢复旧客户端。新增只读整单报价提升了经济查询模块版本，依赖清单不同的整局仍遵循引擎的严格拒绝加载规则，不自动迁移真实存档。
 
-验收与重复实验见 [市场回归实验](../../experiments/rule_market/README.md)。
+验收与重复实验见 [市场回归实验](https://github.com/northwindlight/zhanguo/blob/archive/research/experiments/rule_market/README.md)。

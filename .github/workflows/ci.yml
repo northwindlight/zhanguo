@@ -106,8 +106,8 @@ jobs:
         run: python3 docs/site/build.py
       - name: 配置体检（示例配置应当报出缺密钥，而不是崩）
         run: |
-          python3 mp_run.py --config mp_config.example.json --check-config || true
-          python3 mp_run.py --config mp_config.minigame.example.json --check-config
+          python3 mp_run.py --config configs/mp_config.example.json --check-config || true
+          python3 mp_run.py --config configs/mp_config.minigame.example.json --check-config
 
   desktop:
     name: Godot C# 编译

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mod 示例巡礼：把《Mod 开发指南》里的每条配方跑一遍。
+"""Mod 示例巡礼：把文档站「配方」里的每条配方跑一遍。
 
     .venv/bin/python mods/examples/tour.py
 
@@ -221,7 +221,7 @@ def main():
     step_replace_existing()
     step_broken_assembly()
     print()
-    print('文档：docs/Mod开发指南.md')
+    print('文档：https://northwindlight.github.io/zhanguo/')
 
 
 if __name__ == '__main__':

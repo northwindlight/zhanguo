@@ -6,8 +6,8 @@
 
 | 局 | 存档 | SHA-256 |
 |---|---|---|
-| Hydrogen（四席 `gemini-4-hydrogen-high`，2026-11-13） | [`../../game-records/stock-gemini-hydrogen-20261113/session.json.gz`](../../../game-records/stock-gemini-hydrogen-20261113/README.md) | `2345b9fd75b08c468d6f076f5aad990d53160bf0793502398faadf236ba4595c` |
-| 3.8 Flash（四席 `gemini-3.8-flash-high`，2026-11-14） | [`../../game-records/stock-gemini38-flash-20261114/session.json.gz`](../../../game-records/stock-gemini38-flash-20261114/README.md) | `04e6d461c6c49b4c6629e1cae93ad1af42f1c9bf67bec373aad634bde3e862f0` |
+| Hydrogen（四席 `gemini-4-hydrogen-high`，2026-11-13） | [`../../game-records/stock-gemini-hydrogen-20261113/session.json.gz`](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/stock-gemini-hydrogen-20261113/README.md) | `2345b9fd75b08c468d6f076f5aad990d53160bf0793502398faadf236ba4595c` |
+| 3.8 Flash（四席 `gemini-3.8-flash-high`，2026-11-14） | [`../../game-records/stock-gemini38-flash-20261114/session.json.gz`](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/stock-gemini38-flash-20261114/README.md) | `04e6d461c6c49b4c6629e1cae93ad1af42f1c9bf67bec373aad634bde3e862f0` |
 
 两局引擎版本：Hydrogen 局运行在 `6c7d8ee` 加随后被提交为 `0585416` 的工作区改动上，Flash 局运行在 `0585416` 上；可从审计验证 Hydrogen 已使用 120/240/480 的新算力价（旧版 `6c7d8ee` 为 600/1200/2400）。唯一已知运行期差异是休市日调度：`0585416` 修复「休市日仍调用一次交易槽」，Hydrogen 审计含 64 次休市日席位槽执行（16 个休市日 × 4 席），Flash 为 0；交易日槽两局均为 255 次。
 
