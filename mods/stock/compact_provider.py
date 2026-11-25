@@ -1,8 +1,7 @@
 """Stock-local streaming compression adapter for OpenAI-compatible endpoints."""
-import json
 import time
-from clients.provider import (OpenAICompat, _public_messages, _post_json, openai_chat_url,
-    _bearer_headers, stream_timeout, _iter_sse, _cached_tokens, _stream_notify, est_tokens)
+from clients.provider import (OpenAICompat, _public_messages, _openai_client, _sdk_call,
+    _sdk_events, stream_timeout, _cached_tokens, _stream_notify, est_tokens)
 
 
 class StockOpenAICompat(OpenAICompat):
@@ -11,13 +10,12 @@ class StockOpenAICompat(OpenAICompat):
 
         **超时按流式的语义走**（用户 2026-09-20：「首字3分钟，sse内60秒」）：
         `stream_timeout` 两段看门狗管首字与流内间隔，**没有总时长上限**。
-        `_post_json` 的 `timeout=ttft` 是给**没有 SIGALRM 的平台**（Windows）的兜底
-        ——socket 级超时管连接、响应头与每一次读（原生化后 Windows 也能抓住流内
-        停滞了，只是宽到 ttft 才判死，已知差异）。"""
+        SDK 客户端的 `timeout=ttft` 是给**没有 SIGALRM 的平台**（Windows）的兜底
+        ——它管连接、响应头与每一次读（流内停滞宽到 ttft 才判死，已知差异）。"""
         # deepseek-v4：thinking 开关 + reasoning_effort（low/medium/high）。
         # 一律发（用户 2026-09-19「行为按 deepseek 处理」）：cfg 没写 thinking 就按
         # enabled 走，不再有「没声明推理模型就省掉」的分叉（原 F1 保护已撤销）。
-        # （SDK 时代它们走 extra_body 合并进顶层；原生化后直接并进 body，逐字段等价。）
+        # （SDK 不认识的 `thinking` 由 `_sdk_call` 放进 extra_body，合并进顶层，逐字段等价。）
         body: dict = {"model": cfg["model"],
                       # 摘掉提供方私有键（`reasoning_signature` 是 Anthropic 那一路的东西，
                       # 严格端点收到不认识的 message 字段会 400；本路发的是 OpenAI 形态）。
@@ -42,23 +40,15 @@ class StockOpenAICompat(OpenAICompat):
         stream_stats: dict = {}
         c_s, r_s, tool_acc = "", "", {}
         wall0 = time.time()
-        with stream_timeout(ttft, gap) as clock:
-            resp = _post_json(openai_chat_url(cfg["base_url"]),
-                              _bearer_headers(cfg), body, ttft)
+        with stream_timeout(ttft, gap) as clock, _openai_client(cfg, ttft) as client:
             first_t = None
             last_t = time.time()
+            resp = None
             try:
-                for _name, data in _iter_sse(resp):
+                resp = _sdk_call(client.chat.completions.create, body, timeout=ttft)
+                for _name, payload in _sdk_events(resp, ttft):
                     clock.kick()               # 收到块 ⇒ 重新上弦（首字那一段到此结束）
-                    if data == "[DONE]":       # chat 流的收尾哨兵（Responses 流没有它）
-                        break
                     now = time.time()
-                    try:
-                        payload = json.loads(data)
-                    except ValueError:
-                        continue          # 认不出的行：跳过（不为一行脏数据终止整局）
-                    if not isinstance(payload, dict):
-                        continue
                     if first_t is None and payload.get("choices"):
                         d0 = payload["choices"][0].get("delta") or {}
                         if (d0.get("content") or d0.get("reasoning_content")
@@ -127,7 +117,8 @@ class StockOpenAICompat(OpenAICompat):
                     + f"等待超过 {(ttft if first_t is None else gap):g}s"
                       f"（一直没等到新的输出块）") from None
             finally:
-                resp.close()
+                if resp is not None:
+                    resp.close()
         stream_stats["wall"] = time.time() - wall0
         if first_t:
             stream_stats["first"] = first_t - wall0

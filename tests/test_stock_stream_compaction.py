@@ -1,8 +1,8 @@
 import json
 import unittest
-from unittest.mock import patch
 
 from mods.stock.compact_provider import StockOpenAICompat
+from tests.sdk_fakes import fake_endpoint
 from tests.test_llm_provider import _cfg, _FakeResp
 
 
@@ -19,7 +19,7 @@ class StreamingCompactionTests(unittest.TestCase):
         def post(url, headers, body, timeout):
             captured.update(body)
             return _FakeResp(lines=lines)
-        with patch('mods.stock.compact_provider._post_json', side_effect=post):
+        with fake_endpoint(post):
             text, stats = StockOpenAICompat(_cfg()).complete_text_stream([], _cfg(), tools=[])
         self.assertEqual(text, '摘要'*10)
         self.assertEqual(stats['body_tokens_estimate'], 20)

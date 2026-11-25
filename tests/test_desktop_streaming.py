@@ -7,6 +7,7 @@ import unittest
 from clients import provider
 from host import GameHost
 from ui.desktop import Controller
+from tests.sdk_fakes import fake_endpoint
 from tests.test_llm_provider import _FakeResp
 from tests.test_llm_provider_anthropic import _Transport, _cfg, _msg_start, _thinking_block, _text_block, _stop
 
@@ -25,13 +26,9 @@ class TestLiveDialogue(unittest.TestCase):
             yield data({'choices':[{'delta':{'tool_calls':[tool]}}]}); yield ''
             yield data({'choices':[{'delta':{'content':'先修粮道。'}}]}); yield ''
             yield 'data: [DONE]'; yield ''
-        orig=provider._post_json
-        provider._post_json=lambda *a,**k:_FakeResp(lines=lines())
-        try:
+        with fake_endpoint(lambda *a,**k:_FakeResp(lines=lines())):
             backend=provider.OpenAICompat({'base_url':'http://offline','api_key':'unused'})
             msg,_=backend.chat_turn([],[],{'base_url':'http://offline','api_key':'unused','model':'offline','api_retries':1},on_delta=lambda *args:seen.append(args))
-        finally:
-            provider._post_json=orig
         self.assertEqual(seen,[('reset',''),('thinking','先看粮仓。'),('body','诸位，'),('body','先修粮道。')])
         self.assertEqual(msg['content'],'诸位，先修粮道。')
         self.assertEqual(msg['tool_calls'][0]['function']['arguments'],'{"x":2}')
