@@ -2,7 +2,7 @@
 """Responses 提供方（`provider="responses"`，2026-10-24 接线）的翻译层与失败语义。
 
 ★ 这一路**只用标准库**（urllib + 手写 SSE），测试**不需要任何 SDK 包**——把
-  `llm_provider._post_json` 换成假传输层就能把整条路跑完（与另两套提供方测试同一个
+  `tests/sdk_fakes.fake_endpoint` 接到 SDK 的传输层上就能把整条路跑完（与另两套提供方测试同一个
   打法）：翻译 → 发请求 → 事件流聚合 → 用量/重试/续写。
 
 口径来源（OpenAI Responses API 的公开协议形态）：
@@ -30,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from clients import provider as llm_provider  # noqa: E402
+from tests.sdk_fakes import fake_endpoint  # noqa: E402
 
 
 def _cfg(**kw) -> dict:
@@ -71,7 +72,7 @@ def _rsse(*events) -> list[str]:
     out: list[str] = []
     for name, payload in events:
         out.append(f"event: {name}")
-        out.append("data: " + json.dumps(payload, ensure_ascii=False))
+        out.append("data: " + json.dumps({"type": name, **payload}, ensure_ascii=False))
         out.append("")
     return out
 
@@ -144,8 +145,6 @@ class _Transport:
         self.calls: list[dict] = []
 
     def __enter__(self):
-        self._orig = llm_provider._post_json
-
         def fake(url, headers, body, timeout):
             self.calls.append({"url": url, "headers": headers, "body": body, "timeout": timeout})
             item = self.script[min(len(self.calls) - 1, len(self.script) - 1)]
@@ -153,11 +152,12 @@ class _Transport:
                 raise item
             return _FakeResp(lines=item)
 
-        llm_provider._post_json = fake
+        self._endpoint = fake_endpoint(fake)
+        self._endpoint.__enter__()
         return self
 
     def __exit__(self, *exc):
-        llm_provider._post_json = self._orig
+        self._endpoint.__exit__(*exc)
         return False
 
 
@@ -239,10 +239,14 @@ class TestTranslation(unittest.TestCase):
         self.assertEqual([item.get("role") or item.get("type") for item in out], ["user"])
 
     def test_url_join_matches_sdk(self):
-        self.assertEqual(llm_provider.responses_url("https://api.openai.com/v1"),
-                         "https://api.openai.com/v1/responses")
-        self.assertEqual(llm_provider.responses_url("https://x/"),
-                         "https://x/responses", "base 不擅自补 /v1")
+        for base, url in (("https://api.openai.com/v1", "https://api.openai.com/v1/responses"),
+                          ("https://x/", "https://x/responses")):
+            ok = _rsse(_msg_item("msg_1"), _text_delta("msg_1", "好"), _completed())
+            with _Transport(ok) as t:
+                llm_provider.ResponsesCompat(_cfg(base_url=base))._stream_once(
+                    [{"role": "user", "content": "u"}], None, _cfg(base_url=base))
+            self.assertEqual(t.calls[0]["url"], url, "base 不擅自补 /v1")
+            self.assertEqual(t.calls[0]["headers"]["authorization"], "Bearer " + _cfg()["api_key"])
 
 
 class TestStreaming(unittest.TestCase):
@@ -389,21 +393,17 @@ class TestRetry(unittest.TestCase):
 class TestCompleteText(unittest.TestCase):
     def _run(self, response_payload, tools=None, max_tokens=None, **cfgkw):
         captured: dict = {}
-        orig = llm_provider._post_json
 
         def fake(url, headers, body, timeout):
             captured.update(body)
             captured["_url"] = url
             return _FakeResp(payload=json.dumps({"response": response_payload}).encode("utf-8"))
 
-        llm_provider._post_json = fake
-        try:
+        with fake_endpoint(fake):
             b = llm_provider.ResponsesCompat(_cfg(**cfgkw))
             text, stats = b.complete_text([{"role": "system", "content": "S"},
                                            {"role": "user", "content": "U"}],
                                           _cfg(**cfgkw), tools=tools, max_tokens=max_tokens)
-        finally:
-            llm_provider._post_json = orig
         return text, stats, captured
 
     def test_reads_output_text_and_disables_reasoning(self):

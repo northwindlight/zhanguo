@@ -1,0 +1,5 @@
+# Official LLM SDKs: OpenAI-compatible/Responses, Anthropic and native Gemini transports.
+# Install into the project virtual environment; the Windows portable bundle pins the same versions.
+openai==3.59.0
+anthropic==2.14.0
+google-genai==3.3.0

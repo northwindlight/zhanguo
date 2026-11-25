@@ -79,7 +79,8 @@ def build_extinction_fixture():
 
 def build_fixture():
     host=build(seed=20261023,config=build_config({'nations':[{'client':'rule','rule_ai':'v13'}]},20261023))
-    for _ in range(4):host.cycle()
+    # 征兵回合末才出兵，规则AI到第9期才首次调兵交战；前8期空跑，录第9期以覆盖军令、战斗与军需演出。
+    for _ in range(8):host.cycle()
     frame=host.ui.desktop_frame(host.observer_snapshot())
     capture=TimelineCapture(host);actor='scenario:qin'
     for action,args in [('plan',{'text':'本期核实生产与军需，向楚寄信，并依据实际局势经营。'}),
@@ -91,7 +92,9 @@ def build_fixture():
     beats=capture.finish()
     if capture.warning:raise ValueError(capture.warning)
     if not any(b['phase']=='letter' for b in beats):raise ValueError('Fixture letter was not delivered')
-    return {'frame':frame,'beats':beats,'period':4,'normal_initial_armies':0,'subsidies':False,'offline':True}
+    for phase in ('order','battle','maintenance','trade'):
+        if not any(b['phase']==phase for b in beats):raise ValueError(f'Fixture has no {phase} beat')
+    return {'frame':frame,'beats':beats,'period':8,'normal_initial_armies':0,'subsidies':False,'offline':True}
 
 
 def main():

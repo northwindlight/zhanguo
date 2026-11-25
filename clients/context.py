@@ -180,13 +180,18 @@ def _shrink_messages(msgs: list[dict], *, keep_reasoning: bool, tool_trim: int,
     actions = _tool_actions(msgs) if tool_trim else {}
     for m in msgs:
         nm = dict(m)
+        native = nm.get(REPLAY_KEY) or {}
+        if not keep_reasoning and nm.get('role') == 'assistant' and native.get('provider') == 'gemini':
+            # Native function-call signatures belong to their original Parts,
+            # independently of the display's optional thinking summary.
+            nm[REPLAY_KEY] = {**native, 'parts': [p for p in native.get('parts', []) if not p.get('thought')]}
         if not keep_reasoning and nm.get("role") == "assistant" and nm.get("reasoning_content"):
             nm["reasoning_content"] = "（思考过程已并入历史归档，细节以 rules/面板为准）"
             # ★ 思考正文被换掉了 ⇒ 签名**必须一起丢**：Anthropic 回放 thinking 要求签名与
             #   正文逐字节对应，拿旧签名配一段占位文案，轻则被拒 400（＝终止整局），重则
             #   让模型把"已归档"当自己真想过的话。少了签名，翻译层就整块不回放 thinking。
             for _k in PRIVATE_MSG_KEYS:
-                nm.pop(_k, None)
+                if native.get('provider') != 'gemini': nm.pop(_k, None)
         if tool_trim and nm.get("role") == "tool":
             c = nm.get("content") or ""
             if len(c) > tool_trim and actions.get(nm.get("tool_call_id")) not in keep_actions:
@@ -544,6 +549,9 @@ def merge_same_role(msgs: list[dict]) -> list[dict]:
                 last["content"] = _join(last.get("content"), m.get("content"))
                 continue
             if role == "assistant" and not last.get("tool_calls") and not m.get("tool_calls"):
+                if any((item.get(REPLAY_KEY) or {}).get('provider') == 'gemini' for item in (last, m)):
+                    out.append(dict(m))
+                    continue
                 last["content"] = _join(last.get("content"), m.get("content"))
                 if last.get("reasoning_content") or m.get("reasoning_content"):
                     # ★ 提供方私有回填键（thinking 签名）跟着思考正文走，两条规矩：
