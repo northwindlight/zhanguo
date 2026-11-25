@@ -3,7 +3,7 @@ from engine.config import Field, Schema, ConfigError
 from clients.context import CTX_KEYS
 
 TRANSPORT_FIELDS={key:Field((str,)) for key in (
-    'base_url','api_key','model','reasoning_effort','anthropic_version')}
+    'base_url','api_key','model','reasoning_effort','anthropic_version','opencode_session')}
 TRANSPORT_FIELDS.update({
     'provider':Field((str,),choices=('openai','responses','anthropic','gemini')),
     'gemini_api_version':Field((str,),choices=('v1','v1beta','v1alpha')),

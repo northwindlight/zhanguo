@@ -402,6 +402,16 @@ class TestUrlAndHeaders(unittest.TestCase):
             llm_provider.make_backend(_cfg(api_key="")).chat_turn(
                 [], [], _cfg(api_key="", api_retries=1))
 
+    def test_opencode_session_is_sent_as_a_header(self):
+        lines = _chat_sse({"choices": [{"delta": {"content": "好"}}]})
+        cfg = _cfg(opencode_session="game-qin", max_tokens=100)
+        with _Transport(lines) as transport:
+            llm_provider.make_backend(cfg).chat_turn([], [], cfg)
+        call = transport.calls[0]
+        self.assertEqual(call["headers"]["x-opencode-session"], "game-qin")
+        self.assertEqual(call["headers"]["user-agent"], "Zhanguo")
+        self.assertNotIn("opencode_session", call["body"])
+
     def test_extension_fields_reach_the_endpoint(self):
         """SDK 不认识的 DeepSeek 扩展字段经 extra_body 原样进请求体，增量里的
         `reasoning_content` 也由 SDK 原样交回（不被模型类型丢掉）。"""

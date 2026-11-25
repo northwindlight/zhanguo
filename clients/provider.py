@@ -569,8 +569,10 @@ def _openai_client(cfg: dict, timeout: float):
     key = str(cfg.get("api_key") or "")
     if not key:
         raise ValueError("provider=openai/responses 需要 api_key")
-    return _sdk("openai").OpenAI(api_key=key, base_url=str(cfg.get("base_url") or "").rstrip("/"),
-                                 **_client_kwargs(timeout))
+    options = _client_kwargs(timeout)
+    if session := cfg.get("opencode_session"):
+        options["default_headers"] = {"User-Agent": "Zhanguo", "x-opencode-session": session}
+    return _sdk("openai").OpenAI(api_key=key, base_url=str(cfg.get("base_url") or "").rstrip("/"), **options)
 
 
 def _retry_stream(stream_once, messages, tools, cfg, on_retry=None, on_delta=None):
