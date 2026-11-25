@@ -1,26 +1,52 @@
 # Zhanguo
 
-> Let models govern. Sit back and watch history unfold.
+> Let models govern and watch history unfold — or take the throne of one nation yourself.
 
-Zhanguo is a turn-based grand strategy game played by AI nations. Starting with a handful of tiles, each nation builds an economy, raises armies, exchanges letters, forms alliances and wages war. Humans watch plans meet reality: shortages, defeats, broken promises and unexpected recoveries.
+Zhanguo is a turn-based grand strategy game played mostly by AI. Each nation starts with a handful of tiles, then mines, farms, builds factories and raises armies; it also writes letters, forms alliances and wages war. Every nation can be run by a large language model, by a built-in rule AI, or by you.
 
-You can put different models in the same world, mix them with built-in rule players, or run an entirely offline game.
+The interest lies in the process as much as in who wins: does a model keep its promises? Does it adapt after a defeat? Why is the army at the front starving when the treasury is full?
 
-[中文](README.md) · [Game manual, Chinese](mods/native/docs/游戏说明书.md) · [Real games](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/README.md) · [Developer documentation](docs/README.md)
+[中文](README.md) · [Game manual (Chinese)](mods/native/docs/游戏说明书.md) · [Download for Windows](https://github.com/northwindlight/zhanguo/releases/tag/v0.7.1) · [Mod documentation (Chinese)](https://northwindlight.github.io/zhanguo/) · [Documentation index](docs/README.md)
+
+![God's-eye desktop view](docs/design/media/gui-national-production-20261026.png)
+
+## Three ways to play
+
+| Mode | What you do | What you need |
+| --- | --- | --- |
+| **Watch** | Every nation is AI-controlled. You see the full map, read the models' reasoning and messages, and can broadcast announcements or write to a nation | Nothing for rule AIs; API keys for models |
+| **Play** | You rule one nation against rule AIs or models, using the desktop app to build, recruit, issue orders and conduct diplomacy | The desktop app (the Windows portable bundle runs as is) |
+| **Model arena** | Give each nation a different model and let them compete; the whole game is recorded so every decision can be reviewed | API keys for the models |
 
 ## What happens in a game
 
-- **An economy that must support its ambitions.** Factories consume food, ore, oil and electricity to produce supplies and equipment. Power plants need fuel; armies need upkeep and repairs.
-- **Expansion takes time and coordination.** Land provides room to build, but national army totals do not tell you how many units can reach a particular front.
-- **War under fog of war.** Players rely on their own vision, watchtowers, published reports, spies and correspondence. The human observer's full map is not given to the players.
-- **Diplomacy changes who fights.** Guarantees, mutual defense and alliances can bring other nations into a war. Alliance membership also means voting, losing personal treaties and being unable to leave during wartime.
-- **A history you can follow.** National plans, action results, economic reports and searchable records show how decisions affect later turns.
+- **A production chain you must afford.** Food, ore and oil feed factories that make supplies and equipment; power plants keep burning fuel. The larger the army, the heavier its upkeep and replacements.
+- **Land, troops and time pull against each other.** New land is needed to grow, while an offensive needs concentration, supply and reserves. A large army does not mean the front can receive it.
+- **War in the fog.** Each nation sees only the facts in its own vision and has to learn about rivals through watchtowers, economic reports, espionage and letters. The observer sees the whole map, but never hands it to players.
+- **Diplomacy changes the battlefield.** Guarantees, mutual defence and alliances decide who a declaration of war drags in. Membership brings shared interests, but also votes, voided treaties and no leaving during wartime.
+- **Decisions have consequences.** National plans, action receipts, economic reports and searchable history run through long games, so you can trace how one judgement shaped the next dozens of turns.
 
-Nations take turns acting, then the world settles one complete round. Battles with defenders, diplomacy and construction have pending stages. A nation falls when it has no completed town hall left, even if it still owns other land.
+Each turn has an action phase, in which nations take turns to act (with a human player, the AIs act in the background at the same time), followed by a single settlement. Moves, trades and diplomatic submissions take effect immediately; construction starts, new recruits, battles against defended tiles and diplomatic outcomes are resolved at the end of the turn. A nation falls when its last town hall is lost. See the [game manual](mods/native/docs/游戏说明书.md) for the rules.
 
-## Watch an offline game first
+## Quick start
 
-The terminal game recommends **Python 3.13** (3.11/3.12 also supported). Create `mp_config.json` in the repository root:
+### Windows: download and play
+
+[Download the v0.7.1 preview (Windows x64 portable bundle)](https://github.com/northwindlight/zhanguo/releases/download/v0.7.1/zhanguo-0.7.1-windows-x64.zip), extract it completely and double-click `Zhanguo.exe`. The bundle ships its own runtime; no Python or developer tools are needed. From the main menu, choose player mode to rule a nation yourself, or observer mode to leave everything to the AIs. [Release notes](docs/releases/v0.7.1.md)
+
+### The desktop app from source
+
+Install Godot 4.7.2 .NET, the .NET 8 SDK and Python 3.11–3.13, then run from the repository root:
+
+```bash
+python3 desktop.py
+```
+
+See the [desktop guide](mods/ui/desktop/README.md) for installation details and options.
+
+### Terminal: an offline game without models
+
+Python 3.13 is recommended (3.11 and 3.12 also work). Create `mp_config.json` in the repository root:
 
 ```json
 {
@@ -29,6 +55,7 @@ The terminal game recommends **Python 3.13** (3.11/3.12 also supported). Create 
   "max_turns": 300,
   "save": "mp_save.json",
   "journal": "mp_journal.md",
+  "language": "en-US",
   "nations": [
     {"id": "scenario:qin", "name": "Qin", "client": "rule"},
     {"id": "scenario:chu", "name": "Chu", "client": "rule"}
@@ -37,34 +64,42 @@ The terminal game recommends **Python 3.13** (3.11/3.12 also supported). Create 
 ```
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 python3 -m pip install -r requirements.txt
 python3 mp_run.py --config mp_config.json --check-config
-python3 mp_run.py --config mp_config.json --new --turns 10
-python3 mp_run.py --config mp_config.json --turns 30
+python3 mp_run.py --config mp_config.json --new --turns 10   # run to turn 10
+python3 mp_run.py --config mp_config.json --turns 30         # continue to turn 30
 ```
 
-On Windows, use `python` instead of `python3` and activate with `.\.venv\Scripts\Activate.ps1`. `--turns` is the target round number: the final command continues the same game to round 30. **`--new` overwrites the selected save.** Give each new game separate save and journal paths.
+On Windows, use `python` instead of `python3` and activate the environment with `.\.venv\Scripts\Activate.ps1`.
 
-New games default to v13. The [v14 joint economic planner](ruleai/v14/README.md) is an opt-in candidate (`"rule_ai": "v14"`). Pure economic results improved, while the combined recruitment and investment policy still needs validation before default promotion. It requires NumPy/SciPy, included in the new Windows package, and no model access. Existing saves retain their strategy; v11plus remains available. `./start.sh --offline` runs a separate zero-dependency developer example.
+> **`--new` overwrites the save named in the configuration.** Use a new pair of `save` and `journal` names for each game, so you neither overwrite an old save nor append two games to one journal.
 
-## Put models in charge
+`--language en-US` (or `"language": "en-US"` in the configuration) switches the interface and the model-facing text to English. To try the game with no dependencies at all, run `./start.sh --offline`; it plays the dependency-free minigame example.
 
-Copy the [configuration template](configs/mp_config.example.json) for a new game. Set each model-controlled nation to `"client": "llm"` and fill in its `provider`, `base_url`, `api_key` and `model`. Keep other nations as `client=rule` if desired. OpenAI-compatible, OpenAI Responses, Anthropic and native Gemini protocols are supported. They use the official OpenAI, Anthropic and Google Gen AI SDKs (pinned in `requirements/llm.txt`), all included in the Windows portable bundle. See the [Gemini setup guide](docs/指南/Gemini接入.md).
+## Connecting models
 
-On Linux or macOS:
+Copy the [configuration template](configs/mp_config.example.json), set each model-controlled nation to `"client": "llm"` and fill in its `provider`, `base_url`, `api_key` and `model`. Models can be mixed, and they can share a world with `"client": "rule"` nations. `--check-config` reports any missing connection field, nation by nation.
+
+| `provider` | Protocol | Implementation |
+| --- | --- | --- |
+| `openai` (default) | OpenAI-compatible chat/completions: DeepSeek, Volcano Ark, vLLM and others | Official OpenAI SDK |
+| `responses` | OpenAI Responses API | Official OpenAI SDK |
+| `anthropic` | Anthropic Messages | Official Anthropic SDK |
+| `gemini` | Native Gemini API; see the [Gemini guide (Chinese)](docs/指南/Gemini接入.md) | Official Google Gen AI SDK |
+
+SDK versions are pinned in `requirements/llm.txt` and bundled in the Windows package. On Linux and macOS, the start script creates a virtual environment and installs the dependencies:
 
 ```bash
-./start.sh --config mp_config.json --check
-./start.sh --config mp_config.json --new
+./start.sh --config mp_config.json --check   # validate the configuration
+./start.sh --config mp_config.json --new     # start a game
 ```
 
-The shell launcher prepares a local virtual environment and dependencies, including the v14 candidate solver. Windows users can use `.\start.ps1 --config mp_config.json --new`, or run `mp_run.py` in a prepared Python environment. Missing LLM credentials cause a configuration error. Credentials stay in the local configuration and are not written into game saves.
+On Windows, use `.\start.ps1 --config mp_config.json --new`. API keys stay in your local `mp_config.json`, which is git-ignored, and game saves never contain connection credentials. Context window, reasoning budget and other fields are described in [Configuration and startup (Chinese)](https://northwindlight.github.io/zhanguo/开始/03-配置与启动.html).
 
-### The eight-nation scenario
+### The eight-nation scenario: the Seven Warring States and Zhou
 
-Generate Qin, Wei, Han, Zhao, Yan, Qi, Chu and Zhou on a 24×24 map, using your own configuration as a template:
+Generate a formal eight-nation game from your configuration:
 
 ```bash
 python3 -m scenarios.eight_nations --seed 20261024 --template mp_config.json
@@ -72,62 +107,88 @@ python3 mp_run.py --config mp_config.8国.20261024.json --check-config
 python3 mp_run.py --config mp_config.8国.20261024.json
 ```
 
-The generator creates a configuration and initial save, refusing to overwrite existing files. It uses the first LLM nation's client settings, or the first nation's settings when no LLM is present. Edit the generated roster to choose a different model for each nation. The final command continues the generated initial save.
+The generator writes a separate configuration and initial save, and refuses to overwrite existing files. Every nation takes the connection settings of the first LLM nation in the template (or of the first nation, if there is no LLM nation); you can adjust each nation afterwards.
 
-The seven powers initially guarantee Zhou's independence. A sole surviving nation wins by conquest. Zhou also wins if Zhou and its special subjects cover all surviving nations, with at least five nations including Zhou. Those other members receive **preservation as subjects, neither victory nor defeat**. Joining Zhou does not immediately end the game. See the [scenario rules](mods/native/docs/游戏说明书.md#八国剧本).
+The eight nations start at fixed bearings on a 24×24 map, and each of the seven states guarantees Zhou's independence at the start. Any lord may try to unify the realm; Zhou may instead rally lords to its cause, and if that path succeeds only Zhou wins, while its members are preserved as vassals, neither winning nor losing. See the [eight-nation scenario](mods/native/docs/游戏说明书.md#八国剧本) in the manual.
 
-## The observer's seat
+## Watching from the terminal
 
-The terminal shows national strength, maps, statements and action results. Reasoning is collapsed by default and retained in the journal. Enter `help` for the complete command list.
+The terminal shows national strength, maps, model messages and action results. Model reasoning is collapsed by default; the full text is in the journal. Type `help` while running for every command. The common ones:
 
 | Command | Purpose |
 | --- | --- |
-| `board` | World overview |
-| `map` / `map Qin` | Full map / one nation's vision |
-| `map world.svg` | Export a map; text and PNG are also supported |
-| `thoughts` / `thoughts on` / `thoughts off` | Read recent reasoning / expand / collapse |
-| `say Message` | Broadcast an observer announcement |
-| `send Qin Message` | Send an observer letter to one nation |
-| `pause` / `resume` | Pause after a complete round is saved / continue |
-| `quit` | Finish the current round, save and exit |
+| `board` | National overview |
+| `map` / `map Qin` | World map / Qin's vision |
+| `map world.svg` | Export the map; `.txt` and `.png` also work |
+| `thoughts` / `thoughts on` / `thoughts off` | Show recent reasoning / expand / collapse |
+| `say <text>` | Broadcast an announcement |
+| `send Qin <text>` | Send an observer letter to one nation |
+| `pause` / `resume` | Pause after the current full turn is saved / continue |
+| `quit` | Finish the current turn, save and exit |
 
-Commands are processed between model calls. `Ctrl-C` interrupts immediately and keeps the latest complete save; unfinished actions may appear only in the journal. Back up the adjacent `<save>.audit/` directory with the save to retain archived history. For an offline scoreboard, run `python3 settlement.py --save mp_save.json --table`.
+Commands are handled between model calls; anything typed while a model is responding is queued. `Ctrl-C` stops immediately and keeps only the last fully settled save.
 
-### Desktop view
+Each game's `journal` records the whole game, and the `.map.txt` next to it is refreshed after every settlement. When backing up, keep the save together with its `<save name>.audit/` directory. To view the final scoreboard offline:
 
-![Desktop observer](docs/design/media/gui-live-actor-20261024.png)
+```bash
+python3 settlement.py --save mp_save.json --table
+```
 
-The desktop prototype provides a full-window map, political colors that fade on zoom, busy residents, dense troop groups and overlay drawers. Country banners, camera follow and five playback speeds show individual actions, followed by end-of-round marching, production, upkeep and each battle. Run `python3 desktop.py` after installing Godot .NET, the .NET SDK and Python; see the [desktop guide](mods/ui/desktop/README.md) for exact requirements.
+## Distributions and rule AIs
 
-The start menu supports normal v13 rule games without gifted troops, and configurable LLM games. Model reasoning and prose use actual provider stream fragments; transparent half-body portraits keep their aspect ratio. Attaching to a running terminal process and standalone installers remain pending. See the [32-second window recording](docs/design/media/gui-live-battle-tour-20261024.mp4) and [implementation review](docs/reviews/GUI逐动作与聚落军团-20261024.md).
+The `"mods"` key at the top of the configuration selects a distribution; the default is native:
 
-## Optional experiments
+| Distribution | Entry | Contents |
+| --- | --- | --- |
+| native | `mods.toml` | The full game: inventory market, bank, national plans and manuals; no council |
+| [experimental](mods/experimental/README.md) | `mods.experimental.toml` | native plus three experiments: a council that reviews national plans (three consecutive rejections replace the monarch), saved Python strategy scripts, and combat probability research for rule AIs; template [`configs/mp_config.experimental.example.json`](configs/mp_config.experimental.example.json) |
+| [stock](mods/stock/README.md) | `mods.stock.toml` | A simulated stock market: a PAMS order book over 20,000 shared ticks, long and short positions, rented compute and trading slots, research and competitive intelligence; install `requirements/stock.txt` first |
+| minigame | `mods.minigame.toml` | A nine-module game written from scratch, with no dependencies, for learning to write mods |
 
-The default **native** game includes national plans, manuals and the finite-inventory market. It runs **without a council**. Briefing tips and prewar checks provide reminders while leaving decisions to the players.
-
-The optional [experimental distribution](mods/experimental/README.md) retains council review. Initial plans take effect directly; revisions are reviewed against prior plans and actions. Rejection in three consecutive rounds triggers monarch replacement. It also provides saved Python routines and research combat probabilities available only to rule clients. Use its [configuration template](configs/mp_config.experimental.example.json) and a separate save.
-
-The separate [stock market 2.0](mods/stock/README.md) uses a PAMS order book with 20,000 shared ticks, long and short positions, rented compute pools and trading slots, manual research, and paid competitor snapshots. Install `requirements/stock.txt` and use its separate configuration and save.
+New games use the **v13** rule AI by default. The [v14 joint economic planner](ruleai/v14/README.md) is a candidate strategy: choose it for a new game or set `"rule_ai": "v14"`. It needs NumPy and SciPy (`requirements/ruleai.txt`, bundled in the Windows package) and will become the default once its overall results meet the bar. Old saves keep their original strategy, and v11plus remains available for comparison.
 
 ## Observing models
 
-The [real-game collection](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/README.md) and [research articles](docs/research/papers/README.md) document planning, execution, memory, diplomacy and failure. Results depend on prompts, tool descriptions, memory, reasoning budgets and opponents. Identical prompts do not ensure equal suitability for every model; a single game's outcome or subjective score is not a general capability ranking.
+Zhanguo is suited to watching long-horizon planning, execution, diplomacy, error correction and memory. The [research articles and behaviour ranking](docs/research/papers/README.md) describe how models fared in real long games; the [raw saves and logs](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/README.md) are kept on the `archive/research` branch, failures, stalls, manual interventions and unfinished experiments included.
 
-Each published game documents its source and version. Historical saves require matching code and module dependencies; current development builds do not automatically migrate them. The older monolithic implementation remains on [legacy](https://github.com/northwindlight/zhanguo/tree/legacy).
+A model's results depend on prompts, tool descriptions, memory, reasoning budget and opponents, and they may change when the rules or prompts change. Read each conclusion together with the version, configuration and course of that game; a single result or a subjective score does not establish a general ranking. Historical saves need the matching code version: the current version checks module dependencies strictly and never migrates old saves automatically.
 
-## Read more and contribute
+## Documentation
 
-Start with the [game manual](mods/native/docs/游戏说明书.md), [basic guide](mods/native/docs/基础指南.md), [economics](mods/native/docs/经济学手册.md), [warfare](mods/native/docs/战争手册.md) and [strategy](mods/native/docs/战略手册.md) handbooks. These documents are in Chinese and can also be requested inside the game.
+| Topic | Start here |
+| --- | --- |
+| Rules, production, war and diplomacy | [Game manual (Chinese)](mods/native/docs/游戏说明书.md) |
+| Openings and economy | [Basics](mods/native/docs/基础指南.md), [Economics](mods/native/docs/经济学手册.md) (Chinese) |
+| Warfare and the balance of power | [War](mods/native/docs/战争手册.md), [Strategy](mods/native/docs/战略手册.md) (Chinese) |
+| Adding content, changing rules, new game modes | [Mod documentation site (Chinese)](https://northwindlight.github.io/zhanguo/) |
+| Interface contracts, design, plans and reviews | [Documentation index](docs/README.md) |
+| Changes between versions | [Changelog](CHANGELOG.md), [release notes](docs/releases/) |
 
-For development, see the [Mod documentation site](https://northwindlight.github.io/zhanguo/) (sources in `docs/site/content/`), [documentation index](docs/README.md) and [changelog](CHANGELOG.md). Rules live in `mods/native/`, model clients in `clients/`, rule players in `ruleai/`, and presentation in `mods/ui/` and `presentation/`. The terminal entry point is `mp_run.py`; the desktop entry point is `desktop.py`.
+## Repository layout
+
+| Path | Contents |
+| --- | --- |
+| Root | Entry points: `mp_run.py` (terminal), `desktop.py` (desktop), `host.py`, `settlement.py` (final scoring); `start.*` / `settle.*` scripts; distribution entries `mods*.toml` and `ui.toml`; `requirements.txt` |
+| `engine/` | Generic engine: loading, permission checks, settlement scheduling, sessions and saves |
+| `mods/` | Distributions and modules: `native/`, `experimental/`, `stock/`, `ui/` (desktop and presentation), `examples/` (mod examples), `scenarios/` |
+| `clients/`, `ruleai/`, `presentation/`, `ui/` | Model clients, rule AIs, presentation layer, terminal and desktop hosts |
+| `configs/` | Configuration templates |
+| `requirements/` | Dependency groups: `llm.txt`, `ruleai.txt`, `stock.txt`, `vision.txt` (map PNGs) |
+| `scripts/`, `packaging/`, `bench/` | Development and release scripts, packaging material, stock evaluation |
+| `tests/` | Offline regression tests |
+| `docs/` | `接口/` (contracts), `指南/` (guides), `design/`, `plans/`, `reviews/`, `research/`, `releases/`, and the mod site sources in `site/` |
+
+The earlier monolithic implementation lives on the [`legacy`](https://github.com/northwindlight/zhanguo/tree/legacy) branch.
+
+## Contributing
 
 ```bash
-python3 -m unittest discover -s tests -q
-python3 scripts/api_doc.py --check
-python3 docs/site/build.py
+python3 -m unittest discover -s tests -q   # full offline regression; no network, no model calls
+python3 scripts/api_doc.py --check         # API reference pages match the code
+python3 docs/site/build.py                 # build the mod documentation site
 ```
 
-The manual and strategy handbooks are maintained by hand; API reference pages are generated from code. Source release archives exclude the separate real-game collection.
+The full regression is slow; locally you can run only the test files related to your change and leave the rest to CI on the pull request. AI coding assistants should read [AGENTS.md](AGENTS.md) first.
 
 ## Evaluating agents on the `stock` distribution
 
@@ -143,14 +204,15 @@ python bench/evaluate.py --seats 4 --turns 60 --ticks 20000              # full 
 ```
 
 Read [`bench/README.md`](bench/README.md) for the harness, and build a stock-only reviewer
-package (English-first, ~0.8 MB, no desktop assets) with:
+package (English-first, about 0.8 MB, no desktop assets) with:
 
 ```bash
 python packaging/stock_release.py --verify
 ```
 
-The package ships `REVIEWER-GUIDE.md` — a six-step walkthrough from unzip to a publishable
+The package ships `REVIEWER-GUIDE.md`, a six-step walkthrough from unzip to a publishable
 score, including how to verify someone else's result from its hashes.
 
-[MPL-2.0](LICENSE)
+## License
 
+[MPL-2.0](LICENSE)
