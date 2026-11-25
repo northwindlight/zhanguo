@@ -23,7 +23,8 @@ public partial class MainMenu
     private JsonObject SelectedEdition=>_editions[_editionIndex]!.AsObject();
     private string EditionId=>SelectedEdition["id"]!.ToString();
     private bool ClientSupported(int client)=>SelectedEdition["clients"]!.AsArray().Any(c=>c!.ToString()==new[]{"rule","sim","llm","human"}[client]);
-    private JsonObject SelectedFeatures()=>new(_featureSelection.OrderBy(p=>p.Key).Select(p=>new KeyValuePair<string,JsonNode?>(p.Key,JsonValue.Create(p.Value))));
+    private JsonObject EditionFeatures=>SelectedEdition["features"]!.AsObject();
+    private JsonObject SelectedFeatures()=>new(EditionFeatures.Select(p=>new KeyValuePair<string,JsonNode?>(p.Key,JsonValue.Create(_featureSelection[p.Key]))));
     public void SelectEdition(int index){_editionIndex=index;_hint.Text="";RefreshEditionControls();}
     public void SelectFeature(string key,bool enabled){_featureSelection[key]=enabled;_hint.Text="";RefreshEditionControls();}
     public string SetupMessage=>_hint.Text;
@@ -52,16 +53,20 @@ public partial class MainMenu
     private void RefreshEditionControls(bool refreshClients=true)
     {
         foreach(var pick in _editionPickers)pick.Select(_editionIndex);
-        foreach(var box in _experimentalPanels)box.Visible=EditionId=="experimental";
-        foreach(var (button,key) in _featureChecks)button.SetPressedNoSignal(_featureSelection[key]);
+        foreach(var box in _experimentalPanels)box.Visible=EditionFeatures.Count>0;
+        foreach(var (button,key) in _featureChecks)
+        {
+            button.Visible=EditionFeatures.ContainsKey(key);
+            button.SetPressedNoSignal(_featureSelection[key]);
+        }
         _reviewerProfile=Math.Clamp(_reviewerProfile,0,_profiles.Count);
         foreach(var pick in _reviewerPickers)
         {
             pick.Clear();pick.AddItem("议会审查模型：未指定（模型国家默认使用自身）");
             foreach(var profile in _profiles)pick.AddItem("规则AI议会："+profile.Name);
-            pick.Select(_reviewerProfile);pick.Visible=_featureSelection.GetValueOrDefault("council");
+            pick.Select(_reviewerProfile);pick.Visible=EditionId=="experimental"&&_featureSelection.GetValueOrDefault("council");
         }
-        string features=EditionId=="native"?"无实验服务":string.Join(" · ",SelectedEdition["features"]!.AsObject().Select(p=>p.Value!["name"]+(_featureSelection[p.Key]?" 开":" 关")));
+        string features=string.Join(" · ",EditionFeatures.Select(p=>p.Value!["name"]+(_featureSelection[p.Key]?" 开":" 关")));
         foreach(var summary in _editionSummaries)summary.Text=$"本局规则：{SelectedEdition["name"]} {SelectedEdition["version"]}\n{features}";
         if(refreshClients&&_nationList!=null)RestoreNationEditor(_nations.ToList());
     }
@@ -71,11 +76,11 @@ public partial class MainMenu
         if(config["mods"]!=null&&config["mods"]!.ToString()!=entry){error="附加JSON的发行版与上方选择不一致，请在发行版选项中切换。";return false;}
         config["mods"]=entry;
         if(config["scenario"]?.ToString() is {Length:>0} scenario&&!SelectedEdition["scenarios"]!.AsArray().Any(s=>s!.ToString()==scenario)){error="所选发行版没有这个剧本。";return false;}
+        var flags=SelectedFeatures();
+        if(config["experimental_features"]!=null&&!JsonNode.DeepEquals(config["experimental_features"],flags)){error="附加JSON的实验开关与上方选择不一致。";return false;}
+        if(EditionId=="experimental"||flags.Any(p=>p.Value!.GetValue<bool>()))config["experimental_features"]=flags;
         if(EditionId=="experimental")
         {
-            var flags=SelectedFeatures();
-            if(config["experimental_features"]!=null&&!JsonNode.DeepEquals(config["experimental_features"],flags)){error="附加JSON的实验开关与上方选择不一致。";return false;}
-            config["experimental_features"]=flags;
             if(_reviewerProfile>0&&_featureSelection["council"])
             {
                 var profile=_profiles[_reviewerProfile-1];
@@ -86,7 +91,6 @@ public partial class MainMenu
                 config["parliament"]!["reviewer"]=reviewer;
             }
         }
-        else if(config["experimental_features"]!=null){error="原生版不支持实验开关，请切换到实验版。";return false;}
         foreach(var nation in config["nations"]!.AsArray())
             if(!SelectedEdition["clients"]!.AsArray().Any(c=>c!.ToString()==nation!["client"]!.ToString())){error="所选发行版不支持客户端："+nation!["client"];return false;}
         return error=="";

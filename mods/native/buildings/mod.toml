@@ -38,3 +38,7 @@ ReadOnly = ["catalog", "sites", "planning", "orders"]
 [PlayerAPI.ContentParameters]
 build = ["kind"]
 enqueue = ["kind"]
+
+[PlayerAPI.Features]
+enqueue = "construction_queue"
+cancel_order = "construction_queue"

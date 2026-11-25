@@ -81,21 +81,23 @@ class NativeSession(NativeObserver,GridSession):
         return self.world.military.action_conflicts(actors)
 
     def before_settlement(self):
-        """行动期结束、统一结算开始前：推进预付的建设与征兵队列。
+        """行动期结束、统一结算开始前推进征兵和已启用的建筑队列。
 
         这两类都是"提交时预付、回合末开工"的操作；军令与手动移动/进攻仍是
         行动期即时执行（dynamic-turn 的行动期由玩家自行调度），不在此列。
         自动交易与外交拒签也只在这里按既有轮换次序执行，与谁先结束行动无关。"""
+        construction_queue=self.runtime.feature_enabled('construction_queue')
         for actor in self.turn_order():
             try:player=self.player(actor)
             except (ValueError,KeyError):continue
             if not player.action_state()['active']:continue
             if not player.action_state()['can_act']:self._settle_end_turn(player)
             started=False
-            for receipt in self.world.buildings.advance_orders(actor):
-                place=self.world.buildings.site(receipt.site).position
-                self._record_production_start(player,'build',{'kind':receipt.kind,'x':place[0],'y':place[1]},receipt)
-                started=True
+            if construction_queue:
+                for receipt in self.world.buildings.advance_orders(actor):
+                    place=self.world.buildings.site(receipt.site).position
+                    self._record_production_start(player,'build',{'kind':receipt.kind,'x':place[0],'y':place[1]},receipt)
+                    started=True
             for row in self.world.military.advance_recruit_orders(actor):
                 place=row['position']
                 self._record_production_start(player,'military',{'action':'recruit','kind':row['kind'],'count':row['count'],'x':place[0],'y':place[1]},row['units'])
@@ -105,7 +107,7 @@ class NativeSession(NativeObserver,GridSession):
 
     def before_actor(self, player):
         actor=player.actor
-        if not self.world.military.has_march_orders(actor):return False
+        if not self.runtime.feature_enabled('march_orders') or not self.world.military.has_march_orders(actor):return False
         def observe():return self.player(actor).observe()
         def record_march(row):
             point=row['position']

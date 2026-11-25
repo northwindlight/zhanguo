@@ -16,6 +16,11 @@ from . import army, bank, buildings, commands, diplomacy, economy, government, i
 from .aliases import CONTENT_ALIASES
 from .arguments import DEFAULT_NORMALIZERS
 
+OPTIONAL_TOOLS={
+    'construction_queue':('queue_build','construction_queue','cancel_build_order'),
+    'march_orders':('queue_orders','march_orders','cancel_orders'),
+}
+
 
 def _merge(target, source, label):
     for key, value in source.items():
@@ -31,6 +36,11 @@ def _catalogs(runtime=None):
         path = directory / f'{language}.json'
         if path.exists():
             result[language] = json.loads(path.read_text(encoding='utf-8'))
+            if runtime is not None and not runtime.feature_enabled('march_orders'):
+                key='tools.military.parameters.properties.action.description'
+                if key in result[language]:result[language][key]=result[language][key].split('\nqueue_orders:',1)[0]
+            if language=='en-US' and runtime is not None and not runtime.feature_enabled('construction_queue'):
+                result[language]['tools.demolish.description']='Demolish an owned building from building_sites. In-progress work refunds 50%; completed buildings refund 0%. Remove castle levels from highest down. Losing the last town hall may eliminate the nation.'
             bank_unit=runtime.units.get(runtime.capabilities.get('economy:bank')) if runtime is not None else None
             if bank_unit:
                 key='tools.economy.parameters.properties.action.description'
@@ -134,9 +144,10 @@ class ToolLayer:
 def build(runtime):
     runtime.content.register_aliases('native:tools', CONTENT_ALIASES)
     tools, receipts, captions, panels = [], {}, {}, {}
+    disabled={name for key,names in OPTIONAL_TOOLS.items() if not runtime.feature_enabled(key) for name in names}
     for module in (nations, government, army, territory, vision, buildings, economy, bank, diplomacy, intelligence, manuals, quote):
         for spec in module.tools(runtime):
-            if spec.owner in runtime.capabilities:
+            if spec.owner in runtime.capabilities and spec.name not in disabled:
                 tools.append(replace(spec, normalizers={**DEFAULT_NORMALIZERS, **spec.normalizers}))
         _merge(receipts, module.RECEIPTS, '回执')
         _merge(captions, module.CAPTIONS, '抬头')

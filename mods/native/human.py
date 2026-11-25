@@ -156,7 +156,8 @@ class HumanAPI:
         # to rebuild command schemas, route planning or management panels.
         if not controls:return result
         result.update({
-                'army_orders':player.call_api('native:army','orders'),
+                'experimental_features':self.host.runtime.distribution.get('Features',{}),
+                'army_orders':player.call_api('native:army','orders') if self.host.runtime.feature_enabled('march_orders') else [],
                 'production_queue':{'construction':player.call_api('native:buildings','orders'),
                                     'recruitment':player.call_api('native:army','recruit_orders')},
                 'operations':self.operations(actor),

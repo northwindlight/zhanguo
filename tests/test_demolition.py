@@ -91,12 +91,13 @@ class TestDemolition(unittest.TestCase):
         self.assertFalse(h.player(B).submit('demolish',{'id':identity})['ok'])
         self.assertEqual(h.world.resources.snapshot(A),before)
         result=api.submit(A,'demolish',{'id':identity})
-        self.assertTrue(result['ok']);self.assertEqual(dict(result['data']['refunds']),{'native:gold':50,'native:wood':20})
+        self.assertTrue(result['ok']);self.assertEqual(dict(result['data']['refunds']),{'native:gold':25,'native:wood':10})
         self.assertNotIn(identity,{r['id'] for r in api.state(A)['production_queue']['construction']})
         self.assertIn('demolish',{s['function']['name'] for s in h.player(B).actions()})
 
     def test_cancelling_queued_build_refunds_in_full_without_construction(self):
-        h=GameHost.new(config());api=HumanAPI(h)
+        cfg=config();cfg['experimental_features']={'construction_queue':True}
+        h=GameHost.new(cfg);api=HumanAPI(h)
         site=next(s for s in h.world.buildings.snapshot().sites if s.owner==A)
         before=h.world.resources.snapshot(A)
         paid=api.submit(A,'build',{'kind':'castle','x':site.position[0],'y':site.position[1]})

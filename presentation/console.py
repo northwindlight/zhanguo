@@ -179,6 +179,7 @@ class ConsoleUI(ReceiptPresentation):
         lines.append(self.text('console.market',values=market));lines.append(self.text('console.bank',**state['bank']))
         zh=self.text.language=='zh-CN'
         headers=['国家','国土','军队','金币','粮食','木材','矿石','石油','装备','补给'] if zh else ['Nation','Land','Units','Gold','Food','Wood','Ore','Oil','Equip','Supply']
+        headers.append(self.text('console.power_header'))
         flows=state.get('resource_flows',{}).get('owners',{})
         def number(v):return str(v) if isinstance(v,int) else f'{v:g}'
         import re
@@ -188,11 +189,12 @@ class ConsoleUI(ReceiptPresentation):
         source=[]
         for obs in state['nations']:
             f=obs['facts'];actor=obs['actor'];stocks={r['id']:r['amount'] for r in f['econ']['stocks']}
+            power=f['econ'].get('preview',{}).get('energy',{})
             source.append((names[actor],len(f['land']),sum(u['owner']==actor for u in f['army']),actor,
-                [stocks.get('native:'+resource,0) for resource in resources]))
+                [stocks.get('native:'+resource,0) for resource in resources],power))
         amount_widths=[max([0,*[width(number(row[4][i])) for row in source]]) for i in range(len(resources))]
         table=[]
-        for name,land,army,actor,amounts in source:
+        for name,land,army,actor,amounts,power in source:
             row=[name,number(land),number(army)]
             for index,(resource,amount) in enumerate(zip(resources,amounts)):
                 value=number(amount);value+=' '*(amount_widths[index]-width(value))
@@ -201,10 +203,13 @@ class ConsoleUI(ReceiptPresentation):
                     color='32' if delta>0 else '31'
                     value+=' '+f'\033[{color}m{delta:+g}\033[0m'
                 row.append(value)
+            electricity=f'{number(power["generated"])}/{number(power["demand"])}' if {'generated','demand'}<=power.keys() else '—'
+            row.append(f'\033[31m{electricity}\033[0m' if power.get('short') else electricity)
             table.append(row)
         sizes=[max([width(headers[i]),*[width(row[i]) for row in table]]) for i in range(len(headers))]
         def line(row):return '  '.join(v+' '*(sizes[i]-width(v)) for i,v in enumerate(row))
-        lines+=['',self.text('console.flow_legend'),line(headers),'  '.join('-'*n for n in sizes),*[line(r) for r in table],'',self.text('console.country_details')]
+        lines+=['',self.text('console.flow_legend'),self.text('console.power_legend'),line(headers),
+                '  '.join('-'*n for n in sizes),*[line(r) for r in table],'',self.text('console.country_details')]
         for obs in state['nations']:
             actor=obs['actor'];facts=flatten(obs['facts']);econ=facts['econ'];units=[u for u in facts['army'] if u['owner']==actor]
             counts={}

@@ -11,7 +11,8 @@ from tests.test_human import config,A,B
 
 class TestConstructionQueue(unittest.TestCase):
     def setUp(self):
-        self.cfg=config();self.h=GameHost.new(self.cfg);self.w=self.h.world
+        self.cfg=config();self.cfg['experimental_features']={'construction_queue':True}
+        self.h=GameHost.new(self.cfg);self.w=self.h.world
         self.site=next(s for s in self.w.buildings.snapshot().sites if s.owner==A)
 
     def stocks(self):return {s.id:s.amount for s in self.w.resources.snapshot(A)}

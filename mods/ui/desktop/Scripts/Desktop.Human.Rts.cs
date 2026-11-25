@@ -21,6 +21,8 @@ public partial class Desktop
     private readonly Dictionary<Button,bool> _rtsAvailability=new();
     private Vector2 _rtsHoverAnchor;
     private static bool Yes(JsonNode? node)=>node?.GetValue<bool>()==true;
+    private bool ConstructionQueueEnabled=>Yes(_humanState?["experimental_features"]?["construction_queue"]);
+    private bool MarchOrdersEnabled=>Yes(_humanState?["experimental_features"]?["march_orders"]);
 
     private void ResetRts()
     {
@@ -93,7 +95,7 @@ public partial class Desktop
             _rtsAvailability[cancel]=Yes(row["available"]);
         }
         RenderProductionOrders(data[recruit?"recruitment_orders":"orders"] as JsonArray??new JsonArray(),recruit,compact:true);
-        HumanButton("全国生产队列",()=>OpenHumanPage("production"),"build");
+        HumanButton("全国生产",()=>OpenHumanPage("production"),"build");
         if(recruit)
         {
             var amount=new HBoxContainer();_humanContent.AddChild(amount);amount.AddChild(new Label { Text="每次征召" });
@@ -132,7 +134,7 @@ public partial class Desktop
                 TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,Modulate=new Color(available?"e8dfbc":"8a938b") };
             name.AddThemeFontSizeOverride("font_size",16);body.AddChild(name);
             RtsCosts(body,row["costs"],compact:true,dim:!available);
-            var status=new Label { Text=available?(recruit?$"可征 {row["quota"]} 支 · 入队":"加入队列"):S(row["reasons"]?.AsArray().FirstOrDefault()),
+            var status=new Label { Text=available?(recruit?$"可征 {row["quota"]} 支 · 入队":ConstructionQueueEnabled?"加入队列":"立即开工"):S(row["reasons"]?.AsArray().FirstOrDefault()),
                 TextOverrunBehavior=TextServer.OverrunBehavior.TrimEllipsis,HorizontalAlignment=HorizontalAlignment.Center,
                 MouseFilter=MouseFilterEnum.Ignore,Modulate=new Color(available?"9bca9a":"a19a86") };
             status.AddThemeFontSizeOverride("font_size",14);body.AddChild(status);
@@ -142,7 +144,7 @@ public partial class Desktop
             {
                 if(!available||!HumanCanQueue||_rtsCountPending)return;
                 _lastRtsKinds[recruit?"recruit":"build"]=kind;
-                HideRtsTooltip();_humanOperation=recruit?"queue_recruit":"queue_build";
+                HideRtsTooltip();_humanOperation=recruit?"queue_recruit":ConstructionQueueEnabled?"queue_build":"build";
                 var args=new JsonObject { ["kind"]=kind,["x"]=_humanCell.X,["y"]=_humanCell.Y };
                 if(recruit)args["count"]=_rtsCount;
                 SubmitHuman(_humanOperation,args);

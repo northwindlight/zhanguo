@@ -51,7 +51,7 @@ class TestNations(unittest.TestCase):
         world.nations.rename('scenario:qin', '秦国')
         self.assertEqual(world.nations.get('scenario:qin').name, '秦国')
         receipt = world.call_tool('scenario:qin','build',{'site':'scenario:capital','kind':'native:farm'})
-        self.assertEqual(receipt['owner'], 'scenario:qin')
+        self.assertEqual(receipt.owner, 'scenario:qin')
         self.assertEqual(world.resources.balance('scenario:qin','native:gold'), 980)
         self.assertEqual(world.resources.balance('scenario:chu','native:gold'), 100)
         with self.assertRaises(ValueError):world.call_tool('秦国','foreign',{})

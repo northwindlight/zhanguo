@@ -127,6 +127,8 @@
   "console.market": "World market: {values}",
   "console.bank": "Bank: savings {rate:+.1%}, loans {loan_rate:+.1%}; savings range {minimum:+.0%} to {maximum:+.0%}",
   "console.flow_legend": "Changes after stocks: production minus military use, plus tribute transfers (green/red; excludes trades and gifts)",
+  "console.power_header": "Power",
+  "console.power_legend": "Power shows projected generation / demand from current buildings and fuel. Red indicates a shortfall.",
   "console.nation": "◆ {name}: {stocks}\n  Land {land} | Units {army}, HP {hp:g}",
   "console.economy": "  Last turn GDP {gdp} | Investment {investment} | Military {military} | Assets {assets} | Debt {liabilities}",
   "console.unpriced": "Includes unpriced items",

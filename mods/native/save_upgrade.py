@@ -20,22 +20,54 @@ PRODUCTION_MANIFESTS={
 CURRENT_MANIFESTS={
     '2a92069a3fdfe521a50c471c74836e8cc20b8d30523a7899daf0e649b3818313':'native',
     '77c0981ebafa5c4c169726e1e27a9b3c6d5a38046e3cd4aa6c6dc469f18d8f82':'experimental',
+    '1c2b3fb38cd154d28034bc1558019043501901f23bc882aad39d32e938c1e22a':'native',
+    **dict.fromkeys((
+        'fe88211c056f508d494db9f027c14193cd909633a726db7242317eb4811dd92c',
+        '6e5d6783d06d44bc781c4fc2bdafec2ed23f69e2ffeec85311e93e6f0071761e',
+        'c23a584096d868ea1eee81ced0525324a8992d42d1bfabec132056a6d90ecf88',
+        '0ffae716ce3bf9747e24b213dd675ef0d1c2329a580eb14338be8bd8d91ed736',
+        '0b1939360a303772fe91e382ebb1186fe9328e6148bc1610faa1b34703d51c08',
+        '2b278063ab5a667808436092286f4692d467727929b89a849db5ece7c9cb160e',
+        'a28ec69c14699ad205b5c0648ba761da2d7bca8220ec0708fc70a6d7fe1b4b6f',
+        '557f214bc06d6dbfa45c599fa6772501fc00e5e725b33b75ce4f472844e25495',
+    ),'experimental'),
 }
+
+
+def with_pending_queue_features(data,cfg):
+    try:
+        modules=data.get('modules',{})
+        required={
+            'construction_queue':bool(modules.get('native:buildings',{}).get('queued')),
+            'march_orders':bool(modules.get('native:army',{}).get('military',{}).get('march_orders')),
+        }
+    except AttributeError:return cfg  # The save validator reports malformed module data.
+    flags=cfg.get('experimental_features',{})
+    if not isinstance(flags,dict):return cfg
+    additions={key:True for key,pending in required.items() if pending and key not in flags}
+    return {**cfg,'experimental_features':{**flags,**additions}} if additions else cfg
 
 
 def prepare_upgrade(data, cfg):
     """Validate the entire copied session without running players or settlement."""
     from host import GameHost, ROOT
     from engine.runtime import Runtime
+    from mods.experimental.assembly import FEATURES, QUEUE_FEATURES
     if not isinstance(data,dict):raise SaveFormatError('存档须为完整Session对象')
     digest=hashlib.sha256(json.dumps(data.get('dependencies'),sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
     edition=LEGACY_MANIFESTS.get(digest) or PRODUCTION_MANIFESTS.get(digest) or CURRENT_MANIFESTS.get(digest)
     if edition is None:raise SaveFormatError('不是已知存档清单，拒绝猜测升级；请保留对应旧发行包')
-    filename='mods.toml' if edition=='native' else 'mods.experimental.toml'
-    runtime=Runtime.load(ROOT/filename)
     configured=GameHost.prepare(cfg)
-    if configured.runtime.dependency_manifest()!=runtime.dependency_manifest():
+    runtime=configured.runtime
+    filename='mods.toml' if edition=='native' else 'mods.experimental.toml'
+    canonical=Runtime.load(ROOT/filename,configuration=cfg) if runtime.distribution['Id']==edition else None
+    if canonical is None or runtime.dependency_manifest()!=canonical.dependency_manifest():
         raise SaveFormatError('配置选择的发行版与旧存档不同，不能在升级时混用规则')
+    if edition=='experimental':
+        old=data['dependencies']['distribution'].get('Features',{})
+        for key in FEATURES.keys()-QUEUE_FEATURES.keys():
+            if runtime.feature_enabled(key)!=old.get(key,FEATURES[key]['default']):
+                raise SaveFormatError('升级时须保留旧存档的已有实验服务')
     candidate=deepcopy(data);candidate['dependencies']=runtime.dependency_manifest()
     try:
         military=candidate['modules']['native:army']['military']

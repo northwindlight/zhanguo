@@ -4,8 +4,33 @@
     {
       "id": "native",
       "name": "原生版",
-      "version": "4.22.0",
-      "features": {},
+      "version": "4.23.0",
+      "features": {
+        "construction_queue": {
+          "name": "建筑队列",
+          "short_name": "建筑队列",
+          "description": "预付建筑订单，同一地块的后续条目按回合逐项开工。",
+          "default": false,
+          "clients": [
+            "human",
+            "llm",
+            "rule"
+          ],
+          "enabled": false
+        },
+        "march_orders": {
+          "name": "移动队列",
+          "short_name": "移动队列",
+          "description": "添加跨回合的移动或攻击节点，由军队在本国行动期继续执行。",
+          "default": false,
+          "clients": [
+            "human",
+            "llm",
+            "rule"
+          ],
+          "enabled": false
+        }
+      },
       "rule_versions": [
         "v14",
         "v13",
@@ -55,7 +80,7 @@
     {
       "id": "experimental",
       "name": "实验版",
-      "version": "0.23.0",
+      "version": "0.24.0",
       "features": {
         "council": {
           "name": "议会审核",
@@ -88,6 +113,30 @@
             "rule"
           ],
           "enabled": true
+        },
+        "construction_queue": {
+          "name": "建筑队列",
+          "short_name": "建筑队列",
+          "description": "预付建筑订单，同一地块的后续条目按回合逐项开工。",
+          "default": false,
+          "clients": [
+            "human",
+            "llm",
+            "rule"
+          ],
+          "enabled": false
+        },
+        "march_orders": {
+          "name": "移动队列",
+          "short_name": "移动队列",
+          "description": "添加跨回合的移动或攻击节点，由军队在本国行动期继续执行。",
+          "default": false,
+          "clients": [
+            "human",
+            "llm",
+            "rule"
+          ],
+          "enabled": false
         }
       },
       "rule_versions": [

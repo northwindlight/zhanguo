@@ -26,7 +26,7 @@ The interest lies in the process as much as in who wins: does a model keep its p
 - **Diplomacy changes the battlefield.** Guarantees, mutual defence and alliances decide who a declaration of war drags in. Membership brings shared interests, but also votes, voided treaties and no leaving during wartime.
 - **Decisions have consequences.** National plans, action receipts, economic reports and searchable history run through long games, so you can trace how one judgement shaped the next dozens of turns.
 
-Each turn has an action phase, in which nations take turns to act (with a human player, the AIs act in the background at the same time), followed by a single settlement. Moves, trades and diplomatic submissions take effect immediately; construction starts, new recruits, battles against defended tiles and diplomatic outcomes are resolved at the end of the turn. A nation falls when its last town hall is lost. See the [game manual](mods/native/docs/游戏说明书.md) for the rules.
+Each turn has an action phase, in which nations take turns to act (with a human player, the AIs act in the background at the same time), followed by a single settlement. By default, moves, construction starts, trades and diplomatic submissions take effect immediately. Buildings finish, recruits spawn, and battles and diplomatic outcomes resolve at settlement. Construction queues and multi-turn movement queues are separate experimental features that can be enabled when starting a game. A nation falls when its last town hall is lost. See the [game manual](mods/native/docs/游戏说明书.md) for the rules.
 
 ## Quick start
 

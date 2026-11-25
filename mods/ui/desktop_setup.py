@@ -7,7 +7,7 @@ import sys
 from engine.config import require_ready
 from engine.runtime import ModError,Runtime
 from host import GameHost,ROOT
-from mods.native.save_upgrade import prepare_upgrade,upgrade_copy
+from mods.native.save_upgrade import prepare_upgrade,upgrade_copy,with_pending_queue_features
 
 EDITIONS={'native':('原生版','mods.toml'),'experimental':('实验版','mods.experimental.toml')}
 
@@ -56,16 +56,20 @@ def inspect_save(source,config):
     if data.get('dependencies')==prepared.runtime.dependency_manifest():
         GameHost(prepared).session.restore(data)
         result['can_resume']=True;return result
-    try:prepare_upgrade(data,cfg)
+    upgrade_cfg=with_pending_queue_features(data,cfg)
+    try:prepare_upgrade(data,upgrade_cfg)
     except (ValueError,ModError) as exc:result['message']=str(exc)
     else:
+        result['target']=describe(GameHost.prepare(upgrade_cfg).runtime)
         result['can_upgrade']=True;result['message']='已知旧版，可校验并升级为新副本；原文件与历史保留。'
     return result
 
 
 def upgrade_bundle(source,config,destination):
     source,config,destination=map(Path,(source,config,destination))
-    cfg=json.loads(config.read_text(encoding='utf-8'));copied=False;written=False
+    cfg=with_pending_queue_features(json.loads(source.read_text(encoding='utf-8')),
+                                    json.loads(config.read_text(encoding='utf-8')))
+    copied=False;written=False
     destination.mkdir(parents=True,exist_ok=False)
     session=destination/'session.json';target_config=destination/'config.json'
     try:

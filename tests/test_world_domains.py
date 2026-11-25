@@ -481,7 +481,7 @@ class TestWorldDomains(unittest.TestCase):
         self.assertEqual(self.save(w),before)
         self.call(w,Q,'buy',resource='native:wood',quantity=15)
         receipt=self.call(w,Q,'build',site='scenario:qc',kind='native:farm')
-        self.assertEqual(dict(receipt['paid'])['native:gold'],26)
+        self.assertEqual(dict(receipt.costs)['native:gold'],26)
         other=self.restore(w);self.assertEqual(other.polity[Q],'native:huns')
         with self.assertRaises(ValueError):self.call(other,Q,'gift',target=C,resource='native:food',quantity=1)
         self.assertEqual(w.runtime.parameter(w,Q,'build_cost_pct',100),130)

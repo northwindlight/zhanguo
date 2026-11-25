@@ -7,21 +7,26 @@ class BuildingsAPI:
         self.world = world
 
     def build(self, actor, kind, site=None, x=None, y=None):
-        # 玩家动作统一走队列：提交只预付材料并占位，回合末统一开工。
-        # 领域层的 immediate build 只留给旧档/内部构造，不再面向玩家。
-        return self.enqueue(actor, kind, site=site, x=x, y=y)
+        if self.world.runtime.feature_enabled('construction_queue'):
+            return self.enqueue(actor, kind, site=site, x=x, y=y)
+        site=self.world.buildings.resolve_site(actor,site,x,y)
+        return self.world.buildings.build(actor,site,kind,
+            policy_pct=self.world.runtime.parameter(self.world,actor,'build_cost_pct',100))
 
     def demolish(self, actor, id):
         return self.world.buildings.demolish(actor,id)
 
     def enqueue(self, actor, kind, site=None, x=None, y=None):
+        if not self.world.runtime.feature_enabled('construction_queue'):raise ValueError('本局未启用实验功能：建筑队列')
         site=self.world.buildings.resolve_site(actor,site,x,y)
         return self.world.buildings.enqueue(actor,site,kind,
             policy_pct=self.world.runtime.parameter(self.world,actor,'build_cost_pct',100))
 
     def orders(self, actor):return self.world.buildings.construction_orders(actor)
 
-    def cancel_order(self, actor, id):return self.world.buildings.cancel_order(actor,id)
+    def cancel_order(self, actor, id):
+        if not self.world.runtime.feature_enabled('construction_queue'):raise ValueError('本局未启用实验功能：建筑队列')
+        return self.world.buildings.cancel_order(actor,id)
 
     def sites(self, actor):
         snap = self.world.buildings.snapshot()
@@ -47,4 +52,5 @@ class BuildingsAPI:
     def planning(self, actor, x, y, queued=False):
         site=self.world.buildings.resolve_site(actor,x=x,y=y)
         return self.world.buildings.planning(actor,site,
-            policy_pct=self.world.runtime.parameter(self.world,actor,'build_cost_pct',100),queued=queued)
+            policy_pct=self.world.runtime.parameter(self.world,actor,'build_cost_pct',100),
+            queued=queued and self.world.runtime.feature_enabled('construction_queue'))

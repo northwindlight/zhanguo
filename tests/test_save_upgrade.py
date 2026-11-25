@@ -10,7 +10,7 @@ from engine.session import SaveFormatError
 from engine.runtime import ModError
 from host import GameHost
 from mods.native.human import HumanAPI
-from mods.native.save_upgrade import prepare_upgrade,upgrade_copy
+from mods.native.save_upgrade import prepare_upgrade,upgrade_copy,with_pending_queue_features
 from tests.test_human import config,A
 
 
@@ -29,7 +29,7 @@ class TestKnownSaveUpgrade(unittest.TestCase):
                 self.assertEqual(upgraded,expected)
                 host=GameHost(GameHost.prepare(cfg));host.session.restore(upgraded)
                 api=HumanAPI(host);site=api.state(A)['facts']['building_sites']['sites'][0]
-                self.assertTrue(api.submit(A,'queue_build',{'kind':'castle','x':site['position'][0],'y':site['position'][1]})['ok'])
+                self.assertTrue(api.submit(A,'build',{'kind':'castle','x':site['position'][0],'y':site['position'][1]})['ok'])
                 host.cycle(on_human=lambda p:[api.submit(A,'end_turn',{})])
                 self.assertEqual(host.clock(),1)
 
@@ -59,7 +59,7 @@ class TestKnownSaveUpgrade(unittest.TestCase):
     def test_production_development_saves_preserve_prepaid_work(self):
         for edition,mods in (('native','mods.toml'),('experimental','mods.experimental.toml')):
             data=json.loads(gzip.decompress((Path(__file__).parent/'fixtures'/f'v07-production-{edition}.json.gz').read_bytes()))
-            upgraded=prepare_upgrade(data,config(mods));expected=deepcopy(data)
+            upgraded=prepare_upgrade(data,with_pending_queue_features(data,config(mods)));expected=deepcopy(data)
             expected['dependencies']=upgraded['dependencies'];expected['modules']['native:army']['military']['march_orders']=[]
             self.assertEqual(upgraded,expected)
             self.assertTrue(upgraded['modules']['native:buildings']['queued'])

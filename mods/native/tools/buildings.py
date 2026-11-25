@@ -15,6 +15,11 @@ def _num(value):
 
 
 def tools(runtime):
+    queued = runtime.feature_enabled('construction_queue')
+    build_description = ('在本国地块入队建造：site 传地名或 "x y" 坐标串，或直接传两个整数 x、y。立即预付全部材料并锁价，回合末统一开工（每地块同时只开一项），完工在结算内完成，从下一周期开始生产。与 queue_build 等价（单条入队）；取消未开工用 cancel_build_order 全退。造价、门槛查 building_catalog，全部收益查 building_economics。'
+        if queued else '在本国地块立即扣款并开工，每格每期一项，结算落成且从下一期开始生产。site 传地名或 "x y" 坐标串，或传两个整数 x、y。造价、门槛查 building_catalog，收益查 building_economics。')
+    demolition_description = ('按id拆除本国建筑或取消待建：未开工待建全额退回且不占本格本期施工额度；已开工退回实际材料50%（可含半单位），完工0%。城堡从最高一级拆起；拆除最后市政厅可能导致亡国。编号查building_sites或construction_queue。'
+        if queued else '按 building_sites 的编号拆除本国建筑，施工中退回实付材料50%，落成后不退款。城堡从最高一级拆起；拆除最后市政厅可能导致亡国。')
     kinds = sorted(key for key, value in runtime.content.definitions()
                    if isinstance(value, type) and issubclass(value, Building))
 
@@ -53,7 +58,7 @@ def tools(runtime):
         Tool('demolish',demolish,owner='native:buildings',api=('demolish',),
              parameters={'type':'object','properties':{'id':{'type':'integer','minimum':1,'description':'building_sites 中的本国建筑实例编号'}},
                          'required':['id'],'additionalProperties':False},
-             description='按id拆除本国建筑或取消待建：未开工待建全额退回且不占本格本期施工额度；已开工退回实际材料50%（可含半单位），完工0%。城堡从最高一级拆起；拆除最后市政厅可能导致亡国。编号查building_sites或construction_queue。'),
+             description=demolition_description),
     ) if provider is not None and 'demolish' in provider.mod.declaration.get('PlayerAPI',{}).get('Methods',()) else ()
     return demolition+(
         Tool('queue_build',queue_build,owner='native:buildings',api=('enqueue',),parameters=parameters,
@@ -65,9 +70,10 @@ def tools(runtime):
              description='全国建设队列：待建与在建编号、位置、顺序、等待原因、已付价格和当前退款。无地块参数；只读，不推进。'),
         Tool('build', build, owner='native:buildings', api=('build',), parameters=parameters,
              adapter=site_arguments, content_parameters=('kind',),
-             description='在本国地块入队建造：site 传地名或 "x y" 坐标串，或直接传两个整数 x、y。立即预付全部材料并锁价，回合末统一开工（每地块同时只开一项），完工在结算内完成，从下一周期开始生产。与 queue_build 等价（单条入队）；取消未开工用 cancel_build_order 全退。造价、门槛查 building_catalog，全部收益查 building_economics。'),
+             description=build_description),
         Tool('building_sites', sites, owner='native:buildings', api=('sites',), read_only=True, fact=True,
-             description='一次查看全部本国站点：坐标、资源容量、建筑位、已建/在建/待建、当期施工与自建计数。无需地块参数。'),
+             covers=() if queued else (('native:buildings','orders'),),
+             description='一次查看全部本国站点：坐标、资源容量、建筑位、已建/在建'+('/待建' if queued else '')+'、当期施工与自建计数。无需地块参数。'),
         Tool('building_catalog', catalog, owner='native:buildings', api=('catalog',), read_only=True, fact=True, panel=True,
              content_parameters=('kind',),
              parameters={'type': 'object', 'properties': {
@@ -174,6 +180,9 @@ def _queue_receipt(args, receipt, actor, ctx):
     if receipt.get('automatic')=='production_queue' and 'costs' in data:
         return ctx.text('tool.build.started_prepaid',name=ctx.label('content',data['kind']),
                         id=data['id'],place=ctx.pos(data,args,actor),costs=ctx.resources(data['costs']))
+    if 'paid' not in data:
+        return ctx.text('tool.build.done',name=ctx.label('content',data['kind']),
+                        place=ctx.pos(data,args,actor),costs=ctx.resources(data['costs']))
     return ctx.label('content',data['kind'])+f' #{data["id"]} · '+('已开工' if data['status']=='construction' else '已加入待建队列')+'；预付 '+ctx.resources(data['paid'])
 
 

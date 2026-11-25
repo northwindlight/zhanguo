@@ -62,6 +62,7 @@ public partial class Desktop
         if(_selectedArmies.Count==0)return ReturnToLastOperation();
         if(append)
         {
+            if(!MarchOrdersEnabled){HumanMessage("本局未启用移动队列。",false);return true;}
             SubmitHuman("queue_orders",new JsonObject { ["ids"]=SelectedIds(),
                 ["nodes"]=new JsonArray(new JsonObject { ["mode"]=attack?"attack":"move",["position"]=new JsonArray(at.X,at.Y) }),
                 ["append"]=!_replaceNextRoute,["auto_heal"]=_autoHealOrders });
@@ -73,7 +74,9 @@ public partial class Desktop
     private void RenderSelectedArmies()
     {
         HumanText($"已选军队 · {_selectedArmies.Count} 支",true);
-        HumanText("右键移动 · Ctrl右键攻击\nShift右键追加移动节点 · Shift Ctrl右键追加攻击节点\n中键拖动地图；切换地块和筛选保留勾选。",color:"b3c6ac");
+        HumanText("右键移动 · Ctrl右键攻击\n"+
+            (MarchOrdersEnabled?"Shift右键追加移动节点 · Shift Ctrl右键追加攻击节点\n":"")+
+            "中键拖动地图；切换地块和筛选保留勾选。",color:"b3c6ac");
         if(_lastArmyTarget is JsonObject target)HumanText($"上次悬停目标 ({target["position"]![0]},{target["position"]![1]})\n可执行编号："+string.Join("、",target["ids"]!.AsArray().Select(i=>"#"+S(i))),color:"a7cddd");
         var orders=new HBoxContainer();_humanContent.AddChild(orders);
         foreach(var (mode,title) in new[]{("move","移动"),("attack","攻击"),("retreat","撤退")})
@@ -81,16 +84,19 @@ public partial class Desktop
             string command=mode;var button=Button(orders,title,()=>StartHumanTarget(command));HumanArt.Style(button,mode);
             _rtsAvailability[button]=OwnArmies.Any(u=>_selectedArmies.Contains(I(u["id"]))&&UnitCan(u,command));
         }
-        var heal=new CheckButton { Name="MarchAutoHeal",Text="低于30生命停下，恢复满血后续行",ButtonPressed=_autoHealOrders };
-        heal.AddThemeFontSizeOverride("font_size",14);_humanContent.AddChild(heal);
-        heal.Toggled+=on=>
+        if(MarchOrdersEnabled)
         {
-            _autoHealOrders=on;
-            var existing=(_humanState?["army_orders"] as JsonArray??new JsonArray()).Where(r=>_selectedArmies.Contains(I(r!["aid"]))).Select(r=>(JsonNode?)JsonValue.Create(I(r!["aid"]))).ToArray();
-            if(existing.Length>0)SubmitHuman("queue_orders",new JsonObject { ["ids"]=new JsonArray(existing),["nodes"]=new JsonArray(),["auto_heal"]=on });
-        };
-        HumanButton("重画已选路线（下一次Shift右键替换）",()=>{_replaceNextRoute=true;HumanMessage("下一次Shift右键替换已选军队的剩余路线；Esc取消重画。");},"move");
-        HumanButton("取消已选军队的剩余路线",()=>SubmitHuman("cancel_orders",new JsonObject { ["ids"]=SelectedIds() }),"disband",true);
+            var heal=new CheckButton { Name="MarchAutoHeal",Text="低于30生命停下，恢复满血后续行",ButtonPressed=_autoHealOrders };
+            heal.AddThemeFontSizeOverride("font_size",14);_humanContent.AddChild(heal);
+            heal.Toggled+=on=>
+            {
+                _autoHealOrders=on;
+                var existing=(_humanState?["army_orders"] as JsonArray??new JsonArray()).Where(r=>_selectedArmies.Contains(I(r!["aid"]))).Select(r=>(JsonNode?)JsonValue.Create(I(r!["aid"]))).ToArray();
+                if(existing.Length>0)SubmitHuman("queue_orders",new JsonObject { ["ids"]=new JsonArray(existing),["nodes"]=new JsonArray(),["auto_heal"]=on });
+            };
+            HumanButton("重画已选路线（下一次Shift右键替换）",()=>{_replaceNextRoute=true;HumanMessage("下一次Shift右键替换已选军队的剩余路线；Esc取消重画。");},"move");
+            HumanButton("取消已选军队的剩余路线",()=>SubmitHuman("cancel_orders",new JsonObject { ["ids"]=SelectedIds() }),"disband",true);
+        }
         foreach(var unit in OwnArmies.Where(u=>_selectedArmies.Contains(I(u["id"]))).ToArray())
         {
             int aid=I(unit["id"]);

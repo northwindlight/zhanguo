@@ -63,8 +63,9 @@ class TestRuleV14(unittest.TestCase):
         return {'map_size':12,'seed':73,'nations':[{'id':'scenario:qin','name':'秦',
             'client':'rule','rule_ai':version,'rule_strategy':'merchant','rule_seed':73}]}
 
-    def fixture(self):
-        h=GameHost.new(self.cfg());p=h.player('scenario:qin');l=Ledger(p)
+    def fixture(self, *, construction_queue=False):
+        cfg=self.cfg();cfg['experimental_features']={'construction_queue':construction_queue}
+        h=GameHost.new(cfg);p=h.player('scenario:qin');l=Ledger(p)
         self.assertTrue(l.do('plan',text='联合规划资金、材料与持续生产'))
         data=collect(p,manage_military=False)
         hall=next(b for b in data['sites']['instances'] if b['kind']=='native:town-hall')
@@ -152,11 +153,11 @@ class TestRuleV14(unittest.TestCase):
         self.settle(h,l);self.assert_stocks(p,plan.forecast[0]['stocks'])
         l=Ledger(p)
         self.assertTrue(l.do('build',site=site['id'],kind='native:equipment-factory'))
-        self.assertEqual(dict(l.acts[-1]['data']['paid'])[GOLD],78)
+        self.assertEqual(dict(l.acts[-1]['data']['costs'])[GOLD],78)
         self.settle(h,l);self.assert_stocks(p,plan.forecast[1]['stocks'])
 
     def test_cancel_keeps_official_quota_and_queue_keeps_reserved_space(self):
-        h,p,l,site=self.fixture()
+        h,p,l,site=self.fixture(construction_queue=True)
         self.assertTrue(l.do('build',site=site['id'],kind=PLANT))
         self.assertTrue(p.call_api('native:buildings','enqueue',{'site':site['id'],'kind':PLANT})['ok'])
         self.assertTrue(p.call_api('native:buildings','demolish',{'id':l.acts[-1]['data']['id']})['ok'])

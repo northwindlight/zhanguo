@@ -84,11 +84,14 @@ class ArmyAPI:
         with unit_context(None):return self.world.runtime.player(self.world,actor).observe()
 
     def queue_orders(self, actor, ids, nodes, append=True, auto_heal=True):
+        if not self.world.runtime.feature_enabled('march_orders'):raise ValueError('本局未启用实验功能：移动队列')
         return self.military.enqueue_orders(actor,self.selection(None,ids),nodes,self.order_observation(actor),append=append,auto_heal=auto_heal,refresh=lambda:self.order_observation(actor))
 
     def orders(self, actor):return self.military.march_orders(actor,self.order_observation(actor))
 
-    def cancel_orders(self, actor, ids, node=None):return self.military.cancel_orders(actor,self.selection(None,ids),node)
+    def cancel_orders(self, actor, ids, node=None):
+        if not self.world.runtime.feature_enabled('march_orders'):raise ValueError('本局未启用实验功能：移动队列')
+        return self.military.cancel_orders(actor,self.selection(None,ids),node)
 
     def disband(self, actor, aid=None, ids=None):
         ids = self.selection(aid, ids)

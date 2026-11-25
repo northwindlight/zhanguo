@@ -17,16 +17,22 @@ class BuildingsMod(GameMod):
 
     def objects(self, world):return {'native:buildings':world.buildings}
     def save_state(self, world):return world.buildings.to_save()
-    def load_state(self, world, state):world.buildings.restore(state)
+    def load_state(self, world, state):
+        if isinstance(state,dict) and state.get('queued') and not self.runtime.feature_enabled('construction_queue'):
+            raise ValueError('存档含待建订单，必须启用建筑队列')
+        world.buildings.restore(state)
     def player_api(self, world):return BuildingsAPI(world)
 
     def rule_sections(self, world=None):
+        build_rule=(
+            'build 与 queue_build 等价：入队即预付全部材料并锁价，回合末统一开工，每格每期只开工一项。待建预占建筑位、资源容量与自建限额，未开工的排到以后各期且不再扣款。construction_queue 查进度，cancel_build_order 取消待建全退。预付仍算资产，开工才记消费。\n'
+            if self.runtime.feature_enabled('construction_queue') else
+            'build 当场扣款并开工，每地块每期只动工一项。施工占用建筑位和资源容量，结算落成后从下一期开始生产。\n')
         return (RuleSection('建筑与能源',
                 'building_catalog 一次返回全部建筑的基础造价（各等级）、投入产出、耗电发电、效果和建造门槛。\n'
                 'building_economics 不带参数时一次返回所有建筑的完整收益报告，不接受地块参数（需加载经济查询模块）。\n'
-                'build 与 queue_build 等价：入队即预付全部材料并锁价，回合末统一开工（每地块同时只开一项），施工占建筑位，落成后从下一周期开始生产；未开工的排到以后各期末且不再扣款。\n'
-                '每地块每期只动工一项；待建条目预占建筑位、资源容量和自建限额；未开工取消全退，已开工拆除50%，完工0%。construction_queue 查进度与原因；cancel_build_order 取消未开工条目全退。预付资源仍算本国资产，开工才记消费。\n'
-                'demolish(id) 按 building_sites 提供的本国实例编号拆除。未开工待建全额退回且不占本格本期施工额度；旧档中已开工未完工的返还实际支付材料的50%（可含半单位），已完工零返还。城堡从最高一级开始拆；最后市政厅消失可能导致亡国。\n'
+                +build_rule+
+                'demolish(id) 按 building_sites 提供的本国实例编号拆除。已开工未完工返还实际支付材料的50%（可含半单位），已完工零返还。城堡从最高一级开始拆；最后市政厅消失可能导致亡国。\n'
                 '采集建筑受本地资源容量限制；农场与军屯共享耕地，在建也占容量。兵营等建筑须满足已有建筑门槛。地形只提高金币造价，已落成工程院减免本格后续建筑金币造价25%，木材不变。\n'
                 '电力不储存、不交易，燃料不足的发电厂无法发电，电网不足会使耗电建筑停工；仅有燃料不代表已有电厂。',
                 keywords=('build','demolish','拆除','撤销','building','construction','energy','power','能源','电力','建筑','兵营','工程院','军屯','市政厅','城堡','林场','农场','矿场','油电','木电')),)

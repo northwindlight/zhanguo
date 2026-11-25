@@ -20,8 +20,11 @@ def require_ready(cfg,*,runtime):
 
 
 def normalize(cfg,*,runtime,overrides):
-    if 'experimental_features' in cfg or 'experimental_features' in overrides:
-        raise ConfigError('config.experimental_features: 本发行版不支持实验功能选项')
+    if runtime.distribution.get('Id')=='native':
+        from mods.experimental.assembly import QUEUE_FEATURES, selection
+        enabled=selection({**cfg,**overrides},QUEUE_FEATURES)
+        if enabled!={key:runtime.feature_enabled(key) for key in QUEUE_FEATURES}:
+            raise ConfigError('config.experimental_features: 与已装配的发行版不一致')
     cfg=SCENARIO.normalize(cfg,overrides=overrides)
     entries=cfg.get('nations')
     if not isinstance(entries,list) or not entries:raise ConfigError('config.nations: expected nonempty list')

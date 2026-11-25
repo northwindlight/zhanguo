@@ -24,6 +24,9 @@ class ArmyMod(GameMod):
     def save_state(self, world):return {'units':{**world.units.to_save(),'engage_sequence':world.units.engage_seq},'military':world.military.to_save()}
     def load_state(self, world, state):
         if not isinstance(state,dict) or set(state)!={'units','military'}:raise ValueError('Invalid army save')
+        military=state['military']
+        if isinstance(military,dict) and military.get('march_orders') and not self.runtime.feature_enabled('march_orders'):
+            raise ValueError('存档含持续军令，必须启用移动队列')
         size,_=self.runtime.object_call(world,'native:territory','dimensions')
         candidate=Units.from_save(state['units'],size=size,definitions=world.units.definitions)
         sequence=state['units'].get('engage_sequence')
@@ -63,16 +66,17 @@ class ArmyMod(GameMod):
         definitions=dict(self.runtime.content.definitions())
         barracks=getattr(definitions.get('native:barracks'),'EFFECTS',{})
         camp=getattr(definitions.get('native:militia-camp'),'EFFECTS',{})
-        body='\n\n'.join((
+        body='\n\n'.join(filter(None,(
             '行动：所有坐标统一 0-based。移动、异地进攻、撤退共用每支军队每期一次行动额度；新兵当期不能行动，原地进攻不消耗位移额度。'
             'move 只调动、不占地；attack 才会占领或进入交战。reachable 给出可见合法路线和代价，路程不能超过兵种移动力。'
             '高山和海洋不可通行、进攻或占领，也不能从障碍侧面的斜角挤过；原有山地仍可通行。unit_catalog 的移动代价 null 表示不可通行。'
             '本国和盟国领土可通行；攻击他国必须已处于战争，外交 submitted 不代表战争已生效。',
-            '连续军令：military(action=queue_orders,ids=[编号],nodes=[{mode:move或attack,position:[x,y]}])追加路线，每军最多64个节点，append=false替换剩余路线。'
+            ('连续军令：military(action=queue_orders,ids=[编号],nodes=[{mode:move或attack,position:[x,y]}])追加路线，每军最多64个节点，append=false替换剩余路线。'
             '当前合法部分开始，之后在轮到本国的行动前按原移动力、新兵和战争规则继续；攻击路线碰到敌地先接敌、交战时等待，己方／盟方位置用移动。'
             'auto_heal开启时，某军低于绝对30生命会独立停下，正常补给恢复满血才继续；不会额外治疗或强制撤退。'
             'query(panel=march_orders)查看本国路线与原因，military(action=cancel_orders,ids=[编号],node=可选序号)删指定剩余节点或取消路线。'
-            '直接移动、攻击、撤退会替换该军剩余路线，取消不会撤销已发生的动作。预览只用玩家已知事实，未知段仅示意，不返回隐藏经过格。',
+            '直接移动、攻击、撤退会替换该军剩余路线，取消不会撤销已发生的动作。预览只用玩家已知事实，未知段仅示意，不返回隐藏经过格。'
+            if self.runtime.feature_enabled('march_orders') else ''),
             '征兵：正规军只能在自有已落成兵营征召，停电时不能征召；民兵只能在自有已落成军屯征召。'
             '同格兵营的每期额度相加；民兵还受全国军屯编制上限限制。编制上限和每期征召额度是两个不同数值，查 building_catalog 的效果。'
             f'当前目录中，每座兵营每期可征{barracks.get("recruit_cap",0)}支正规军；每座军屯提供{camp.get("militia_cap",0)}支全国民兵编制、该格每期可征{camp.get("militia_per_turn",0)}支民兵。'
@@ -93,5 +97,5 @@ class ArmyMod(GameMod):
             f'撤退：本期未行动、不是新兵，且正在交战或受攻击的军队，才能申请撤至相邻合法格。申请占用行动，本期仍参加战斗，输出降低{RETREAT_ATK_PENALTY}%；'
             f'守方撤退只承受分配伤害的{RETREAT_DEF_COVER}%，攻方撤退承受全部分配伤害。幸存军队在战斗后落地；原目标受阻会寻找相邻合法格，无处可退则原地留守。'
             '在本国地块上参战者按守方撤退规则处理。交战或受到进攻的军队不能遣散；合法遣散立即移除军队、停止维持，不返还材料。',
-        ))
+        )))
         return (RuleSection('军队',body,keywords=('army','battle','move','attack','retreat','disband','logistics','heal','军队','战斗','撤退','遣散','裁军','移动','攻击','速度','征兵','补给','断粮','回血','伤兵','恢复','军屯','兵营')),)

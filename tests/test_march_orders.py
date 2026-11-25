@@ -17,7 +17,7 @@ class TestMarchOrders(unittest.TestCase):
         source=f.edition().replace((ROOT/'mods/native/map_generation/mod.toml').as_posix(),'map/mod.toml')
         (p/'mod.toml').write_text(source)
         (p/'map/mod.toml').write_text('[Mod]\nId="native:map-generation"\nVersion="fixed"\nEntry="tests.test_world_domains:FixedMap"\n')
-        self.w=f.world(Runtime.load(p));f.site(self.w,'test:home',Q,1,1);f.site(self.w,'test:other',C,7,7)
+        self.w=f.world(Runtime.load(p,configuration={'experimental_features':{'march_orders':True}}));f.site(self.w,'test:home',Q,1,1);f.site(self.w,'test:other',C,7,7)
         for x in range(7):
             for y in range(7):
                 if not self.w.territory.cell(x,y).tile.id:f.site(self.w,f'test:cell-{x}-{y}',Q,x,y,hall=False)
@@ -156,7 +156,7 @@ class TestMarchOrders(unittest.TestCase):
         from host import GameHost
         from tests.test_human import config,A
         from mods.native.human import HumanAPI
-        cfg=config();h=GameHost.new(cfg);w=h.world;api=HumanAPI(h)
+        cfg=config();cfg['experimental_features']={'march_orders':True};h=GameHost.new(cfg);w=h.world;api=HumanAPI(h)
         for x in range(12):
             for y in range(12):
                 if not w.territory.cell(x,y).tile.id:w.territory.create(f'test:corridor-{x}-{y}',A,x,y,terrain='native:plain')
@@ -184,7 +184,7 @@ class TestMarchOrders(unittest.TestCase):
         from host import GameHost
         from tests.test_human import config,A,B
         from mods.native.human import HumanAPI
-        cfg=config();cfg['nations'].reverse()
+        cfg=config();cfg['experimental_features']={'march_orders':True};cfg['nations'].reverse()
         h=GameHost.new(cfg);api=HumanAPI(h);sites=[s for s in h.world.buildings.snapshot().sites if s.owner==B]
         origin=sites[0].position;goal=sites[1].position
         unit=h.world.military.seed(B,'native:infantry',*origin)[0];h.world.units.by_id(unit.id,B).update(born_turn=0)

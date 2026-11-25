@@ -7,7 +7,7 @@ from tests import test_world_domains as fixtures
 Q, C = fixtures.Q, fixtures.C
 
 BUILTINS = {'player_state', 'player_rules', 'player_events', 'memory_search'}
-NATIVE = {'build', 'demolish', 'queue_build', 'cancel_build_order', 'economy', 'end_turn', 'intelligence', 'military', 'plan', 'query', 'relations'}
+NATIVE = {'build', 'demolish', 'economy', 'end_turn', 'intelligence', 'military', 'plan', 'query', 'relations'}
 
 
 class TestToolSurface(unittest.TestCase):
@@ -23,13 +23,37 @@ class TestToolSurface(unittest.TestCase):
         ui._names = {Q: '秦', C: '楚'}
         return ui
 
-    def test_native_model_surface_includes_formal_queue_commands(self):
+    def test_native_model_surface_excludes_experimental_queue_commands(self):
         world = self.world()
         player = world.runtime.player(world, Q)
         self.assertEqual({s['function']['name'] for s in player.actions()}, BUILTINS | NATIVE)
         # 动作不在工具表里：模型只能经伞工具，脚本/规则 AI 走 API。
         self.assertNotIn('buy', {s['function']['name'] for s in player.actions()})
         self.assertTrue(player.submit('economy', {'action': 'buy', 'resource': 'native:wood', 'quantity': 1})['ok'])
+
+    def test_each_queue_can_be_enabled_independently_in_both_editions(self):
+        from host import GameHost
+        from mods.native.human import HumanAPI
+        from tests.test_human import A, config
+        for edition in ('mods.toml','mods.experimental.toml'):
+            for construction, march in ((False,False),(True,False),(False,True),(True,True)):
+                with self.subTest(edition=edition,construction=construction,march=march):
+                    cfg=config(edition)
+                    cfg['experimental_features']={'construction_queue':construction,'march_orders':march}
+                    host=GameHost.new(cfg)
+                    runtime=host.runtime;human=HumanAPI(host)
+                    operations={row['operation'] for row in human.operations(A)}
+                    for name in ('queue_build','cancel_build_order'):
+                        self.assertEqual(name in operations,construction)
+                    for name in ('queue_orders','cancel_orders'):
+                        self.assertEqual(name in operations,march)
+                    self.assertEqual('construction_queue' in runtime.panel_map,construction)
+                    self.assertEqual('march_orders' in runtime.panel_map,march)
+                    self.assertIn('recruitment_queue',runtime.panel_map)
+                    if not construction:
+                        self.assertNotIn('enqueue',runtime.api_writes['native:buildings'])
+                    if not march:
+                        self.assertNotIn('queue_orders',runtime.api_writes['native:army'])
 
     def test_umbrella_receipts_and_captions_use_the_inner_action_prose(self):
         world = self.world()
@@ -88,7 +112,7 @@ class TestToolSurface(unittest.TestCase):
         military = schemas['military']
         self.assertEqual(military['required'], ['action'])
         branches = {b['properties']['action']['enum'][0]: b for b in military['oneOf']}
-        self.assertEqual(set(branches), {'recruit', 'queue_recruit', 'cancel_recruit_order', 'move', 'attack', 'retreat', 'disband', 'queue_orders', 'cancel_orders'})
+        self.assertEqual(set(branches), {'recruit', 'queue_recruit', 'cancel_recruit_order', 'move', 'attack', 'retreat', 'disband'})
         self.assertEqual(branches['disband']['required'], ['action'])
         self.assertIn({'required': ['id']}, branches['disband']['anyOf'])
         # 地点写法约束随动作分支带出：recruit 分支仍要求 site/place/x,y 三选一。

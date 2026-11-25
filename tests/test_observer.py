@@ -28,8 +28,9 @@ class TestObserver(unittest.TestCase):
         if experimental:cfg['mods']='mods.experimental.toml'
         return cfg
 
-    def movement_host(self,*,capture=False):
-        h=GameHost.new(self.cfg());actor='s:q'
+    def movement_host(self,*,capture=False,march_orders=False):
+        cfg=self.cfg();cfg['experimental_features']={'march_orders':march_orders}
+        h=GameHost.new(cfg);actor='s:q'
         sites=h.world.nations.sites(actor)
         home=next(s for s in sites if h.world.buildings.count_role(s.id,'capital'))
         target=next(s for s in sites if s.id!=home.id)
@@ -102,7 +103,7 @@ class TestObserver(unittest.TestCase):
             self.assertEqual(observer.path.read_text().count('领土变更：'),1)
 
     def test_automatic_march_capture_is_shown_before_the_next_llm_call(self):
-        h,actor,unit,home,target=self.movement_host(capture=True)
+        h,actor,unit,home,target=self.movement_host(capture=True,march_orders=True)
         unit.update(moved_turn=h.clock())
         receipt=h.player(actor).submit('military',{'action':'queue_orders','ids':[unit.id],
             'nodes':[{'mode':'attack','position':list(target.position)}]})
@@ -122,7 +123,7 @@ class TestObserver(unittest.TestCase):
             self.assertNotIn(actor,observer.pending)
 
     def test_initial_march_reports_its_actual_movement_in_the_action_receipt(self):
-        h,actor,unit,home,target=self.movement_host()
+        h,actor,unit,home,target=self.movement_host(march_orders=True)
         with tempfile.TemporaryDirectory() as directory,contextlib.redirect_stdout(io.StringIO()):
             observer=Observer(h,Path(directory)/'journal.md',resume=True)
             h.session._callbacks=observer.result
@@ -530,6 +531,17 @@ class TestObserver(unittest.TestCase):
         chu=next(line for line in plain.splitlines() if line.startswith('楚 '))
         self.assertEqual(qin.index('+10'),chu.index('-2'))
 
+    def test_overview_displays_current_power_forecast_from_the_opening(self):
+        h=GameHost.new(self.cfg());actor='s:q'
+        site=next(s for s in h.world.nations.sites(actor) if h.world.buildings.count_role(s.id,'capital'))
+        h.world.buildings.seed(site.id,'native:wood-power-plant')
+        before=h.to_save()
+        text=h.ui.console.overview(h.observer_snapshot())
+        self.assertIn('电力',text)
+        self.assertRegex(text,r'(?m)^秦 +.* 2/1 *$')
+        self.assertRegex(text,r'(?m)^楚 +.* \x1b\[31m0/1\x1b\[0m *$')
+        self.assertEqual(h.to_save(),before)
+
     def test_overview_omits_policy_but_submission_receipt_keeps_it(self):
         h=GameHost.new(self.cfg());p=h.player('s:q');policy='保障粮木与能源，集中军队守卫边境。'
         receipt=p.submit('plan',{'text':policy})
@@ -656,7 +668,8 @@ class TestObserver(unittest.TestCase):
 
     def test_bulk_construction_quotes_and_build_receipt_match_actual_costs(self):
         for experimental in (False,True):
-            h=GameHost.new(self.cfg(experimental));p=h.player('s:q');ui=h.ui.console
+            cfg=self.cfg(experimental);cfg['experimental_features']={'construction_queue':True}
+            h=GameHost.new(cfg);p=h.player('s:q');ui=h.ui.console
             ui.remember(p.observe());site=p.query('building_sites')['sites'][0];x,y=site['position']
             args={'x':x,'y':y};before=h.to_save()
             rows=p.query('building_catalog')

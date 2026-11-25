@@ -152,12 +152,15 @@ public partial class Desktop
             if(_menu.PlayerNameField.Text!="青岚"||_menu.PlayerColorField.Color.ToHtml(false)!="66b6a7")throw new Exception("返回上一步丢失本国定制");
             _menu.SelectPlayerScenario(0);await PointerClick(_menu.PlayerNextButton);
             _menu.ReviewRuleSeeds(20261026);
+            _menu.SelectFeature("construction_queue",true);
+            _menu.SelectFeature("march_orders",true);
             _menu.ValidateVisibleLayout();await Screenshot(stem+"-menu.png");
             var config=_menu.BuildConfig(out string error,out string? configPath);
             if(config==null||configPath==null||config["nations"]!.AsArray().Count(n=>S(n!["client"])=="human")!=1)throw new Exception("真人菜单配置失败："+error);
             if(config["nations"]!.AsArray().Where(n=>S(n!["client"])=="rule").Any(n=>n!["rule_seed"]==null))throw new Exception("离线验收的规则AI缺少固定种子");
             _menu.Visible=false;StartHost(configPath,null);
             await HumanIdle();if(_map.NationName(HumanActor)!="青岚"||_map.NationColor(HumanActor).ToHtml(false)!="66b6a7")throw new Exception("本国名称／颜色未进入实际地图");
+            if(!ConstructionQueueEnabled||!MarchOrdersEnabled)throw new Exception("已勾选的队列实验功能未启用");
             if(OwnArmies.Any())throw new Exception("正常真人开局不应赠兵");CloseDrawers(false);_map.Fit();await Screenshot(path);
             await ReviewMapTools(stem);
             if(!_ledgerPowerBox.Visible||!_ledgerPower.Text.Contains("0/1")||!_ledgerPowerLast.Text.Contains("尚未结算"))throw new Exception("开局未显示当前电力缺口与首次结算状态");

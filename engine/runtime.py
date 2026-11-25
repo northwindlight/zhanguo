@@ -744,9 +744,18 @@ class Runtime:
                 declared_states.update(data.get('State',{}).get('Owns',()))
             missing_states=set(distribution.get('RequiredState',()))-declared_states
             if missing_states: raise ModError(f'state 无主：{", ".join(sorted(missing_states))}')
-        for path in expanded:
-            declaration = tomllib.loads(path.read_text(encoding='utf-8'))
+        for path, declaration in declarations:
             data = declaration['Mod']
+            api = declaration.get('PlayerAPI', {})
+            optional = api.pop('Features', {})
+            if optional:
+                if not isinstance(optional, dict) or any(method not in api.get('Methods', ()) or not isinstance(flag, str) for method, flag in optional.items()):
+                    raise ModError(f'{path} 的 [PlayerAPI.Features] 非法')
+                disabled = {method for method, flag in optional.items() if not distribution.get('Features', {}).get(flag)}
+                for field in ('Methods', 'ReadOnly'):
+                    if field in api:api[field] = [method for method in api[field] if method not in disabled]
+                for field in ('Actions', 'ContentParameters'):
+                    if field in api:api[field] = {method: value for method, value in api[field].items() if method not in disabled}
             module, name = data['Entry'].split(':')
             mod = getattr(import_module(module), name)()
             if not isinstance(mod, GameMod):
@@ -913,6 +922,9 @@ class Runtime:
             owner.before_tool(world,actor,self.tools[name].name,arguments)
             result=self.tools[name].call(world,actor,arguments)
             return owner.after_tool(world,actor,self.tools[name].name,result)
+
+    def feature_enabled(self, name):
+        return self.distribution.get('Features', {}).get(name, False)
 
     def schemas(self):
         return [self.tools[n].schema() for n in sorted(self.tools)

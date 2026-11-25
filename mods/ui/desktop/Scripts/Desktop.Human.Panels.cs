@@ -445,10 +445,10 @@ public partial class Desktop
             return "请核对宣战窗口中的目标、参战方和条约。确认后才会真正提交宣战；返回可取消。";
         }
         if(_humanSubmittedOperation is "buy" or "sell")return $"{title} {HumanLabel(S(d?["resource"]))} ×{d?["quantity"]} · {(_humanSubmittedOperation=="buy"?"支付":"收入")} {d?["gold"]} 金";
-        if(_humanSubmittedOperation=="build")return $"{title} {HumanLabel(S(d?["kind"]))} · 已动工\n实际材料：{Resources(d?["costs"])}";
+        if(_humanSubmittedOperation=="build"&&S(d?["status"])!="queued")return $"{title} {HumanLabel(S(d?["kind"]))} · 已动工\n实际材料：{Resources(d?["costs"])}";
         if(_humanSubmittedOperation=="queue_orders")return $"已更新 {d?["units"]?.AsArray().Count??0} 支军队的路线 · 当前可执行部分已处理，其余按期继续。";
         if(_humanSubmittedOperation=="cancel_orders")return "已取消指定后续军令；已发生的移动与战斗保留。";
-        if(_humanSubmittedOperation is "queue_build" or "queue_recruit")return $"{HumanLabel(S(d?["kind"]))} #{d?["id"]} · "+
+        if(_humanSubmittedOperation is "build" or "queue_build" or "queue_recruit")return $"{HumanLabel(S(d?["kind"]))} #{d?["id"]} · "+
             (_humanSubmittedOperation=="queue_recruit"?$"待生成 {d?["remaining"]} 支":S(d?["status"])=="construction"?"已开工":"已排入待建队列")+"\n预付材料："+Resources(d?["paid"]);
         if(_humanSubmittedOperation is "cancel_build_order" or "cancel_recruit_order")return "已取消未开始部分 · 全额返还："+Resources(d?["refunds"]);
         if(_humanSubmittedOperation=="demolish")return $"{(Yes(d?["completed"])?"已拆除":"已撤销施工")} {HumanLabel(S(d?["kind"]))} #{d?["id"]}\n实际返还：{Resources(d?["refunds"])}";

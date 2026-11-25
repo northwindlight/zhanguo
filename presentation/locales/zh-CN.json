@@ -127,6 +127,8 @@
   "console.market": "世界市场：{values}",
   "console.bank": "央行：储蓄 {rate:+.1%}，贷款 {loan_rate:+.1%}；储蓄可调范围 {minimum:+.0%}～{maximum:+.0%}",
   "console.flow_legend": "库存后数字为上期生产、军队消耗及贡赋转移净变化（绿增、红减；不含市场交易和赠礼）",
+  "console.power_header": "电力",
+  "console.power_legend": "电力：按当前建筑和燃料预计的发电量／需求，红色为电力不足。",
   "console.nation": "◆ {name}：{stocks}\n  国土 {land} 块 | 军队 {army} 支，HP {hp:g}",
   "console.economy": "  上期 GDP {gdp} | 投资 {investment} | 军需折价 {military} | 总资产 {assets} | 负债 {liabilities}",
   "console.unpriced": "有未计价项",

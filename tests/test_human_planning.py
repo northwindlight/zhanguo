@@ -88,13 +88,14 @@ class TestHumanPlanning(unittest.TestCase):
         result=self.api.submit(A,'build',{'kind':'native:militia-camp','x':self.site.position[0],'y':self.site.position[1]})
         self.assertFalse(result['ok']);self.assertEqual(before,w.runtime.save_mod_state(w))
 
-    def test_build_queue_is_local_to_selected_tile(self):
+    def test_direct_build_starts_on_the_selected_tile_and_uses_its_quota(self):
         other=self.second_site();site=self.h.world.buildings.site(other.tile.id)
         result=self.api.submit(A,'build',{'kind':'native:castle','x':self.site.position[0],'y':self.site.position[1]})
         self.assertTrue(result['ok']);a=self.read();b=self.read(site)
-        # 直接建造也是入队：行动期不开工，条目只落在所选地块。
-        self.assertEqual(result['data']['status'],'queued')
-        self.assertFalse(a['ordered']);self.assertTrue(any(o['kind']=='native:castle' for o in a['orders']))
+        self.assertTrue(a['ordered']);self.assertTrue(any(o['kind']=='native:castle' and o['status']=='construction' for o in a['orders']))
+        self.assertFalse(self.api.site_options(A,*self.site.position,queued=True)['queued'])
+        again=self.api.submit(A,'build',{'kind':'native:castle','x':self.site.position[0],'y':self.site.position[1]})
+        self.assertFalse(again['ok'])
         self.assertFalse(b['orders'])
         result=self.api.submit(A,'build',{'kind':'native:castle','x':site.position[0],'y':site.position[1]})
         self.assertTrue(result['ok'])

@@ -31,7 +31,7 @@ class TestNativeDistribution(unittest.TestCase):
         runtime=Runtime.load(ROOT/'mods.toml');direct=Runtime.load(ROOT/'mods/native')
         self.assertEqual(runtime.dependency_manifest(),direct.dependency_manifest())
         self.assertEqual(runtime.distribution['Id'],'native')
-        self.assertEqual(runtime.distribution['Version'],'4.22.0')
+        self.assertEqual(runtime.distribution['Version'],'4.23.0')
         self.assertEqual(set(runtime.units),{'ui:standard','native:resources','native:buildings','native:market',
                          'native:market-pricing','native:economy','native:economy-valuation',
                          'native:bank','native:economy-queries','native:nations','native:government','native:map-generation',
@@ -46,9 +46,8 @@ class TestNativeDistribution(unittest.TestCase):
             'intelligence'} <= set(runtime.tools))
         self.assertTrue({'buy','sell','borrow','recruit','attack','retreat','declare_war',
             'offer_peace','vote','send_letter','gift','spy'} <= set(runtime.actions))
-        self.assertEqual(len(runtime.schemas()),11)
         self.assertEqual({s['function']['name'] for s in runtime.schemas()},
-                         {'build','demolish','queue_build','cancel_build_order','economy','end_turn','intelligence','military','plan','query','relations'})
+                         {'build','demolish','economy','end_turn','intelligence','military','plan','query','relations'})
         world=runtime.world_class()()
         self.assertEqual(world.economy_actors,())
         self.assertEqual(world.nation_actors,())
@@ -61,16 +60,15 @@ class TestNativeDistribution(unittest.TestCase):
         self.assertEqual(trade.price_before,dict(panel.prices)['native:wood'])
         self.assertGreater(trade.exact_total,dict(panel.prices)['native:wood']*3)
         receipt=self.call(world,'build',site='native:qin-capital',kind='native:farm')
-        self.assertEqual(dict(receipt['paid']),{'native:gold':20,'native:wood':15})
+        self.assertEqual(dict(receipt.costs),{'native:gold':20,'native:wood':15})
         self.assertEqual(world.resources.balance('native:qin','native:wood'),88)
-        world.buildings.advance_orders('native:qin')   # 直接 world.resolve_turn 不含会话的回合末钩子
         result=world.resolve_turn();turn=world.economy.turns('native:qin')[-1]
         self.assertEqual(world.resources.balance('native:qin','native:gold'),1000-trade.gold-20+10)
         self.assertEqual(world.resources.balance('native:qin','native:food'),0)
         self.assertEqual(turn.gdp.total,10)
         self.assertEqual(turn.imports,trade.gold)
         self.assertEqual(world.buildings.count('native:qin-capital','native:farm'),1)
-        self.assertEqual(tuple(row.id for row in result['building_completions']),(receipt['id'],))
+        self.assertEqual(tuple(row.id for row in result['building_completions']),(receipt.id,))
         world.resolve_turn();turn=world.economy.turns('native:qin')[-1]
         self.assertEqual(world.resources.balance('native:qin','native:food'),1)
         self.assertAlmostEqual(turn.gdp.total,10+dict(world.market.snapshot().prices)['native:food'])
