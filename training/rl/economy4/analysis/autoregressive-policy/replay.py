@@ -267,6 +267,11 @@ def replay_turn(policy, header, records, observations, prefix, graph, game_recor
     Replay all sampled thoughts and one consecutive game-action fragment. Earlier
     observations still enter history, but retain board gradients only at scored views.
     """
+    events, turn = _turn_plan(header, records, graph, game_records)
+    return _replay(policy, header, events, [turn], observations, prefix, True, full_board_gradient=False)
+
+
+def _turn_plan(header, records, graph, game_records):
     require_adaptive(header, retain_thought_kv=False)
     events, turns = _plan(header, records, graph)
     if len(turns) != 1:
@@ -275,7 +280,57 @@ def replay_turn(policy, header, records, observations, prefix, graph, game_recor
     turn.games = [g for g in turn.games if g.record in game_records]
     if len(turn.games) != len(game_records) or not turn.games:
         raise ValueError("Incomplete game action fragment")
-    return _replay(policy, header, events, turns, observations, prefix, True, full_board_gradient=False)
+    return events, turn
+
+
+def replay_turn_stepwise(policy, header, records, observations, prefix, graph, game_records):
+    """Rebuild a training window with sampler-shaped tensors and autograd enabled."""
+    events, turn = _turn_plan(header, records, graph, game_records)
+    scored = {s.cutoff: s for s in (*turn.thoughts, *turn.games)}
+    gradient_views = {s.revision for s in scored.values()}
+    device = policy.event_proj.weight.device
+    history = move_history(prefix, device)
+    cache = None
+    decisions = []
+    for index, record in enumerate(events):
+        if record.kind is Event.OBSERVATION:
+            obs = {k: v.to(device=device, copy=True) for k, v in observations[record.revision].items()}
+            with torch.set_grad_enabled(torch.is_grad_enabled() and record.revision in gradient_views):
+                board = policy.snapshot(obs, record.revision)
+            _, history, _ = policy.observation_event(board, history)
+        elif record.kind in (Event.THOUGHT, Event.THOUGHT_LIMIT):
+            operation = record.operation if record.kind is Event.THOUGHT else Op.GAME
+            _, history, _ = policy.thought_event(record.kind, _graphs([record.graph], device),
+                                                  _numbers([operation], device),
+                                                  _numbers([record.writes], device), board, history)
+        else:
+            payload = record.payload.to(device=device, copy=True)
+            if record.kind is Event.ACTION and not torch.equal(payload, action_event(obs, record.operation)):
+                raise ValueError("ACTION payload differs from the archived candidate")
+            _, history, _ = policy.events(_numbers([record.kind], device), payload[None, None], history)
+
+        step = scored.get(index)
+        if step is None:
+            continue
+        if isinstance(step, _Thought):
+            hidden, cache, _ = policy.decode(_graphs([step.graph], device), _numbers([step.previous], device),
+                                             _numbers([step.writes], device), board, history, cache)
+            mask = torch.tensor(step.legal, dtype=torch.bool, device=device)
+            logits = policy.thought_logits(hidden[0, 0], mask)
+            logp = logits.log_softmax(dim=-1)[step.operation]
+            value = policy.estimate_value(hidden[0, 0])
+            kind = "thought"
+        else:
+            hidden, _, _ = policy.decode(_graphs([step.graph], device), _numbers([Op.GAME], device),
+                                         _numbers([0], device), board, history)
+            logits = policy.action_logits(hidden[:, 0], obs, board)
+            logp = logits[0].float().log_softmax(dim=-1)[step.sampled.index]
+            value = policy.estimate_value(hidden[:, 0])[0]
+            kind = "game"
+        decisions.append(Decision(kind, step.record, logp, value, step.sampled.logp, step.sampled.value))
+        if len(decisions) == len(scored):
+            break
+    return decisions
 
 
 def _replay(policy, header, events, turns, observations, prefix, sparse, *, full_board_gradient):

@@ -83,7 +83,8 @@ def watch(output, start, stop, goal):
                         report["production"] = row
                     if tag and tag.startswith("ppo_cuda_"):
                         report[tag] = row
-                    if production and tag in ("ppo_game_complete","ppo_batch_complete","ppo_replay_verified"):
+                    if production and tag in ("ppo_game_complete","ppo_batch_complete","ppo_replay_verified",
+                                              "ppo_replay_reference","ppo_segment_interrupted"):
                         report[tag] = row
                 remote.publish(output/"live.json", report)
                 if current == "COMPLETE":
@@ -100,14 +101,20 @@ def watch(output, start, stop, goal):
 def archive(output, start, stop, parent):
     stage = output/"segments"/f"{stop:04}"
     work = stage/"work"
-    pattern = rf"^work/(state\.json|games-\d+\.json|games-{stop:04}\.pt)$"
-    pull_files(kernel_ref(start), stage, pattern, output/f"download-{stop:04}.log")
+    job = kernel_ref(start)
+    log = output/f"download-{stop:04}.log"
+    pull_files(job, stage, r"^work/(state\.json|segment\.json|games-\d+\.json)$", log)
     state = json.loads((work/"state.json").read_text())
+    segment = json.loads((work/"segment.json").read_text())
+    games = state["games"]
+    if (not start < games <= stop or segment["games"] != games or segment["sha256"] != state["sha256"]
+            or segment["complete"] and games != stop or state["checkpoint"] != f"games-{games:04}.pt"):
+        raise ValueError("Adaptive PPO segment manifest failed validation")
     checkpoint = work/state["checkpoint"]
-    if (state["games"] != stop or state["checkpoint"] != f"games-{stop:04}.pt"
-            or state["initial_sha256"] != parent["initial_sha256"] or remote.sha(checkpoint) != state["sha256"]):
+    pull_files(job, stage, rf"^work/games-{games:04}\.pt$", log)
+    if state["initial_sha256"] != parent["initial_sha256"] or remote.sha(checkpoint) != state["sha256"]:
         raise ValueError("Adaptive PPO checkpoint failed validation")
-    result = dict(state, kernel=kernel_ref(start), local_checkpoint=str(checkpoint), time=time.time())
+    result = dict(state, kernel=job, local_checkpoint=str(checkpoint), segment=segment, time=time.time())
     remote.publish(stage/"verified.json", result)
     remote.publish(output/"verified.json", result)
     return result
@@ -129,6 +136,11 @@ def main(args):
     if remote.sha(Path(parent["local_checkpoint"])) != parent["sha256"]:
         raise ValueError("Failed to verify local PPO parent hash")
     while parent["games"] < args.goal:
+        segment = parent.get("segment")
+        if segment is not None and not segment["complete"]:
+            remote.publish(output/"live.json", dict(state="interrupted", kernel=parent["kernel"],
+                verified_games=parent["games"], segment=segment, time=time.time()))
+            return
         start = parent["games"]
         stop = min(args.goal, start + args.segment)
         submit(output, start, stop, parent)

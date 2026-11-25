@@ -16,7 +16,7 @@ from bc_train import atomic_save, emit, publish, sha
 from evaluate_thought import SCALE, sample, territory_gdp
 from model import Policy
 from native_eval import Engine
-from replay import max_errors, move_history, replay_turn
+from replay import max_errors, move_history, replay_turn, replay_turn_stepwise
 from rollout_trace import GameRecord, SeatTrace
 
 CONTRACT = dict(thought_budget=[8, 30], retain_thought_kv=False, actor_observation_gdp="nominal_only",
@@ -35,6 +35,7 @@ class Window:
     graph: object
     game_records: frozenset
     targets: dict
+    stepwise: bool = False
 
 
 def training_windows(trace, starts, returns, rng):
@@ -158,8 +159,9 @@ def rollout(policy, library, seed, size, turns, samples_per_seat):
 
 
 def replay(policy, window):
-    return replay_turn(policy, window.header, window.records, window.observations,
-                       window.history, window.graph, window.game_records)
+    method = replay_turn_stepwise if window.stepwise else replay_turn
+    return method(policy, window.header, window.records, window.observations, window.history,
+                  window.graph, window.game_records)
 
 
 def action_group(decisions, window):
@@ -193,6 +195,7 @@ def learning_pass(policy, windows, actor, critic, check):
     mean = statistics.mean(advantages)
     std = statistics.pstdev(advantages) + 1e-6
     logp_error, value_error = 0., 0.
+    reference_windows = 0
     totals = dict(actor=0., critic=0.)
     actor.zero_grad(set_to_none=True)
     critic.zero_grad(set_to_none=True)
@@ -200,6 +203,16 @@ def learning_pass(policy, windows, actor, critic, check):
         decisions = replay(policy, w)
         if check:
             lp, ve = max_errors(decisions)
+            if not (lp <= 2e-5 and ve <= 2e-5) and not w.stepwise:
+                batched_logp, batched_value = lp, ve
+                del decisions
+                w.stepwise = True
+                decisions = replay(policy, w)
+                lp, ve = max_errors(decisions)
+                reference_windows += 1
+                emit("ppo_replay_reference", revision=w.records[0].revision,
+                     batched_logp_error=batched_logp, batched_value_error=batched_value,
+                     reference_logp_error=lp, reference_value_error=ve)
             logp_error, value_error = max(logp_error, lp), max(value_error, ve)
             if not (lp <= 2e-5 and ve <= 2e-5):
                 raise ValueError(f"Adaptive rollout/replay drift: logp={lp:.7g}, V={ve:.7g}")
@@ -221,7 +234,8 @@ def learning_pass(policy, windows, actor, critic, check):
     critic_norm = torch.nn.utils.clip_grad_norm_(critic.param_groups[0]["params"], 1., error_if_nonfinite=True)
     return dict(**totals, actor_norm=float(actor_norm), critic_norm=float(critic_norm),
                 game_fragments=len(game_adv), trained_thoughts=len(thought_adv),
-                replay_logp_error=logp_error, replay_value_error=value_error)
+                replay_logp_error=logp_error, replay_value_error=value_error,
+                reference_windows=reference_windows)
 
 
 @torch.no_grad()
@@ -269,7 +283,7 @@ def optimize(policy, windows, actor, critic, args, seed):
         if i == 0:
             emit("ppo_replay_verified", logp_error=row["replay_logp_error"],
                  value_error=row["replay_value_error"], trained_thoughts=row["trained_thoughts"],
-                 game_fragments=row["game_fragments"])
+                 game_fragments=row["game_fragments"], reference_windows=row["reference_windows"])
         result = actor_step(policy, actor, anchors, args)
         critic.step()
         rows.append(dict(row, **result))

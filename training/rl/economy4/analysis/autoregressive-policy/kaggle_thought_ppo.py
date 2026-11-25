@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 from zipfile import ZipFile
 
 SOURCES = None
@@ -37,8 +38,8 @@ def main():
     workers = torch.cuda.device_count()
     if workers not in (1, 2):
         raise RuntimeError("Adaptive PPO requires one or two CUDA devices")
-    root = Path("/kaggle/working")
-    work = root / "work"
+    root = Path(tempfile.mkdtemp(prefix="zhanguo-ppo-"))
+    work = Path("/kaggle/working/work")
     work.mkdir(exist_ok=True)
     with ZipFile(BytesIO(b64decode(SOURCES))) as archive:
         archive.extractall(root / "src")
@@ -72,10 +73,19 @@ def main():
                 raise RuntimeError(f"CUDA preflight left {group} weights untouched")
         print(json.dumps(dict(stage="ppo_cuda_preflight_passed", games=workers, ppo=proof["ppo"])), flush=True)
     print(json.dumps(dict(stage="ppo_production_begin", start=START, stop=STOP)), flush=True)
-    subprocess.run(list(map(str, [*common, "--output", work, "--stop-games", STOP])), check=True, env=env)
-    state = json.loads((work/"state.json").read_text())
-    if state["games"] != STOP or digest(work/state["checkpoint"]) != state["sha256"]:
+    result = subprocess.run(list(map(str, [*common, "--output", work, "--stop-games", STOP])), env=env)
+    manifest = work/"state.json"
+    if not manifest.exists():
+        result.check_returncode()
+        raise ValueError("Adaptive PPO did not publish a checkpoint")
+    state = json.loads(manifest.read_text())
+    if not START < state["games"] <= STOP or digest(work/state["checkpoint"]) != state["sha256"]:
         raise ValueError("Incomplete adaptive PPO boundary")
+    complete = result.returncode == 0 and state["games"] == STOP
+    segment = dict(complete=complete, exit_code=result.returncode, games=state["games"], sha256=state["sha256"])
+    (work/"segment.json").write_text(json.dumps(segment))
+    if not complete:
+        print(json.dumps(dict(stage="ppo_segment_interrupted", **segment)), flush=True)
 
 
 if __name__ == "__main__":
