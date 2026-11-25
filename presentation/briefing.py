@@ -143,12 +143,13 @@ def _battle(ui, facts, actor):
     for row in rows:
         sides = []
         for side in row.get('sides', []):
-            who = '你' if side['owner'] == actor else ui._names.get(side['owner'], side['owner'])
-            sides.append(f"{who}{side['count']}支{num(sum(u.get('hp', 0) for u in side.get('units', [])))}HP")
+            who = ui.t('console.battle_you', '你') if side['owner'] == actor else ui._names.get(side['owner'], side['owner'])
+            sides.append(ui.t('console.battle_side', '{who}{count}支{hp}HP', who=who, count=side['count'],
+                              hp=num(sum(u.get('hp', 0) for u in side.get('units', [])))))
         detail = '/'.join(sides)
         defence = next((s for s in row.get('sides', []) if s.get('role') == 'defending'), None)
         if defence is not None and not row.get('blind'):
-            detail += f"·守方减伤{num(defence.get('combined_reduction', 0))}%"
+            detail += ui.t('console.battle_defence', '·守方减伤{value}%', value=num(defence.get('combined_reduction', 0)))
         pieces.append(ui.pos(row.get('position'), actor=actor) + detail)
     return ui.text('brief.battle', count=len(rows), detail='；'.join(pieces))
 
@@ -201,9 +202,9 @@ def _army(ui, facts, actor):
     lines = [ui.text('brief.army_head'), ui.army_list(rows, actor)]
     guards = [u for u in rows if u.get('owner') == '野人']
     if guards:
-        places = '、'.join(ui.pos([u['x'], u['y']], actor=actor) for u in guards[:12])
+        places = ui.t('console.list_sep', '、').join(ui.pos([u['x'], u['y']], actor=actor) for u in guards[:12])
         if len(guards) > 12:
-            places += f'…另{len(guards) - 12}处'
+            places += ui.t('console.more_places', '…另{count}处', count=len(guards) - 12)
         lines.append(ui.text('brief.guards', count=len(guards), places=places))
     # 问路并进军事面板：可及格数与可拓荒地一次给全，省掉单独一次路径查询。
     frontier = facts.get('frontier') or {}

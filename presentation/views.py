@@ -66,7 +66,7 @@ def player_atlas(observation, text, key=lambda value:value):
         if unit.get('hp',1)<=0:continue
         army.setdefault((unit['x'],unit['y']),[]).append(unit)
     terrain=lambda value:text.resolve('atlas.terrain.'+value,key(value))
-    glyph={'native:infantry':'步','native:cavalry':'骑','native:militia':'民'}
+    glyph={kind:text.resolve('atlas.glyph.'+kind,zh) for kind,zh in (('native:infantry','步'),('native:cavalry','骑'),('native:militia','民'))}
 
     def line(row):
         x,y=row['position'];owner=row['owner']
@@ -74,20 +74,20 @@ def player_atlas(observation, text, key=lambda value:value):
         out=[f'({x},{y}){who}{terrain(row["terrain"])}']
         kinds=dict(row.get('buildings') or ())
         castle=kinds.get('native:castle',0)
-        if castle:out.append(f'L{castle}城')
+        if castle:out.append(text.resolve('atlas.castle','L{level}城',level=castle))
         halls=kinds.get('native:town-hall',0)
-        if halls:out.append(f'厅×{halls}')
+        if halls:out.append(text.resolve('atlas.halls','厅×{count}',count=halls))
         if row.get('name'):out.append(row['name'])
         here=army.get((x,y),())
         if here:
             tags=[]
             for unit in sorted(here,key=lambda u:(0 if u.get('owner')==owner else 1,0 if u.get('owner')==actor else 1,u.get('id',0))):
                 owner_of=unit.get('owner')
-                if owner_of=='野人':tags.append('野人');continue
+                if owner_of=='野人':tags.append(text.resolve('atlas.barbarians','野人'));continue
                 prefix='' if owner_of==owner else names.get(owner_of,owner_of)
                 tags.append(f"{prefix}{glyph.get(unit.get('kind'),key(unit.get('kind',''))[:1])}{unit.get('id','')}")
-            out.append('、'.join(tags))
-        return '，'.join(out)
+            out.append(text.resolve('atlas.unit_sep','、').join(tags))
+        return text.resolve('atlas.field_sep','，').join(out)
 
     buckets={}
     for row in rows:
@@ -95,7 +95,8 @@ def player_atlas(observation, text, key=lambda value:value):
         buckets.setdefault(actor if owner==actor else '野人' if owner is None else owner,[]).append(row)
     order=[k for k in (actor,'野人') if k in buckets]
     order+=sorted((k for k in buckets if k not in (actor,'野人')))
-    parts=[f'【{names.get(k,k)}】\n'+'\n'.join(line(r) for r in sorted(buckets[k],key=lambda r:r['position']))
+    heading=lambda k:text.resolve('atlas.wild_heading','野人') if k=='野人' else names.get(k,k)
+    parts=[f'【{heading(k)}】\n'+'\n'.join(line(r) for r in sorted(buckets[k],key=lambda r:r['position']))
            for k in order]
     own=sum(1 for row in rows if row['owner']==actor)
     parts.append(text('atlas.footer',own=own,seen=len(rows),other=len(rows)-own))

@@ -55,9 +55,68 @@ TIPS = (
 )
 
 
-def random_tip(key=None):
-    if key is None:return random.choice(TIPS)
+TIPS_EN = (
+    'Reading the Strategy manual is never a mistake.',
+    'The Economics manual pays off: work out inputs, outputs and current market prices before deciding what to build.',
+    'The Warfare manual tells you how to wage war: objective, forces, logistics and a line of retreat. Do not attack if any one is missing.',
+    'Do you know your neighbours? Your view looks narrow; a watchtower or a 20-gold report would fill the gap.',
+    'Have you considered ROI? Some factories lose money when their raw materials get more expensive.',
+    'You need not lose a war before reading the Strategy manual: one line per turn beats leafing through it on the eve of battle.',
+    'The Economics manual explains why to act; the rules only say what you can do.',
+    'The first page of the Warfare manual is not tactics; it is the pre-war checklist.',
+    'If you do not even know how many town halls your neighbour has, do not declare war yet.',
+    'You can see only one tile around your land; a watchtower widens the radius to four tiles.',
+    'Reports are ten turns old; judging current forces from them is driving with your eyes closed.',
+    'Intelligence lags by three turns and shows no army positions; do not mistake old intelligence for current deployment.',
+    'Selling and buying the same goods in one turn always loses the spread; buy or sell, not both.',
+    'A loan is a liquidity tool, not income; forced repayment at maturity can push the treasury negative.',
+    "A factory's ROI moves with input prices; a profitable plant today may lose money once its inputs rise.",
+    'Count supply-depot and equipment-factory returns separately; do not let total output hide a losing line.',
+    'Defending is cheaper than counterattacking: terrain and castle damage reduction multiply, so work out the defender before the attacker.',
+    'When the main army marches out, leave at least one garrison able to stop a flanking force.',
+    'Total forces and forces committed to an attack are different numbers; explain why the difference is idle.',
+    'An attack without a reserve stakes everything on the first wave.',
+    'Losing every town hall ends the nation; a second town hall is worth more than a fully upgraded castle.',
+    'Seeing 0 units is not the same as a nation having 0 units; write an upper bound for the unknown instead of zero.',
+    'In economic reports, primary industry is farming, forestry, mining and oil; secondary industry is supplies and equipment. Read them separately.',
+    'Market prices follow stock against the reference stock; if everyone hoards and nobody buys, prices collapse.',
+    'Large orders move the price; check the buy-and-sell-50 quote before placing one.',
+    'Armies consume supplies every turn; a complete shortage makes every unit lose HP without healing.',
+    'Healing wounded soldiers consumes equipment; militia heal without it.',
+    'Newly recruited units cannot move this turn; units that have moved cannot reach a second battlefield.',
+    "A unit that submits a retreat still fights this turn's battle and leaves only after settlement.",
+    "Before a siege, work out the defender's terrain × castle damage reduction, then the forces you can bring.",
+    "An ally's expansion also shifts the balance of power; shared vision is not a shared treasury.",
+    'An alliance is a full diplomatic entity: joining voids your individual guarantees, and leaving does not restore them.',
+    'Declaring war on any member of an alliance means war with the whole alliance.',
+    'Peace can be sought only from the representative of the leading entity in a war; ordinary followers cannot negotiate for it.',
+    'When you wait for a long time, state what you are waiting for and until which turn; waiting without conditions is giving up.',
+    'Expansion buys an option on construction; land you take but do not build on is money locked away.',
+    'Cash is not your only asset; stock and buildings are assets too, but they sell at a discount.',
+    'Weigh the cost of intelligence and the window for action first; when you do not know, write unknown, an upper bound or the worst case.',
+    'Your neighbours compound too; if you do not expand, you hand the choice to someone else.',
+    'Do not pile up precise wording to pass review; state the strategy, forces, logistics and retreat clearly.',
+    'Ask every turn: what are my total forces, my deployable forces and the forces committed to attack?',
+    'Rear, capital and reserve: think through at least one of the three before war starts.',
+    "Trade, construction and recruitment all spend cash; first secure next turn's construction materials and army pay.",
+    'A blank on the map is not a safe zone; it is a risk you have not seen yet.',
+    'Joining an alliance may for a while run against the goal of conquering the realm, but while you are weak it can be the tool that keeps you alive for the final contest.',
+    'When weak, buy survival first: an alliance takes blows for you, shares vision and buys time to develop. Once strong, reconsider leaving or switching sides.',
+    'Staying out of alliances is also a strategy, but do not treat non-alignment as the goal; it is only one of the means.',
+    'Become the alliance leader and defeat a far stronger rival!',
+    'An alliance is more than a shield: as its leader you can turn a strong enemy you cannot beat alone into an alliance war.',
+)
+"""English tips, index-aligned with `TIPS`: the same seeded choice picks the same tip in both languages."""
+
+
+def tips_for(language='zh-CN'):
+    return TIPS_EN if str(language or '').split('-')[0].lower()=='en' else TIPS
+
+
+def random_tip(key=None, language='zh-CN'):
+    tips=tips_for(language)
+    if key is None:return random.choice(tips)
     # Briefings are persisted in model memory. The same turn and facts must
     # replay the same cosmetic tip after loading, without consuming game RNG.
     value=int.from_bytes(hashlib.sha256(str(key).encode('utf-8')).digest()[:8],'big')
-    return TIPS[value % len(TIPS)]
+    return tips[value % len(tips)]
