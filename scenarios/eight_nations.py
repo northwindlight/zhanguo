@@ -98,7 +98,7 @@ IDS=dict(zip(NATIONS,('scenario:qin','scenario:wei','scenario:han','scenario:zha
 
 
 def load_template():
-    return json.loads((ROOT/'mp_config.example.json').read_text(encoding='utf-8'))
+    return json.loads((ROOT/'configs/mp_config.example.json').read_text(encoding='utf-8'))
 
 
 def build_config(template=None, seed=SEED):

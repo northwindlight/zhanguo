@@ -24,30 +24,32 @@ BUILD = HERE / '_build'
 ASSETS = HERE / 'assets'
 
 SITE_TITLE = '战国 Mod 开发文档'
-FOOTER = '内容来自 docs/site/content/ 与 research/papers/ · API 参考由 scripts/api_doc.py 生成'
+FOOTER = '内容来自 docs/site/content/ 与 docs/ 下的契约文档 · API 参考由 scripts/api_doc.py 生成'
 
 # 章节顺序：目录按这个分组排；没列出的排在后面，按名字排。
-SECTION_ORDER = ['开始', '开发流程', 'API 参考', '研究与评测', '附录']
+SECTION_ORDER = ['开始', '开发流程', '配方', '宿主与会话', 'API 参考', '附录']
 
 
-def research_pages() -> list[dict]:
-    """直接发布研究正文，避免另存一份后逐渐失去同步。"""
+# 宿主与会话的契约文档就放在 docs/ 下（AGENTS.md 与各模块 README 直接链到那里），
+# 站点原样发布这几篇，不另存一份副本——唯一来源仍是 docs/ 里的源文件。
+SOURCE_PAGES = [
+    ('docs/接口/发行版Session.md', '01-发行版Session', '发行版 Session 与剧本', '宿主、会话服务、剧本挂载、控制权与整局存档契约。'),
+    ('docs/接口/配置层.md', '02-配置层', '配置层', '配置提供者、字段归一化与开局前检查。'),
+    ('docs/接口/客户端接线.md', '03-客户端接线', '客户端接线', '模型、规则与自定义客户端如何绑定玩家 API。'),
+    ('docs/接口/真人玩家接口.md', '04-真人玩家接口', '真人玩家接口', '一位真人混合 AI：身份绑定、操作目录、查询与正式提交。'),
+]
+SOURCE_SECTION = '宿主与会话'
+REPOSITORY = 'https://github.com/northwindlight/zhanguo/blob/main/'
+
+
+def source_pages() -> list[dict]:
+    """把 docs/ 下的契约文档发布成站点页；站内互链改成站点地址，其余链到 GitHub。"""
     root = HERE.parent.parent
-    source = root / 'research/papers/20261020-long-horizon-wild-ranking'
-    specs = [
-        ('README.md', '01-长任务野榜', '四模型长任务野榜', '直接评价规划兑现、反省后的改变与目标保持。'),
-        ('behavior-review.md', '06-行为一致性评分', '核心行为评分与证据链', 'DeepSeek72、Qwen70、MiniMax47、Gemini40，逐项公开加分、扣分与后续变化。'),
-        ('goal-revision-cases.md', '07-目标修订与称臣案例', '目标修订与称臣案例', '158局燕与本局赵：称臣不是扣分项，理由、条件与后续是否摇摆才是。'),
-        ('minimax-retrospective.md', '04-MiniMax停局报告', 'MiniMax 第14回合停局报告', '目标让渡、审核循环、同窗对照与一次失望的游戏体验。'),
-        ('normalization.md', '05-评测归一化', '评测归一化与宏观口径', '共同时间节点、短期贷款消费、早晚终局与人工停止。'),
-        ('observations.md', '02-MiniMax对局观察', 'MiniMax 前9期观察', '保留最初的同阶段统计与案例，后续见第14回合停局报告。'),
-        ('excerpts.md', '03-审核原文摘录', '审核原文摘录', '累计指标误读与君主接受错误数字的直接证据。'),
-    ]
-    urls = {(source / name).resolve(): f'研究与评测/{slug}.html'
-            for name, slug, _, _ in specs}
+    urls = {(root / source).resolve(): f'{SOURCE_SECTION}/{slug_name}.html'
+            for source, slug_name, _, _ in SOURCE_PAGES}
     pages = []
-    for order, (name, slug, title, summary) in enumerate(specs, 1):
-        path = source / name
+    for order, (source, slug_name, title, summary) in enumerate(SOURCE_PAGES, 1):
+        path = root / source
 
         def link(match: re.Match) -> str:
             label, target = match.groups()
@@ -57,13 +59,16 @@ def research_pages() -> list[dict]:
             resolved = (path.parent / relative).resolve()
             url = urls.get(resolved)
             if url is None:
-                url = 'https://github.com/northwindlight/zhanguo/blob/main/' + resolved.relative_to(root).as_posix()
+                try:
+                    url = REPOSITORY + resolved.relative_to(root).as_posix()
+                except ValueError:
+                    return match.group(0)
             return f'[{label}]({url}{marker}{anchor})'
 
         body = re.sub(r'\[([^\]]+)\]\(([^)\s]+)\)', link, path.read_text(encoding='utf-8'))
-        body += f'\n\n[GitHub 正文与版本记录](https://github.com/northwindlight/zhanguo/blob/main/{path.relative_to(root).as_posix()})\n'
+        body += f'\n\n[GitHub 源文件与版本记录]({REPOSITORY}{source})\n'
         url = urls[path.resolve()]
-        pages.append({'title': title, 'section': '研究与评测', 'summary': summary,
+        pages.append({'title': title, 'section': SOURCE_SECTION, 'summary': summary,
                       'order': order, 'path': Path(url), 'body': body, 'url': url})
     return pages
 
@@ -275,7 +280,7 @@ def collect() -> list[dict]:
             'body': body,
             'url': str(relative.with_suffix('.html')).replace('\\', '/'),
         })
-    pages.extend(research_pages())
+    pages.extend(source_pages())
     pages.sort(key=lambda row: (SECTION_ORDER.index(row['section'])
                                  if row['section'] in SECTION_ORDER else len(SECTION_ORDER),
                                  row['order'], row['title']))

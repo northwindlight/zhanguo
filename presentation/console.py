@@ -38,7 +38,7 @@ class ConsoleUI(ReceiptPresentation):
                     rows.append(self.text('console.estimate_academy',saved=value.get('academy_saved_per_period',0),density=value.get('academy_density_per_period',0)))
                 return '\n'.join(indent+row for row in rows)
             if {'known','unpriced','total','complete'}<=value.keys():
-                return f'{value["total"]:g} 金' if value['complete'] else self.text('console.unpriced')+' ('+', '.join(map(str,value['unpriced']))+')'
+                return self.t('console.gold_amount_spaced','{value} 金',value=f'{value["total"]:g}') if value['complete'] else self.text('console.unpriced')+' ('+', '.join(map(str,value['unpriced']))+')'
             rows=[]
             for key,item in value.items():
                 label=self.label('field',key)

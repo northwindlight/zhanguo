@@ -16,7 +16,7 @@ class PamsBook:
             from importlib.metadata import version
             installed = version('pams')
         except ImportError as exc:
-            raise ValueError('stock 需要 PAMS：请安装 requirements-stock.txt') from exc
+            raise ValueError('stock 需要 PAMS：请安装 requirements/stock.txt') from exc
         if installed != '0.3.0':
             raise ValueError('stock 后端要求 pams==0.3.0')
 

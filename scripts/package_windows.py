@@ -138,10 +138,47 @@ def stage_solver(bundle, cache):
         if not any(target.rglob('*')):raise ValueError('Solver license missing: '+name)
 
 
+def stage_distribution_license(metadata, target):
+    target.mkdir(parents=True, exist_ok=True)
+    for source in metadata.iterdir():
+        if source.name.lower() == 'licenses' and source.is_dir():
+            shutil.copytree(source, target, dirs_exist_ok=True)
+        elif source.name.upper().startswith('LICENSE') and source.is_file():
+            shutil.copy2(source, target/source.name)
+    shutil.copy2(metadata/'METADATA', target/'METADATA.txt')
+
+
+def stage_llm_sdks(bundle, cache):
+    """Ship the pinned OpenAI/Anthropic/Gemini SDK closure, including Windows native wheels."""
+    rows = json.loads((ROOT/'packaging/windows/llm-wheels.json').read_text(encoding='utf-8'))
+    wheels = []
+    for row in rows:
+        path = cache/row['filename']
+        if not path.is_file() or digest(path) != row['sha256']:
+            temporary = path.with_suffix('.partial')
+            with urllib.request.urlopen(row['url'], timeout=120) as source, temporary.open('wb') as dest:
+                shutil.copyfileobj(source, dest, 1024*1024)
+            if digest(temporary) != row['sha256']:
+                temporary.unlink()
+                raise ValueError('LLM SDK wheel SHA-256 mismatch: '+row['filename'])
+            temporary.replace(path)
+        wheels.append(path)
+    runtime = bundle/'runtime/python'
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-index', '--no-deps', '--no-compile',
+        '--platform', 'win_amd64', '--implementation', 'cp', '--python-version', '3.13', '--abi', 'cp313',
+        '--only-binary=:all:', '--target', str(runtime), *map(str, wheels)], check=True)
+    for directory in ('Scripts', 'bin'): shutil.rmtree(runtime/directory, ignore_errors=True)
+    for row in rows:
+        metadata = next(runtime.glob(row['name'].replace('-', '_')+'-*.dist-info'))
+        (metadata/'direct_url.json').unlink(missing_ok=True)
+        target = bundle/'LICENSES'/row['name']
+        stage_distribution_license(metadata, target)
+
+
 def stage_sources(bundle, root=ROOT):
     stage_runtime(bundle, root)
     for file in (root / "packaging/windows").iterdir():
-        if file.is_file():
+        if file.is_file() and file.name != 'llm-wheels.json':
             shutil.copy2(file, bundle / file.name)
     review = bundle / "美术预览"
     shutil.copytree(root / "docs/design/unified-v1", review)
@@ -160,7 +197,7 @@ def stage_sources(bundle, root=ROOT):
     for relative in tracked_files(root):
         if relative.parts[:4] == ("mods", "ui", "desktop", "Scripts") and relative.suffix == ".cs":
             shutil.copy2(root / relative, code / relative.name)
-    shutil.copy2(root / "docs/design/gui-unified-tour-20261024.mp4", bundle / "演出参考.mp4")
+    shutil.copy2(root / "docs/design/media/gui-unified-tour-20261024.mp4", bundle / "演出参考.mp4")
     (bundle / "music").mkdir()
     (bundle / "music/README.txt").write_text("音乐交付材料放这里；本版不会自动播放。详见根目录给音乐和美术的说明。\n", encoding="utf-8")
     licenses = bundle / "LICENSES"
@@ -175,7 +212,9 @@ def stage_sources(bundle, root=ROOT):
 def inspect(bundle):
     required = ["Zhanguo.exe", "Zhanguo.pck", "game/host.py", "game/ui/desktop.py", "game/mods.toml", "game/ui.toml",
                 "runtime/python/python.exe", "runtime/python/python313.dll", "portable.json",
-                "runtime/python/numpy/__init__.py", "runtime/python/scipy/optimize/_milp.py"]
+                "runtime/python/numpy/__init__.py", "runtime/python/scipy/optimize/_milp.py",
+                "runtime/python/google/genai/__init__.py", "game/clients/gemini.py",
+                "runtime/python/openai/__init__.py", "runtime/python/anthropic/__init__.py"]
     for name in required:
         if not (bundle / name).is_file():
             raise ValueError("Incomplete bundle: " + name)
@@ -198,6 +237,7 @@ def build(output, cache):
     stage_sources(bundle)
     extract(download("python", cache), bundle / "runtime/python")
     stage_solver(bundle,cache)
+    stage_llm_sdks(bundle,cache)
     # Embedded Python ignores the registry, PATH, user site and PYTHONPATH.
     (bundle / "runtime/python/python313._pth").write_text("python313.zip\n.\n../../game\n", encoding="utf-8")
     godot = tools(cache)

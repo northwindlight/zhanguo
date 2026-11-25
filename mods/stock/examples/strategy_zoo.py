@@ -5,7 +5,7 @@
 # 用回放客户端把它们放进同一个市场（键为回合号）：
 #   {"id":"stock:reversion","client":"replay","scripts":{
 #     "1": open('strategy_zoo.py').read().split('# ---')[1], ...}}
-# 或参考 probe_review.py --causal-controls 的对照写法。
+# 或参考 scripts/stock_probe_review.py --causal-controls 的对照写法。
 
 # --- news：跟最新公开消息（含财报），利好买入、利空清仓 ---
 def on_tick():

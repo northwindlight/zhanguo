@@ -7,16 +7,30 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from scripts.package_windows import ROOT, stage_runtime
+from scripts.package_windows import ROOT, stage_runtime, stage_distribution_license
 
 
 class TestWindowsPackage(unittest.TestCase):
+    def test_wheel_license_directory_is_not_copied_as_a_file_on_windows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            metadata = Path(tmp)/'package.dist-info'
+            licenses = metadata/'LiCeNsEs'
+            licenses.mkdir(parents=True)
+            (licenses/'LICENSE.txt').write_text('license')
+            (metadata/'LICENSE-EXTRA').write_text('extra')
+            (metadata/'METADATA').write_text('Name: package\nVersion: 1\n')
+            target = Path(tmp)/'bundle-licenses'
+            stage_distribution_license(metadata, target)
+            self.assertEqual((target/'LICENSE.txt').read_text(), 'license')
+            self.assertEqual((target/'LICENSE-EXTRA').read_text(), 'extra')
+            self.assertIn('Version: 1', (target/'METADATA.txt').read_text())
+
     def test_staging_does_not_copy_private_or_untracked_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "checkout"
             bundle = Path(tmp) / "bundle"
             names = ["host.py", "mods.toml", "ui.toml", "clients/provider.py", "mods/native/mod.toml",
-                     "mp_config.json", "mp_config.example.json", "archive/session.json",
+                     "mp_config.json", "configs/mp_config.example.json", "archive/session.json",
                      "userdata/desktop-settings.json", "mods/ui/desktop/assets/unified-v1/manifest.json"]
             for name in names + ["clients/not-tracked.json"]:
                 path = root / name
