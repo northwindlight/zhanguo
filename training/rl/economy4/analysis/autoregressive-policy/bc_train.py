@@ -169,8 +169,9 @@ def train(rank, args, rendezvous=None):
         train_items, val_items = train_items[:args.limit], val_items[:args.limit]
     if not train_items or not val_items:
         raise ValueError("BC requires nonempty training and validation maps")
-    if len(train_items) % world_size:
-        raise ValueError("training split requires equal map counts per worker")
+    maps_per_update = world_size * args.accumulate
+    if len(train_items) % maps_per_update:
+        raise ValueError("training split must contain complete optimizer batches")
     args.output.mkdir(parents=True, exist_ok=True)
     raw = ActionBC(Policy(), checkpoint_board=not args.no_checkpoint).to(device)
     optimizer = torch.optim.AdamW((p for p in raw.parameters() if p.requires_grad), lr=args.lr, weight_decay=0)
@@ -189,7 +190,8 @@ def train(rank, args, rendezvous=None):
         emit("bc_actual_start", epoch=start_epoch + 1, stop=args.stop_epoch, precision=args.precision,
              training_maps=len(train_items), validation_maps=len(val_items),
              training_rows=sum(item[3] for item in train_items), validation_rows=sum(item[3] for item in val_items),
-             parameters=sum(p.numel() for p in raw.parameters()), world=world_size, preflight=args.preflight)
+             parameters=sum(p.numel() for p in raw.parameters()), world=world_size,
+             maps_per_update=maps_per_update, preflight=args.preflight)
 
     for epoch in range(start_epoch + 1, args.stop_epoch + 1):
         sparse = epoch > 1
@@ -198,31 +200,35 @@ def train(rank, args, rendezvous=None):
         model.train()
         totals = [0.0, 0.0, 0.0]
         begin = time.monotonic()
-        for step, item in enumerate(order[rank::world_size], 1):
+        for microstep, item in enumerate(order[rank::world_size], 1):
             batch, labels = load(item, args.chunk, device)
-            optimizer.zero_grad(set_to_none=True)
+            if (microstep - 1) % args.accumulate == 0:
+                optimizer.zero_grad(set_to_none=True)
             with torch.autocast(device.type, dtype=torch.float16, enabled=amp):
                 logits, kl = model(batch, labels, sparse=sparse)
                 ce, hits, count = loss_and_hits(logits, labels)
                 loss = ce / count + args.index_weight * kl
             if not torch.isfinite(loss):
-                raise FloatingPointError(f"loss stopped being finite at epoch={epoch}, step={step}")
+                raise FloatingPointError(f"loss stopped being finite at epoch={epoch}, microstep={microstep}")
+            scaler.scale(loss / args.accumulate).backward()
+            totals[0] += float(ce.detach())
+            totals[1] += float(hits)
+            totals[2] += count
+            if microstep % args.accumulate:
+                continue
+            step = microstep // args.accumulate
             scale_before = scaler.get_scale()
-            scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             finite_norm = torch.nn.utils.clip_grad_norm_(
                 model.parameters(), 1.0, error_if_nonfinite=not amp)
             scaler.step(optimizer)
             scaler.update()
             if rank == 0 and (step <= 2 or step % 20 == 0):
-                emit("bc_step", epoch=epoch, step=step, steps=len(order) // world_size,
+                emit("bc_step", epoch=epoch, step=step, steps=len(order) // maps_per_update,
                      ce=float(ce.detach()) / count, exact=float(hits) / count,
                      index_kl=float(kl.detach()), weight_update=scaler.get_scale() >= scale_before,
                      grad_norm=float(finite_norm) if torch.isfinite(finite_norm) else None,
                      elapsed=time.monotonic() - begin)
-            totals[0] += float(ce.detach())
-            totals[1] += float(hits)
-            totals[2] += count
         train_metrics = consolidate(totals, distributed, device)
         raw.eval()
         validation = [0.0, 0.0, 0.0]
@@ -262,6 +268,7 @@ def main():
     p.add_argument("--stop-epoch", type=int, default=10)
     p.add_argument("--device", default="cuda")
     p.add_argument("--workers", type=int, default=1)
+    p.add_argument("--accumulate", type=int, default=1)
     p.add_argument("--precision", choices=("fp16", "fp32"), default="fp16")
     p.add_argument("--seed", type=int, default=SEED)
     p.add_argument("--lr", type=float, default=3e-4)
@@ -278,6 +285,8 @@ def main():
         return
     if not 1 <= args.stop_epoch <= 10:
         p.error("stop epoch must be between 1 and 10")
+    if args.accumulate < 1 or args.workers > 1 and args.accumulate > 1:
+        p.error("use gradient accumulation with a single worker")
     if args.workers < 1 or args.device.startswith("cuda") and args.workers > torch.cuda.device_count():
         p.error("invalid worker count")
     if args.workers == 1:
