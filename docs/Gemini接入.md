@@ -16,7 +16,7 @@
 
 模型名和权限以接入服务的目录为准。兼容代理可填写自己的 `base_url`；地址末尾可以带 `v1beta`，不会重复添加版本路径。默认API版本为 `v1beta`，也可显式配置 `gemini_api_version`。
 
-源码环境在项目虚拟环境中安装 `pip install -r requirements.txt`；只补Gemini依赖时使用 `requirements-gemini.txt`。Windows便携构建内置SDK及其依赖，下载固定版本的Windows wheel并校验SHA-256，用户无需另装Python或库。纯规则客户端及其他协议不会在运行时导入Google SDK。
+源码环境在项目虚拟环境中安装 `pip install -r requirements.txt`；只补LLM SDK依赖时使用 `requirements-llm.txt`（同时包含OpenAI与Anthropic官方SDK）。Windows便携构建内置SDK及其依赖，下载固定版本的Windows wheel并校验SHA-256，用户无需另装Python或库。纯规则客户端及其他协议不会在运行时导入Google SDK。
 
 `thinking=disabled` 显式关闭思考；启用时可用 `reasoning_effort` 指定模型支持的强度，或用 `gemini_thinking_budget` 指定预算。SDK的自动函数执行与自动续写均关闭，所有工具调用仍经过战国正式玩家API校验、执行并产生回执。
 

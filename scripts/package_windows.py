@@ -148,9 +148,9 @@ def stage_distribution_license(metadata, target):
     shutil.copy2(metadata/'METADATA', target/'METADATA.txt')
 
 
-def stage_gemini(bundle, cache):
-    """Ship the pinned SDK dependency closure, including Windows native wheels."""
-    rows = json.loads((ROOT/'packaging/windows/gemini-wheels.json').read_text(encoding='utf-8'))
+def stage_llm_sdks(bundle, cache):
+    """Ship the pinned OpenAI/Anthropic/Gemini SDK closure, including Windows native wheels."""
+    rows = json.loads((ROOT/'packaging/windows/llm-wheels.json').read_text(encoding='utf-8'))
     wheels = []
     for row in rows:
         path = cache/row['filename']
@@ -160,7 +160,7 @@ def stage_gemini(bundle, cache):
                 shutil.copyfileobj(source, dest, 1024*1024)
             if digest(temporary) != row['sha256']:
                 temporary.unlink()
-                raise ValueError('Gemini wheel SHA-256 mismatch: '+row['filename'])
+                raise ValueError('LLM SDK wheel SHA-256 mismatch: '+row['filename'])
             temporary.replace(path)
         wheels.append(path)
     runtime = bundle/'runtime/python'
@@ -178,7 +178,7 @@ def stage_gemini(bundle, cache):
 def stage_sources(bundle, root=ROOT):
     stage_runtime(bundle, root)
     for file in (root / "packaging/windows").iterdir():
-        if file.is_file() and file.name != 'gemini-wheels.json':
+        if file.is_file() and file.name != 'llm-wheels.json':
             shutil.copy2(file, bundle / file.name)
     review = bundle / "美术预览"
     shutil.copytree(root / "docs/design/unified-v1", review)
@@ -213,7 +213,8 @@ def inspect(bundle):
     required = ["Zhanguo.exe", "Zhanguo.pck", "game/host.py", "game/ui/desktop.py", "game/mods.toml", "game/ui.toml",
                 "runtime/python/python.exe", "runtime/python/python313.dll", "portable.json",
                 "runtime/python/numpy/__init__.py", "runtime/python/scipy/optimize/_milp.py",
-                "runtime/python/google/genai/__init__.py", "game/clients/gemini.py"]
+                "runtime/python/google/genai/__init__.py", "game/clients/gemini.py",
+                "runtime/python/openai/__init__.py", "runtime/python/anthropic/__init__.py"]
     for name in required:
         if not (bundle / name).is_file():
             raise ValueError("Incomplete bundle: " + name)
@@ -236,7 +237,7 @@ def build(output, cache):
     stage_sources(bundle)
     extract(download("python", cache), bundle / "runtime/python")
     stage_solver(bundle,cache)
-    stage_gemini(bundle,cache)
+    stage_llm_sdks(bundle,cache)
     # Embedded Python ignores the registry, PATH, user site and PYTHONPATH.
     (bundle / "runtime/python/python313._pth").write_text("python313.zip\n.\n../../game\n", encoding="utf-8")
     godot = tools(cache)

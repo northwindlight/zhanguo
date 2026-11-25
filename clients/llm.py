@@ -70,9 +70,11 @@ class LLMClient:
             if record.get('version') not in (None,self.version):raise SaveFormatError('Unsupported LLM client state')
             state=LLMState.from_save(record['state']) if isinstance(record.get('state'),dict) else None
         self.cfg=deepcopy(cfg);self.state=state or LLMState();self._backend=backend
-        if backend is None and str(cfg.get('provider') or '').lower() == 'gemini':
-            # Load native SDK extensions before the console's stdin thread starts;
-            # also report a missing SDK during startup/configuration.
+        if backend is None and str(cfg.get('provider') or 'openai').strip().lower() in ('openai','responses','anthropic','gemini'):
+            # Load the official SDKs (pydantic-core/jiter are native extensions)
+            # before the console's stdin thread starts; on Windows a first native
+            # import concurrent with that read blocks. Also reports a missing SDK
+            # during startup/configuration.
             self._backend=make_backend(self.cfg)
         if ui is None and isinstance(services,dict):ui=services.get('ui')
         if ui is None:

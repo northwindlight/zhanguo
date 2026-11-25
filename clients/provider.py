@@ -41,13 +41,18 @@ reasoning_content / prompt_cache_* 这套 DeepSeek 语义就是本层的默认�
 不按端点能力分化、一律发（2026-09-13 的 F1「未声明就不发」保护据此撤销；代价是
 严格端点（纯 OpenAI / vLLM）收到未知字段可能 400，用户已知并接受）。
 
-**openai SDK 依赖已彻底移除**（2026-10-24）：三条提供方全部只用标准库
-（urllib + 手写 SSE 解析，Anthropic 路 2026-10-01 起就是这么做的，这次把另外两条
-拉齐）。`openai` / `responses` 两路的 URL 就是 `base_url + "/chat/completions"` 与
-`base_url + "/responses"`（与 openai SDK 当时的拼法逐字一致——base 里带不带 `/v1`
-依配置，本层不擅自补）；重试分类不再依赖 SDK 的异常体系（APIConnectionError /
-APITimeoutError / RateLimitError / 裸 APIError），统一走 `EndpointError.status_code`
-+ `is_fatal`（429 也重试、4xx 直接抛、认不出一律重试——语义与 SDK 时代逐条对齐）。
+**传输层用官方 SDK**（2026-11-25 起，用户口径「手写的 anthropic 支持和 openai 支持换成库的」）：
+`openai` / `responses` 两路走 `openai` 官方库，`anthropic` 走 `anthropic` 官方库，
+`gemini` 走 `google-genai`（clients/gemini.py）。HTTP、鉴权头、URL 拼接、SSE 分帧与 JSON
+解析归 SDK；**请求体翻译、流式聚合、用量口径、看门狗与重试窗口仍归本层**——请求体照旧
+先拼成完整 dict，再按 create 签名拆成具名参数 + `extra_body`（`_sdk_call`），发到端点的
+JSON 与原手写实现逐字段相同。`openai` / `responses` 两路的 URL 是 `base_url +
+"/chat/completions"` 与 `base_url + "/responses"`（base 里带不带 `/v1` 依配置，本层不擅自补）。
+SDK 的异常体系（APIStatusError / APIConnectionError / APITimeoutError、httpx2 传输错误）
+在边界上收敛为 `EndpointError.status_code` / `TimeoutError`（`_sdk_error`），再交
+`is_fatal`（429 也重试、4xx 直接抛、认不出一律重试）；SDK 自带重试关掉（`max_retries=0`），
+窗口只归 `_retry_stream`。
+（2026-10-24 至 2026-11-24 曾是 urllib + 手写 SSE 的标准库实现，翻译与聚合规则沿用至今。）
 
 **超时按"流式/非流式"分成两套**（用户 2026-09-20 口径：「首字3分钟，sse内60秒，
 非流式900」）——量的是**等待**，不是总时长：
@@ -72,9 +77,9 @@ timeout + 提供方重试**（流式那边传的是 `timeout=ttft`：它管连�
 
 Anthropic 那一路（`provider="anthropic"`，2026-10-01 接线）
 ---------------------------------------------------------
-**只用标准库**（urllib + 手写 SSE 解析）：不新增 `anthropic` 依赖——本机与 rpi5 上都没装
-它（实测 `import anthropic` 双双 ModuleNotFoundError），而这条路要的东西不多：一个 POST、
-一行行读 SSE、按事件名聚合。代价是错误分类与重试得自己写（下面 `_retryable` 那一套）。
+2026-11-25 起走 `anthropic` 官方 SDK（`_anthropic_client`）：凭据显式传入、不读环境变量，
+`anthropic-version` 钉在下面实测过的版本，`anthropic_auth` 三种鉴权头照旧可选。
+SDK 只认带 `event:` 行的标准事件流（只发 `data:` 的非标网关不再支持）。
 
 实测取证（2026-10-01，`api.deepseek.com/anthropic` + `deepseek-flash[1m]`；
 探针留在交付目录 `tools/anthropic_probe.py`、`tools/anthropic_edge*.py`）：
@@ -110,8 +115,8 @@ Anthropic 那一路（`provider="anthropic"`，2026-10-01 接线）
 
 Responses 那一路（`provider="responses"`，2026-10-24 接线）
 ---------------------------------------------------------
-OpenAI Responses API（`POST {base_url}/responses`），同样只用标准库（与另两条路
-共用 `_post_json` 传输层、`_retry_stream` 重试窗口、`_tailing_continue` 续写）。要点：
+OpenAI Responses API（`POST {base_url}/responses`），走 `openai` 官方 SDK 的
+`client.responses`（与另两条路共用 SDK 边界、`_retry_stream` 重试窗口、`_tailing_continue` 续写）。要点：
 
   · 存储形态照旧是 OpenAI chat 形态，只在调用瞬间翻译：system → 顶层 `instructions`；
     user → `input_text` / `input_image` 块；assistant → `output_text` 块 + 每个工具
@@ -141,15 +146,16 @@ OpenAI Responses API（`POST {base_url}/responses`），同样只用标准库（
 """
 from __future__ import annotations
 
+import contextlib
 import http.client
+import importlib
+import inspect
 import json
 import os
 import re
 import signal
 import threading
 import time
-import urllib.error
-import urllib.request
 
 from clients.context import REPLAY_KEY, est_tokens   # 估算（存档校准过的那套，只在"提供方没报用量"时兜底）
                                          # + 提供方私有回填键（定义在 ctx：消息形态的契约归它）
@@ -184,8 +190,8 @@ def status_code_of(e: Exception) -> int | None:
     状态码——连不上、读超时、SSE 中途报错。openai SDK 时代还有著名的一例
     （2026-09-20 实测）：**网关/负载均衡回的 HTML 错误页** `HTTP 504 …<center>alb
     </center>`，SDK 解析不出 JSON 只能抛**没有** `status_code` 的基类 `APIError`，
-    一次都没重试就整局终止（197 回合的档停在半路）。原生化后这类由 urlopen 的
-    HTTPError 兜住、天然带码，但"从消息里捞一把 HTTP 状态行"这条纪律留着兜底
+    一次都没重试就整局终止（197 回合的档停在半路）。现在 SDK 边界把带码的 HTTP 错误
+    都转成带 `status_code` 的 `EndpointError`，但"从消息里捞一把 HTTP 状态行"这条纪律留着兜底
     （SSE error 事件里的 message 就可能嵌着状态行）。
     捞不到 ⇒ 返回 None ⇒ **按可重试处理**。
     """
@@ -378,7 +384,7 @@ def _cached_tokens(usage) -> int:
     DeepSeek 系走 `prompt_cache_hit_tokens`，标准 OpenAI / 一部分网关只有这个字段。
     两个都读一遍、谁有数用谁（2026-10-02）：只认 DeepSeek 那一个的话，遇到只报标准
     字段的网关会把**真命中报成 0**——命中率凭空变 0，看起来像缓存整段失效，比不报还坑。
-    （2026-10-24 原生化后 usage 一律是 dict，不再有 SDK 对象。）
+    （SDK 响应在边界上经 `to_dict` 还原成 dict，这里只处理 dict。）
     """
     det = usage.get("prompt_tokens_details") if isinstance(usage, dict) else None
     return int((det or {}).get("cached_tokens") or 0)
@@ -410,7 +416,7 @@ def _nonstream_stats(usage, text: str, wall: float) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 三条提供方共用的原生传输层（标准库；2026-10-24 起 openai SDK 不再参与）
+# 三条提供方共用的错误类型
 # ---------------------------------------------------------------------------
 class EndpointError(Exception):
     """一次端点调用失败（三条提供方共用）。
@@ -431,25 +437,140 @@ AnthropicError = EndpointError
 `EndpointError` 的别名（既有测试与引用照旧可用）。"""
 
 
-def _post_json(url: str, headers: dict, body: dict, timeout: float):
-    """POST 一次 JSON，返回响应对象（**只做错误分类与编码**，三条提供方共用）。
+# ---------------------------------------------------------------------------
+# 官方 SDK 传输边界（2026-11-25 起：openai / anthropic 官方库，Gemini 见 clients/gemini.py）
+# ---------------------------------------------------------------------------
+_http_transport = None
+"""测试注入点：非 None 时作为 httpx2 传输层交给 SDK（离线用例用 `httpx2.MockTransport`），
+整条路——SDK 拼 URL 与请求头 → 发请求 → 解析 SSE → 本层聚合——都能离线跑完。
+生产恒为 None：连接池、重定向与代理设置全用 SDK 自己的缺省。"""
 
-    `timeout` 是 socket 级的：连接、响应头、**每一次读**都按它计时——所以它天然就是
-    "流内间隔"的看门狗。Windows 上没有 SIGALRM，`stream_timeout` 空转，这条是那边
-    唯一能抓住"流卡住"的东西（openai SDK 时代那边做不到这件事，原生化反而拉齐了）。
-    """
-    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+_END = object()
+
+
+def _sdk(module: str):
+    """按需导入官方 SDK：纯规则局与其他协议不加载它们；缺包时在开局前报清楚。"""
     try:
-        return urllib.request.urlopen(req, timeout=timeout)
-    except urllib.error.HTTPError as e:
-        # 错误体可能是 JSON（{"error":{…}}），也可能是网关的 HTML/纯文本
-        detail = e.read().decode("utf-8", "replace")[:600]
-        raise EndpointError(f"HTTP {e.code} {detail}", status_code=e.code) from None
-    except urllib.error.URLError as e:
-        if isinstance(e.reason, TimeoutError):
-            raise TimeoutError(f"连接/首字等待超过 {timeout:g}s 没等到响应头") from None
-        raise EndpointError(f"连接失败：{e.reason}") from None
+        return importlib.import_module(module)
+    except ImportError as exc:
+        raise ValueError(f"缺少官方 SDK `{module}`：请在项目虚拟环境运行 "
+                         "pip install -r requirements.txt") from exc
+
+
+def _client_kwargs(timeout: float) -> dict:
+    """三家客户端共用的构造参数。
+
+    `max_retries=0`：重试窗口只归本层 `_retry_stream`（429 也重试、4xx 直接抛、
+    次数与退避跟配置走），SDK 自带的指数退避再叠一层会把窗口算乱。
+    `timeout` 照旧是"每一次读"的上限（流式传首字数，非流式传总时长）。
+    """
+    kw: dict = {"timeout": timeout, "max_retries": 0}
+    if _http_transport is not None:
+        kw["http_client"] = _sdk("httpx2").Client(transport=_http_transport, timeout=timeout)
+    return kw
+
+
+def _sdk_error(exc: BaseException, timeout: float) -> Exception | None:
+    """SDK / httpx2 异常 → 本层既有的两类失败（认不出的返回 None，原样抛）。
+
+    · 带 4xx/5xx 状态码 ⇒ `EndpointError(status_code=…)`，交 `is_fatal` 分类；
+    · 连接超时 / 读超时 ⇒ `TimeoutError`（重试播报能说清卡在哪一段）；
+    · 连不上、流读到一半断、流里的 error 事件、SSE 行不是合法 JSON ⇒ 无状态码的
+      `EndpointError` ⇒ **可重试**（"认不出"不许变成绕过重试的后门）。
+    """
+    names = {cls.__name__ for cls in type(exc).__mro__}
+    root = type(exc).__module__.split(".")[0]
+    if root in ("openai", "anthropic"):
+        if "APITimeoutError" in names:
+            return TimeoutError(f"连接/首字等待超过 {timeout:g}s 没等到响应头")
+        code = getattr(exc, "status_code", None)
+        detail = str(getattr(exc, "message", None) or exc)[:600]
+        if isinstance(code, int) and code >= 400:
+            return EndpointError(f"HTTP {code} {detail}", status_code=code)
+        return EndpointError(detail)
+    if root in ("httpx2", "httpcore2", "httpx", "httpcore"):
+        if any(name.endswith("Timeout") or name == "TimeoutException" for name in names):
+            return TimeoutError(f"读取等待超过 {timeout:g}s")
+        return EndpointError(f"传输中断：{type(exc).__name__}: {exc}"[:600])
+    if isinstance(exc, ValueError):
+        return EndpointError(f"响应解析失败：{exc}"[:600])
+    return None
+
+
+@contextlib.contextmanager
+def _sdk_errors(timeout: float):
+    try:
+        yield
+    except (EndpointError, TimeoutError):
+        raise
+    except Exception as exc:
+        mapped = _sdk_error(exc, timeout)
+        if mapped is None:
+            raise
+        raise mapped from exc
+
+
+def _sdk_call(create, body: dict, *, timeout: float):
+    """调一次 SDK 的 create。
+
+    本层照旧先拼好**完整请求体**（翻译规则与测试都以它为准），这里按 create 的签名拆开：
+    SDK 认识的字段作具名参数，其余扩展字段（DeepSeek 的 `thinking`、Anthropic 兼容端点的
+    `temperature` 等）原样放进 `extra_body`——发到端点的 JSON 与原来逐字段相同。
+    """
+    try:
+        params = inspect.signature(create).parameters
+    except (TypeError, ValueError):
+        params = {}
+    reserved = ("extra_body", "extra_headers", "extra_query", "timeout")
+    if params:
+        kwargs = {k: v for k, v in body.items() if k in params and k not in reserved}
+        extra = {k: v for k, v in body.items() if k not in kwargs}
+        if extra:
+            kwargs["extra_body"] = extra
+    else:
+        kwargs = dict(body)
+    # 显式传 timeout：也让 Anthropic SDK 跳过"非流式大 max_tokens 必须改流式"的本地拦截
+    # （压缩调用"不设上限"时落 65536，那条拦截会在发请求前直接抛 ValueError）。
+    kwargs["timeout"] = timeout
+    with _sdk_errors(timeout):
+        return create(**kwargs)
+
+
+def _as_dict(obj) -> dict:
+    """SDK 响应对象 → 与原 JSON 同形的 dict（只含端点实际给出的字段，含扩展字段）。"""
+    if isinstance(obj, dict):
+        return obj
+    to_dict = getattr(obj, "to_dict", None)
+    if to_dict is None:
+        raise EndpointError(f"响应不是 JSON 对象：{type(obj).__name__}")
+    return to_dict(mode="json", warnings=False)
+
+
+def _sdk_events(stream, timeout: float):
+    """SDK 流 → 逐条 `(事件名, payload)`：HTTP、SSE 分帧、`[DONE]` 与 JSON 解析归 SDK，
+    聚合、用量与看门狗仍归本层。事件名取 payload 的 `type`（chat 流没有，返回 None）。"""
+    it = iter(stream)
+    while True:
+        with _sdk_errors(timeout):
+            event = next(it, _END)
+        if event is _END:
+            return
+        payload = _as_dict(event)
+        kind = payload.get("type")
+        yield (kind if isinstance(kind, str) else None), payload
+
+
+def _openai_client(cfg: dict, timeout: float):
+    """OpenAI 官方客户端（openai / responses 两路共用）：Bearer 鉴权由 SDK 发。
+
+    `base_url` 原样交给 SDK——它拼的就是 `base_url + "/chat/completions"` 与
+    `base_url + "/responses"`，带不带 `/v1` 依配置，本层不擅自补。
+    """
+    key = str(cfg.get("api_key") or "")
+    if not key:
+        raise ValueError("provider=openai/responses 需要 api_key")
+    return _sdk("openai").OpenAI(api_key=key, base_url=str(cfg.get("base_url") or "").rstrip("/"),
+                                 **_client_kwargs(timeout))
 
 
 def _retry_stream(stream_once, messages, tools, cfg, on_retry=None, on_delta=None):
@@ -464,7 +585,7 @@ def _retry_stream(stream_once, messages, tools, cfg, on_retry=None, on_delta=Non
     ★ 连不上 / 读超时 / SSE 读到一半断（TimeoutError / OSError / HTTPException）
       一律可重试——openai SDK 时代那类**网关回的 HTML 错误页**（裸 APIError、没有
       status_code，2026-09-20 实测 `HTTP 504 …<center>alb</center>`，一次都没重试
-      就整局终止）原生化后由 HTTPError 兜住、天然带码走 5xx 重试；万一再冒出
+      就整局终止）现在由 `_sdk_error` 取出状态码走 5xx 重试；万一再冒出
       没码的，`is_fatal` 对"认不出"也判可重试——**静默绕过重试的后门一个不留**。
     ★ 每次尝试前给 `on_delta` 发一条 reset（展示层把上一把的残片清掉再接新的）。
     """
@@ -544,53 +665,6 @@ def _tailing_continue(stream_once, messages, tools, cfg, msg, stats, on_delta=No
     return msg, stats
 
 
-def _iter_sse(resp):
-    """把 SSE 响应体拆成 `(事件名, data 文本)` 逐条产出（三条提供方共用）。
-
-    Anthropic / Responses 的事件流带 `event:` 行（chat/completions 不带，事件名
-    返回 None、由调用方看 data 内容）；只认 `data:` 的网关（少数）由调用方退回
-    `payload["type"]`。注释行（`:` 开头，含 `ping` 的心跳）、未知字段按 SSE 规矩忽略。
-    """
-    event: str | None = None
-    buf: list[str] = []
-    for raw in resp:
-        line = raw.decode("utf-8", "replace").rstrip("\r\n")
-        if not line:
-            if buf:
-                yield event, "\n".join(buf)
-                event, buf = None, []
-            continue
-        if line.startswith(":"):
-            continue
-        field, _, value = line.partition(":")
-        if value.startswith(" "):
-            value = value[1:]
-        if field == "event":
-            event = value
-        elif field == "data":
-            buf.append(value)
-    if buf:
-        yield event, "\n".join(buf)
-
-
-def openai_chat_url(base_url: str) -> str:
-    """`base_url` → chat/completions 端点（与 openai SDK 时代的拼法**逐字一致**）。
-
-    SDK 当年就是 `base_url + "/chat/completions"`——base 里带不带 `/v1` 依配置
-    （DeepSeek 等端点两种都收），本层不擅自补，存量配置一个都不用改。
-    """
-    return str(base_url or "").rstrip("/") + "/chat/completions"
-
-
-def _bearer_headers(cfg: dict) -> dict:
-    """请求头（openai / responses 两路共用）：Bearer 鉴权 + JSON。"""
-    key = str(cfg.get("api_key") or "")
-    if not key:
-        raise ValueError("provider=openai/responses 需要 api_key")
-    return {"content-type": "application/json", "accept": "application/json",
-            "authorization": "Bearer " + key}
-
-
 class OpenAICompat:
     """任意 OpenAI 兼容端点（DeepSeek / 火山方舟 / vLLM / ...）。
 
@@ -598,14 +672,14 @@ class OpenAICompat:
     语义即默认行为——`reasoning_content` 照收，`thinking` / `reasoning_effort` 照发、
     不因 cfg 没声明就省（见 `_stream_once` / `complete_text` 内注释）。
 
-    2026-10-24 原生化：不再 import openai SDK，改走 `_post_json`（urllib）+ `_iter_sse`
-    （手写 SSE 解析）——与 Anthropic 路同一套传输层。SDK 那套异常分类
-    （APIConnectionError / APITimeoutError / RateLimitError / 裸 APIError）收敛为
-    `EndpointError` + `is_fatal`，语义逐条对齐（见 `_retry_stream` 的注）。"""
+    2026-11-25 起走 `openai` 官方 SDK（`client.chat.completions`）；DeepSeek 扩展字段经
+    `extra_body` 原样发出，增量里的 `reasoning_content` 等扩展字段由 `to_dict` 原样保留。
+    SDK 异常在边界上收敛为 `EndpointError` + `is_fatal`（见 `_sdk_error` 与 `_retry_stream`）。"""
 
     def __init__(self, cfg: dict):
-        # 不建客户端对象：标准库那套没有会话状态，URL/头每次现算（cfg 逐国覆盖也天然生效）
+        # 不缓存客户端：每次调用按当次 cfg 现建（逐国覆盖天然生效，也不跨线程共享连接）
         self.cfg = cfg
+        _sdk("openai")      # 开局前加载（含原生扩展），缺包在配置阶段就报
 
     def chat_turn(self, messages, tools, cfg, on_retry=None, on_delta=None):
         return _retry_stream(self._stream_once, messages, tools, cfg, on_retry, on_delta)
@@ -615,13 +689,12 @@ class OpenAICompat:
 
         **超时按流式的语义走**（用户 2026-09-20：「首字3分钟，sse内60秒」）：
         `stream_timeout` 两段看门狗管首字与流内间隔，**没有总时长上限**。
-        `_post_json` 的 `timeout=ttft` 是给**没有 SIGALRM 的平台**（Windows）的兜底
-        ——socket 级超时管连接、响应头与每一次读（原生化后 Windows 也能抓住流内
-        停滞了，只是宽到 ttft 才判死，已知差异）。"""
+        SDK 客户端的 `timeout=ttft` 是给**没有 SIGALRM 的平台**（Windows）的兜底
+        ——它管连接、响应头与每一次读（流内停滞宽到 ttft 才判死，已知差异）。"""
         # deepseek-v4：thinking 开关 + reasoning_effort（low/medium/high）。
         # 一律发（用户 2026-09-19「行为按 deepseek 处理」）：cfg 没写 thinking 就按
         # enabled 走，不再有「没声明推理模型就省掉」的分叉（原 F1 保护已撤销）。
-        # （SDK 时代它们走 extra_body 合并进顶层；原生化后直接并进 body，逐字段等价。）
+        # （SDK 不认识的 `thinking` 由 `_sdk_call` 放进 extra_body，合并进顶层，逐字段等价。）
         body: dict = {"model": cfg["model"],
                       # 摘掉提供方私有键（`reasoning_signature` 是 Anthropic 那一路的东西，
                       # 严格端点收到不认识的 message 字段会 400；本路发的是 OpenAI 形态）。
@@ -643,23 +716,15 @@ class OpenAICompat:
         stream_stats: dict = {}
         c_s, r_s, tool_acc = "", "", {}
         wall0 = time.time()
-        with stream_timeout(ttft, gap) as clock:
-            resp = _post_json(openai_chat_url(cfg["base_url"]),
-                              _bearer_headers(cfg), body, ttft)
+        with stream_timeout(ttft, gap) as clock, _openai_client(cfg, ttft) as client:
             first_t = None
             last_t = time.time()
+            resp = None
             try:
-                for _name, data in _iter_sse(resp):
+                resp = _sdk_call(client.chat.completions.create, body, timeout=ttft)
+                for _name, payload in _sdk_events(resp, ttft):
                     clock.kick()               # 收到块 ⇒ 重新上弦（首字那一段到此结束）
-                    if data == "[DONE]":       # chat 流的收尾哨兵（Responses 流没有它）
-                        break
                     now = time.time()
-                    try:
-                        payload = json.loads(data)
-                    except ValueError:
-                        continue          # 认不出的行：跳过（不为一行脏数据终止整局）
-                    if not isinstance(payload, dict):
-                        continue
                     if first_t is None and payload.get("choices"):
                         d0 = payload["choices"][0].get("delta") or {}
                         if (d0.get("content") or d0.get("reasoning_content")
@@ -725,7 +790,8 @@ class OpenAICompat:
                     + f"等待超过 {(ttft if first_t is None else gap):g}s"
                       f"（一直没等到新的输出块）") from None
             finally:
-                resp.close()
+                if resp is not None:
+                    resp.close()
         stream_stats["wall"] = time.time() - wall0
         if first_t:
             stream_stats["first"] = first_t - wall0
@@ -790,11 +856,8 @@ class OpenAICompat:
             body["tool_choice"] = "auto"       # 与 chat_turn 同值：前缀必须逐字节一致
         limit = float(cfg.get("api_timeout", 900))
         wall0 = time.time()
-        with hard_timeout(limit, "非流式调用超时"):
-            resp = _post_json(openai_chat_url(cfg["base_url"]),
-                              _bearer_headers(cfg), body, limit)
-            with resp:
-                payload = json.loads(resp.read().decode("utf-8", "replace"))
+        with hard_timeout(limit, "非流式调用超时"), _openai_client(cfg, limit) as client:
+            payload = _as_dict(_sdk_call(client.chat.completions.create, body, timeout=limit))
         choice = (payload.get("choices") or [{}])[0] or {}
         text = str((choice.get("message") or {}).get("content") or "").strip()
         stats = _nonstream_stats(payload.get("usage"), text, time.time() - wall0)
@@ -805,13 +868,6 @@ class OpenAICompat:
 # ---------------------------------------------------------------------------
 # OpenAI Responses API（provider="responses"，2026-10-24 接线）
 # ---------------------------------------------------------------------------
-def responses_url(base_url: str) -> str:
-    """`base_url` → responses 端点（`base_url + "/responses"`，与 openai SDK
-    `client.responses` 的拼法一致；base 里带不带 `/v1` 依配置，本层不擅自补——
-    与 `openai_chat_url` 同一条规矩）。"""
-    return str(base_url or "").rstrip("/") + "/responses"
-
-
 def _responses_tool(t: dict) -> dict:
     """OpenAI 工具 schema → Responses：`function.{name,description,parameters}`
     拆平到顶层（Responses 的函数工具没有 chat 那层 function 壳）。"""
@@ -956,8 +1012,8 @@ def _responses_stop(status, incomplete_details) -> str | None:
 
 
 class ResponsesCompat:
-    """OpenAI Responses API（`provider="responses"`）。2026-10-24 接线，原生实现
-    （`_post_json` 传输 + `_iter_sse` 解析），与另两条路共用 `_retry_stream` 重试
+    """OpenAI Responses API（`provider="responses"`）。2026-10-24 接线，2026-11-25 起走
+    `openai` 官方 SDK 的 `client.responses`，与另两条路共用 `_retry_stream` 重试
     窗口与 `_tailing_continue` 续写。映射配方：
 
     ① tools：`{function:{name,description,parameters}}` → 拆平的
@@ -975,6 +1031,7 @@ class ResponsesCompat:
 
     def __init__(self, cfg: dict):
         self.cfg = cfg
+        _sdk("openai")      # 开局前加载（含原生扩展），缺包在配置阶段就报
 
     def chat_turn(self, messages, tools, cfg, on_retry=None, on_delta=None):
         msg, stats = _retry_stream(self._stream_once, messages, tools, cfg,
@@ -993,7 +1050,6 @@ class ResponsesCompat:
         response.completed / incomplete / failed、error。
         聚合按"到达顺序"拍平成 content+reasoning_content 两个字符串（与 Anthropic 路
         同一个简化：多 message 块本就分不回去了）。"""
-        url = responses_url(cfg["base_url"])
         body = _responses_body(messages, tools, cfg, stream=True)
         ttft = float(cfg.get("api_ttft_timeout", 180))
         gap = float(cfg.get("api_chunk_timeout", 60))
@@ -1018,19 +1074,15 @@ class ResponsesCompat:
                     slot["name"] = str(item["name"])
             return slot
 
-        with stream_timeout(ttft, gap) as clock:
-            resp = _post_json(url, _bearer_headers(cfg), body, ttft)
+        with stream_timeout(ttft, gap) as clock, _openai_client(cfg, ttft) as client:
+            resp = None
             try:
-                for name, data in _iter_sse(resp):
-                    clock.kick()          # 有字节进来就重新上弦
+                resp = _sdk_call(client.responses.create, body, timeout=ttft)
+                for kind, payload in _sdk_events(resp, ttft):
+                    clock.kick()          # 有事件进来就重新上弦
                     now = time.time()
                     stats["maxgap"] = max(stats.get("maxgap", 0.0), now - last_t)
                     last_t = now
-                    try:
-                        payload = json.loads(data)
-                    except ValueError:
-                        continue          # 认不出的行：跳过（不为一行脏数据终止整局）
-                    kind = name or payload.get("type")
                     if kind == "error":
                         err = payload.get("error") or {}   # 官方 error 事件 {code,message,param}
                         raise EndpointError(f"{err.get('code') or 'error'}: "
@@ -1100,7 +1152,8 @@ class ResponsesCompat:
                     + f"等待超过 {(ttft if first_t is None else gap):g}s"
                       f"（一直没等到新的输出块）") from None
             finally:
-                resp.close()
+                if resp is not None:
+                    resp.close()
 
         msg: dict = {"content": c_s, "reasoning_content": r_s}
         tool_calls = []
@@ -1148,11 +1201,8 @@ class ResponsesCompat:
                                              else cfg.get("ctx_compact_tokens", 1500))
         limit = float(cfg.get("api_timeout", 900))
         wall0 = time.time()
-        with hard_timeout(limit, "非流式调用超时"):
-            resp = _post_json(responses_url(cfg["base_url"]),
-                              _bearer_headers(cfg), body, limit)
-            with resp:
-                payload = json.loads(resp.read().decode("utf-8", "replace"))
+        with hard_timeout(limit, "非流式调用超时"), _openai_client(cfg, limit) as client:
+            payload = _as_dict(_sdk_call(client.responses.create, body, timeout=limit))
         r = payload.get("response") or payload
         text = "".join(str(p.get("text") or "")
                        for item in (r.get("output") or []) if item.get("type") == "message"
@@ -1178,14 +1228,15 @@ ANTHROPIC_VERSION = "2023-06-01"
 # 定义见文件前部 `AnthropicError = EndpointError`。
 
 
-def anthropic_messages_url(base_url: str) -> str:
-    """`base_url` → messages 端点。**已经带 `/v1` 的不再补一层**（`/v1/v1/messages` 是坑）。
+def anthropic_base_url(base_url: str) -> str:
+    """`base_url` → 交给 SDK 的 base（SDK 自己补 `/v1/messages`）。**已带 `/v1` 的先摘掉**，
+    免得拼出 `/v1/v1/messages`。
 
     两种 base 都要对：`https://api.deepseek.com/anthropic` → `…/anthropic/v1/messages`；
     Claude Code 形态的 `https://…/apps/anthropic` → `…/apps/anthropic/v1/messages`。
     """
     base = str(base_url or "").rstrip("/")
-    return base + "/messages" if base.endswith("/v1") else base + "/v1/messages"
+    return base[:-3] if base.endswith("/v1") else base
 
 
 def _anthropic_headers(cfg: dict) -> dict:
@@ -1199,9 +1250,7 @@ def _anthropic_headers(cfg: dict) -> dict:
     key = str(cfg.get("api_key") or "")
     if not key:
         raise ValueError("provider=anthropic 需要 api_key")
-    headers = {"content-type": "application/json",
-               "accept": "application/json",
-               "anthropic-version": str(cfg.get("anthropic_version") or ANTHROPIC_VERSION)}
+    headers = {"anthropic-version": str(cfg.get("anthropic_version") or ANTHROPIC_VERSION)}
     mode = str(cfg.get("anthropic_auth") or "bearer").strip().lower()
     if mode in ("bearer", "both"):
         headers["authorization"] = "Bearer " + key
@@ -1409,13 +1458,22 @@ def _absorb_delta(blocks: dict, payload: dict) -> None:
         b["partial_json"] = (b.get("partial_json") or "") + (delta.get("partial_json") or "")
 
 
-_anthropic_open = _post_json
-"""Anthropic 那一路的传输入口。2026-10-24 起就是共用层 `_post_json` 本身（三条
-提供方一套错误分类/超时语义）；保留这个名字是因为测试在此打桩（把
-`llm_provider._anthropic_open` 换成假传输层就能把整条路跑完）。
-`timeout` 是 socket 级的：连接、响应头、**每一次读**都按它计时——所以它天然就是
-"流内间隔"的看门狗。Windows 上没有 SIGALRM，`stream_timeout` 空转，这条是那边
-唯一能抓住"流卡住"的东西。"""
+def _anthropic_client(cfg: dict, timeout: float):
+    """Anthropic 官方客户端。请求头以 `_anthropic_headers` 为准，逐项钉住：
+
+    · 凭据**显式**传 `auth_token`：SDK 不再去读 ANTHROPIC_API_KEY / AUTH_TOKEN 等环境变量
+      （本机常有 Claude Code 自己的凭据，不能串用）；
+    · `anthropic_auth=x-api-key` 时把 SDK 的 `Authorization` 头整条去掉，只发 x-api-key；
+    · `anthropic-version` 覆盖 SDK 自带的新版本号，缺省仍是本层实测过的 2023-06-01。
+    """
+    headers = _anthropic_headers(cfg)
+    anthropic = _sdk("anthropic")
+    custom: dict = {k: v for k, v in headers.items() if k != "authorization"}
+    if "authorization" not in headers:
+        custom["Authorization"] = anthropic.omit
+    return anthropic.Anthropic(auth_token=str(cfg["api_key"]),
+                               base_url=anthropic_base_url(cfg["base_url"]),
+                               default_headers=custom, **_client_kwargs(timeout))
 
 
 class AnthropicCompat:
@@ -1434,13 +1492,13 @@ class AnthropicCompat:
     ⑥ 用量映射：cache_read→hit，input+creation→miss，output→out_tokens；思考 token 该路
        不单独报 ⇒ 本地估算并打 `reason_estimated`（显示成 ≈）。
 
-    **不新增依赖**：整条路只用标准库（urllib + 手写 SSE 解析），装不装 `anthropic` 包都能跑
-    ——本机与 rpi5 上都没装它（实测 `import anthropic` 双双 ModuleNotFoundError）。
+    传输走 `anthropic` 官方 SDK（2026-11-25 起，见 `_anthropic_client`）。
     """
 
     def __init__(self, cfg: dict):
-        # 不建客户端对象：标准库那套没有会话状态，URL/头每次现算（cfg 逐国覆盖也天然生效）
+        # 不缓存客户端：每次调用按当次 cfg 现建（逐国覆盖天然生效，也不跨线程共享连接）
         self.cfg = cfg
+        _sdk("anthropic")   # 开局前加载（含原生扩展），缺包在配置阶段就报
 
     def chat_turn(self, messages, tools, cfg, on_retry=None, on_delta=None):
         msg, stats = self._call(messages, tools, cfg, on_retry, on_delta)
@@ -1473,8 +1531,6 @@ class AnthropicCompat:
         "流内间隔"，**没有总时长上限**；Windows 上它空转，靠 socket timeout 兜
         （那边 `first_t` 的判定把超时消息补成"首字/流内"，不然状态区看不出卡在哪）。
         """
-        url = anthropic_messages_url(cfg["base_url"])
-        headers = _anthropic_headers(cfg)
         body = _anthropic_body(messages, tools, cfg, stream=True)
         ttft = float(cfg.get("api_ttft_timeout", 180))
         gap = float(cfg.get("api_chunk_timeout", 60))
@@ -1485,19 +1541,15 @@ class AnthropicCompat:
         wall0 = time.time()
         first_t = None
         last_t = wall0
-        with stream_timeout(ttft, gap) as clock:
-            resp = _anthropic_open(url, headers, body, ttft)
+        with stream_timeout(ttft, gap) as clock, _anthropic_client(cfg, ttft) as client:
+            resp = None
             try:
-                for name, data in _iter_sse(resp):
-                    clock.kick()          # 有字节进来就重新上弦（ping 心跳也算"还活着"）
+                resp = _sdk_call(client.messages.create, body, timeout=ttft)
+                for kind, payload in _sdk_events(resp, ttft):
+                    clock.kick()          # 有事件进来就重新上弦
                     now = time.time()
                     stats["maxgap"] = max(stats.get("maxgap", 0.0), now - last_t)
                     last_t = now
-                    try:
-                        payload = json.loads(data)
-                    except ValueError:
-                        continue          # 认不出的行：跳过（不为一行脏数据终止整局）
-                    kind = name or payload.get("type")
                     if kind == "error":
                         err = payload.get("error") or {}
                         raise AnthropicError(f"{err.get('type') or 'error'}: "
@@ -1530,7 +1582,8 @@ class AnthropicCompat:
                     + f"等待超过 {(ttft if first_t is None else gap):g}s"
                       f"（一直没等到新的输出块）") from None
             finally:
-                resp.close()
+                if resp is not None:
+                    resp.close()
 
         text = "".join(str(b.get("text") or "") for _, b in sorted(blocks.items())
                        if b.get("type") == "text")
@@ -1602,8 +1655,6 @@ class AnthropicCompat:
         tools 段，前缀从 system 之后断掉（详见 `OpenAICompat.complete_text` 那段注）。
         返回值改成 `(text, stats)`，usage 口径与 `chat_turn` 那条路相同。
         """
-        url = anthropic_messages_url(cfg["base_url"])
-        headers = _anthropic_headers(cfg)
         body = _anthropic_body(messages, tools, cfg, stream=False)
         body["thinking"] = {"type": "disabled"}
         # thinking 已被强制 disabled ⇒ effort 透传那个键不该再跟着发
@@ -1621,10 +1672,8 @@ class AnthropicCompat:
                                      else cfg.get("ctx_compact_tokens", 1500))
         limit = float(cfg.get("api_timeout", 900))
         wall0 = time.time()
-        with hard_timeout(limit, "非流式调用超时"):
-            resp = _anthropic_open(url, headers, body, limit)
-            with resp:
-                payload = json.loads(resp.read().decode("utf-8", "replace"))
+        with hard_timeout(limit, "非流式调用超时"), _anthropic_client(cfg, limit) as client:
+            payload = _as_dict(_sdk_call(client.messages.create, body, timeout=limit))
         text = "".join(str(b.get("text") or "") for b in (payload.get("content") or [])
                        if b.get("type") == "text").strip()
         usage = payload.get("usage") or {}

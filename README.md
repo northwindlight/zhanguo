@@ -65,7 +65,7 @@ Linux / macOS 可用启动脚本检查并运行：
 ./start.sh --config mp_config.json --new
 ```
 
-脚本会准备本地虚拟环境并安装所需依赖，包含Google Gen AI SDK与v14候选的求解器。Windows可运行`.\start.ps1 --config mp_config.json --new`，或准备好Python环境后直接调用`mp_run.py`。支持OpenAI兼容、OpenAI Responses、Anthropic及原生Gemini API；Gemini使用Google官方SDK，便携包内置依赖。
+脚本会准备本地虚拟环境并安装所需依赖，包含三家官方LLM SDK与v14候选的求解器。Windows可运行`.\start.ps1 --config mp_config.json --new`，或准备好Python环境后直接调用`mp_run.py`。支持OpenAI兼容、OpenAI Responses、Anthropic及原生Gemini API，分别使用OpenAI、Anthropic与Google Gen AI官方SDK（版本固定在`requirements-llm.txt`），便携包内置依赖。
 
 原生Gemini接入使用`"provider": "gemini"`，`base_url`填`https://generativelanguage.googleapis.com`或兼容服务地址，`model`填该服务的真实模型ID。可用`reasoning_effort`指定思考强度；配置与工具签名的保存规则见[原生Gemini接入](docs/Gemini接入.md)。
 

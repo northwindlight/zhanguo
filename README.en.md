@@ -51,7 +51,7 @@ New games default to v13. The [v14 joint economic planner](ruleai/v14/README.md)
 
 ## Put models in charge
 
-Copy the [configuration template](mp_config.example.json) for a new game. Set each model-controlled nation to `"client": "llm"` and fill in its `provider`, `base_url`, `api_key` and `model`. Keep other nations as `client=rule` if desired. OpenAI-compatible, OpenAI Responses, Anthropic and native Gemini protocols are supported. Gemini uses Google's official Gen AI SDK, included in the Windows portable bundle; other transports use the standard library. See the [Gemini setup guide](docs/Gemini接入.md).
+Copy the [configuration template](mp_config.example.json) for a new game. Set each model-controlled nation to `"client": "llm"` and fill in its `provider`, `base_url`, `api_key` and `model`. Keep other nations as `client=rule` if desired. OpenAI-compatible, OpenAI Responses, Anthropic and native Gemini protocols are supported. They use the official OpenAI, Anthropic and Google Gen AI SDKs (pinned in `requirements-llm.txt`), all included in the Windows portable bundle. See the [Gemini setup guide](docs/Gemini接入.md).
 
 On Linux or macOS:
 

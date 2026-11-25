@@ -7,6 +7,13 @@
     "url": "https://files.pythonhosted.org/packages/99/91/8acff4f5e50511b911bbccb72b8628a49c68ce14148cd9f6431094859a90/annotated_types-0.8.0-py3-none-any.whl"
   },
   {
+    "name": "anthropic",
+    "version": "2.14.0",
+    "filename": "anthropic-2.14.0-py3-none-any.whl",
+    "sha256": "5cf986851f61c0858ac88c6f7c28490369a68ff4a89c309849605b764da0664d",
+    "url": "https://files.pythonhosted.org/packages/5d/27/8bbae12e619497c651f35fec779389ab04e6b7b92b022f94390ec82be973/anthropic-2.14.0-py3-none-any.whl"
+  },
+  {
     "name": "anyio",
     "version": "4.16.0",
     "filename": "anyio-4.16.0-py3-none-any.whl",
@@ -49,6 +56,13 @@
     "url": "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl"
   },
   {
+    "name": "docstring-parser",
+    "version": "0.18.0",
+    "filename": "docstring_parser-0.18.0-py3-none-any.whl",
+    "sha256": "b3fcbed555c47d8479be0796ef7e19c2670d428d72e96da63f3a40122860374b",
+    "url": "https://files.pythonhosted.org/packages/a7/5f/ed01f9a3cdffbd5a008556fc7b2a08ddb1cc6ace7effa7340604b1d16699/docstring_parser-0.18.0-py3-none-any.whl"
+  },
+  {
     "name": "google-auth",
     "version": "2.62.2",
     "filename": "google_auth-2.62.2-py3-none-any.whl",
@@ -89,6 +103,27 @@
     "filename": "idna-3.20-py3-none-any.whl",
     "sha256": "ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c",
     "url": "https://files.pythonhosted.org/packages/58/a2/bb081bab032533a855d44de1d56f8e8426114ff1ba5d1f07a438a0a654f8/idna-3.20-py3-none-any.whl"
+  },
+  {
+    "name": "jiter",
+    "version": "0.19.0",
+    "filename": "jiter-0.19.0-cp313-cp313-win_amd64.whl",
+    "sha256": "050dd505e407c028aa76b9b4a379a06f79f484c3b256d99a7fea118d863c9a79",
+    "url": "https://files.pythonhosted.org/packages/2d/ce/c11a38ccc9d4fdb0c092cf583919ecff62724d39ad3556b5324173dad1ee/jiter-0.19.0-cp313-cp313-win_amd64.whl"
+  },
+  {
+    "name": "openai",
+    "version": "3.59.0",
+    "filename": "openai-3.59.0-py3-none-any.whl",
+    "sha256": "e613537ac5f082c58f652a536ed4215b19a29d360c4348cca86f0e563f7a0b1f",
+    "url": "https://files.pythonhosted.org/packages/76/05/a7afe3729b624e2a19215463c73778208a916e57eb7d33e0fb885bba8160/openai-3.59.0-py3-none-any.whl"
+  },
+  {
+    "name": "opentelemetry-api",
+    "version": "1.45.2",
+    "filename": "opentelemetry_api-1.45.2-py3-none-any.whl",
+    "sha256": "2cbd737377e710ee740d261c94e93fa0f08e6d037c18f17513cc0a2d94479a34",
+    "url": "https://files.pythonhosted.org/packages/a9/2d/610db864d7513158cebb8f36cc88e67e73bd6c7aa1905ef18d89e1281c81/opentelemetry_api-1.45.2-py3-none-any.whl"
   },
   {
     "name": "pyasn1",
