@@ -58,3 +58,29 @@ PYTHONPATH=../dynamic-turn-dual-ppo-20261124/reference/python \
 
 - [实时状态](../../autoregressive-bc-results/live.json)
 - [最近已校验检查点](../../autoregressive-bc-results/verified.json)
+
+## 思考步数对照和价值头热身
+
+回测使用 C++ 四国动态回合。一席由模型控制，另外三席固定 W3。每个模式复用地图种子、学习座位和游戏动作随机数流，思考用独立随机数流。
+
+| 模式 | 计算 |
+| --- | --- |
+| `0` | 直接行动，保留 BC 中的观测／动作事件格式 |
+| `8` / `30` | 固定生成 8 / 30 次内存操作，结束时记录引擎强制切换 |
+| `8-kv` | 生成 8 步，游戏动作继续读该回合的思考 K/V，下回合重新开始 |
+
+四组共用策略检查点。对照报告真实名义 GDP、土地、征兵、进攻、断供、伤亡相关指标、非法动作率与耗时。本国统一结算用于价值头的训练目标。默认在额外的 0 步对局上拟合价值头，用互斥种子的 0 步对照评估 MSE。目标沿用全局 PPO 的实际名义 GDP 加持地奖励，除以 3000。只有留出 MSE 改善时才导出独立的价值热身检查点。
+
+在本目录运行下列命令，`BC_VERIFIED` 指向 10 轮 BC 训练结果的 `verified.json`。等待期间会更新输出目录中的 `live.json`。设置 `--device cuda --workers 2` 可用两张 GPU 分担地图。
+
+```bash
+cmake -S ../../cpp -B build-eval -DCMAKE_BUILD_TYPE=Release \
+  -DZHANGUO_EVAL_BRIDGE=ON -DBUILD_TESTING=OFF
+cmake --build build-eval --target zhanguo_eval -j3
+export PYTHONPATH=../dynamic-turn-dual-ppo-20261124/reference/python
+python3 -B evaluate_thought.py --library build-eval/libzhanguo_eval.so \
+  --verified "$BC_VERIFIED" --output thought-eval-results --maps 4 \
+  --warmup-maps 8 --turns 100 --workers 2 --threads 1
+```
+
+Kaggle 跑法由 `watch_thought_eval.py --bc-results <BC 结果目录> --output <回测结果目录>` 等待 BC10 本地校验，再挂载同一私有检查点，回拉对照与价值头报告。

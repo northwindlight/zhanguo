@@ -6,7 +6,7 @@
 
 18,180,507 参数。局面编码器宽 192、四层，读取本国可见的地图、国家、部队、资源和候选。宽 384 的历史编码器用三层 Gated DeltaNet 更新循环状态，用一层 Qwen Sparse Attention 检索历史块。三层因果解码器读当前局面、历史和 4×4 符号图，再选择内存操作或游戏候选。
 
-每回合思考 8–30 步，与 60 次游戏动作预算分开。思考操作和当时的观测进入本国历史。相同局面复用 K/V。BC 只监督脚本游戏动作，隐式搜索通过自对弈回报学习。当前 18M 路线覆盖 PyTorch 原型和 BC，C++ 自对弈接线与 PPO 待完成。 [模型与验证](economy4/analysis/autoregressive-policy/README.md)
+每回合思考 8–30 步，与 60 次游戏动作预算分开。思考操作和当时的观测进入本国历史。相同局面复用 K/V。BC 只监督脚本游戏动作，隐式搜索通过自对弈回报学习。18M 路线已有 PyTorch 原型、BC 和 C++ 四国 W3 对照入口，PPO 接线待完成。 [模型与验证](economy4/analysis/autoregressive-policy/README.md)
 
 ## 源码入口
 

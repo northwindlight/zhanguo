@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import torch
 from torch import Tensor
 
-from memory_map import MAX_THOUGHTS, MemoryMap, Op, TurnThought
+from memory_map import MAX_THOUGHTS, MIN_THOUGHTS, MemoryMap, Op, TurnThought
 from model import EVENT_WIDTH, Event, Policy
 
 
@@ -91,12 +91,18 @@ class SeatTrace:
     The archive can be serialized independently of the model's inference state.
     """
 
-    def __init__(self, policy: Policy):
+    def __init__(self, policy: Policy, *, thought_budget: int | None = None, retain_thought_kv: bool = False):
+        if thought_budget not in (None, 0, MIN_THOUGHTS, MAX_THOUGHTS):
+            raise ValueError("thought budget must be adaptive, 0, 8, or 30")
+        if retain_thought_kv and thought_budget == 0:
+            raise ValueError("thought K/V requires at least one thought")
         self.policy = policy
+        self.thought_budget = thought_budget
+        self.retain_thought_kv = retain_thought_kv
         self.history = None
         self.board = None
         self.obs = None
-        self.thought = TurnThought()
+        self.thought = TurnThought(closed=thought_budget == 0)
         self.previous_operation = Op.START
         self.decoder_cache = None
         self.pending = None
@@ -148,7 +154,10 @@ class SeatTrace:
         hidden, next_cache, _ = self.policy.decode(
             self._map(self.thought.graph), self._number(self.previous_operation),
             self._number(self.thought.writes), self.board, self.history, self.decoder_cache)
-        mask = torch.tensor(self.thought.mask(), dtype=torch.bool, device=self.device)
+        legal = self.thought.mask()
+        if self.thought_budget is not None:
+            legal = legal[:-1] + (False,)
+        mask = torch.tensor(legal, dtype=torch.bool, device=self.device)
         logits = self.policy.thought_logits(hidden[0, 0], mask)
         self.pending = (logits, next_cache)
         return logits
@@ -157,6 +166,8 @@ class SeatTrace:
     def commit_thought(self, operation: int):
         if self.pending is None:
             raise ValueError("score the thought before committing it")
+        if self.thought_budget is not None and operation == Op.STOP:
+            raise ValueError("fixed thought budgets end automatically")
         updated = self.thought.choose(operation)
         logits, cache = self.pending
         logp = float(logits.log_softmax(dim=-1)[operation])
@@ -165,7 +176,9 @@ class SeatTrace:
             Event.THOUGHT, self._map(updated.graph), self._number(operation),
             self._number(updated.writes), self.board, self.history)
         self.records.append(Record(Event.THOUGHT, revision, operation, updated.graph, updated.writes, logp))
-        if operation != Op.STOP and updated.writes == MAX_THOUGHTS:
+        limit = MAX_THOUGHTS if self.thought_budget is None else self.thought_budget
+        if operation != Op.STOP and updated.writes == limit:
+            updated = TurnThought(updated.graph, updated.writes, closed=True)
             _, self.history, _ = self.policy.thought_event(
                 Event.THOUGHT_LIMIT, self._map(updated.graph), self._number(Op.GAME),
                 self._number(updated.writes), self.board, self.history)
@@ -173,19 +186,26 @@ class SeatTrace:
 
         self.thought = updated
         self.previous_operation = operation
-        self.decoder_cache = None if updated.closed else cache
+        self.decoder_cache = None if updated.closed and not self.retain_thought_kv else cache
         self.pending = None
 
     @torch.inference_mode()
-    def score_game(self):
+    def game_embedding(self):
         if self.board is None or not self.thought.closed:
             raise ValueError("finish thought before scoring game actions")
         hidden, _, _ = self.policy.decode(
             self._map(self.thought.graph), self._number(Op.GAME),
-            self._number(0), self.board, self.history)
-        state = hidden[:, 0]
+            self._number(0), self.board, self.history, self.decoder_cache)
+        return hidden[:, 0]
+
+    @torch.inference_mode()
+    def score_game(self):
+        state = self.game_embedding()
         return self.policy.action_logits(state, self.obs, self.board), self.policy.estimate_value(state)
 
     def next_turn(self):
         self.thought = self.thought.next_turn()
+        if self.thought_budget == 0:
+            self.thought = TurnThought(self.thought.graph, closed=True)
+        self.decoder_cache = None
         self.previous_operation = Op.START
