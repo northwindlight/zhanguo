@@ -9,7 +9,7 @@
 | Hydrogen（四席 `gemini-4-hydrogen-high`，2026-11-13） | [`../../game-records/stock-gemini-hydrogen-20261113/session.json.gz`](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/stock-gemini-hydrogen-20261113/README.md) | `2345b9fd75b08c468d6f076f5aad990d53160bf0793502398faadf236ba4595c` |
 | 3.8 Flash（四席 `gemini-3.8-flash-high`，2026-11-14） | [`../../game-records/stock-gemini38-flash-20261114/session.json.gz`](https://github.com/northwindlight/zhanguo/blob/archive/research/research/game-records/stock-gemini38-flash-20261114/README.md) | `04e6d461c6c49b4c6629e1cae93ad1af42f1c9bf67bec373aad634bde3e862f0` |
 
-两局引擎版本：Hydrogen 局运行在 `6c7d8ee` 加随后被提交为 `0585416` 的工作区改动上，Flash 局运行在 `0585416` 上；可从审计验证 Hydrogen 已使用 120/240/480 的新算力价（旧版 `6c7d8ee` 为 600/1200/2400）。唯一已知运行期差异是休市日调度：`0585416` 修复「休市日仍调用一次交易槽」，Hydrogen 审计含 64 次休市日席位槽执行（16 个休市日 × 4 席），Flash 为 0；交易日槽两局均为 255 次。
+两局引擎版本：Hydrogen 局运行在 `6c7d8ee` 加随后提交为 `0585416` 的工作区改动上，Flash 局运行在 `0585416` 上。审计确认 Hydrogen 已使用该工作区的新价目：算力池 120/240/480、交易槽 80/160/320、研究费 200/次（旧版 `6c7d8ee` 分别为 600/1200/2400、400/800/1600、1000/次）。唯一已知运行期差异是休市日调度：`0585416` 将休市日判断移到交易槽领取之前；旧路径会在每个休市日对每席额外执行一次交易槽回调。Hydrogen 审计含 64 次休市日席位槽回调（16 个休市日 × 4 席），Flash 为 0；原始日志的 64 条回执中 14 次 `effective`、50 次 `failed`。交易日槽运行数为 Hydrogen 255、Flash 172；加上休市日回调后总数为 319、172。休市日没有打开市场会话，`Market._place` 在订单预留前拒绝非交易日请求，因此这些回调不产生订单、成交或佣金，也没有按回调次数收取的现金费用；但仍会消耗当回合已有的脚本计算配额，成功回调可能提交脚本 `state`。因此它是无市场交易与现金费用的额外脚本回调，不应被误报为市场规则差异，也不应未经验证称为完全无程序状态影响。
 
 审计记录来自同级 `session.json.audit.tar.gz`；脚本把 tar 内的分片与存档内的最近 2048 条审计按 `id` 合并，冲突即报错。原始文件不被修改。
 
@@ -31,7 +31,8 @@
 - 8 席「成交现金流合计 = realized_pnl」；
 - 公开消息 160/160 对齐，三个字段全部一致；
 - 两局被动等权基准相差 < 2 个百分点；
-- 休市日席位槽执行：Hydrogen 64 次（16 个休市日 × 4 席）/ Flash 0 次；
+- 休市日席位槽回调：Hydrogen 64 次（16 个休市日 × 4 席；原始日志 14 次有效、50 次失败）/ Flash 0 次；
+- 交易日槽运行：Hydrogen 255 次 / Flash 172 次；含休市日回调后的总槽回调：Hydrogen 319 次 / Flash 172 次；
 - 两局算力/槽/研究价格均为 0585416 版价目（120/240/480、80/160/320、200）；
 - 两局解压后 `session.json` 的 SHA-256 与发布记录一致；
 - 14 只股票静态参数两局逐字段一致。
@@ -49,7 +50,7 @@
 | `per-symbol-cashflow.csv` | 逐股现金流（两局 × 四席 + 合计 + 差） |
 | `news-and-prices.json` | 公开消息对齐统计、逐股价格相关与区间收益、被动基准 |
 | `checks.json` | 23 项校验结果 |
-| `engine.json` | 引擎版本事实：交易日/休市日槽执行次数、实际扣费的算力/槽/研究价目 |
+| `engine.json` | 引擎版本事实：交易日与休市日槽回调分别计数、实际扣费的算力/槽/研究价目；总数由两项相加 |
 | `saves.json` | 两局 `.gz` 与解压后 JSON 的 SHA-256 |
 | `make_figures.py` | 由存档重绘论文三张图（Pillow） |
 | `claims-check.md` | 两局「结算厅复盘」自述数字与账本的逐条核对 |
