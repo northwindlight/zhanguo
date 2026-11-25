@@ -20,7 +20,7 @@ class TestExamplesTour(unittest.TestCase):
                                 cwd=str(ROOT), capture_output=True, text=True, timeout=TIMEOUT)
         self.assertEqual(result.returncode, 0,
                          f'示例巡礼失败：\n{result.stdout[-2000:]}\n{result.stderr[-2000:]}')
-        self.assertIn('文档：https://northwindlight.github.io/zhanguo/', result.stdout)
+        self.assertIn('文档：docs/site/content/', result.stdout)
 
     def test_tour_never_asks_for_a_real_endpoint(self):
         """巡礼里不该出现真实接入参数：出现就说明某一步想联网了。"""

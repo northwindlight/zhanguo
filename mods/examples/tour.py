@@ -221,7 +221,7 @@ def main():
     step_replace_existing()
     step_broken_assembly()
     print()
-    print('文档：https://northwindlight.github.io/zhanguo/')
+    print('文档：docs/site/content/（Mod 文档站源文件）')
 
 
 if __name__ == '__main__':
