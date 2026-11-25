@@ -6,6 +6,7 @@
 - `docs/Mod开发指南.md` 改为指向站点的入口页；`mods/examples/tour.py` 与其测试同步改为输出站点地址。
 - `research/game-records/` 与 `experiments/` 移到 `archive/research` 分支，main 上删除，各文档中的链接改为该分支地址；`research/papers/` 保留。
 - `docs/design/` 顶层 126 个截图与录像收进 `docs/design/media/`，引用与 Windows 打包脚本同步更新。
+- 第二轮收纳：`research/papers/` 并入 `docs/research/papers/`，根目录不再有 `research/`；附加依赖收进 `requirements/`（`llm.txt`、`ruleai.txt`、`stock.txt`、`vision.txt`）；`docs/` 顶层的契约文档收进 `docs/接口/`，使用指南收进 `docs/指南/`，`错误实现.md` 归入 `docs/reviews/`；复核用的 json／log 测量数据收进 `docs/reviews/data/`。
 - 根目录配置模板 `mp_config*.example.json` 收进 `configs/`；`probe_review.py` 改为 `scripts/stock_probe_review.py`；启动脚本的协议提示更新为四种 provider。
 
 ## 未发布 — 取消压缩文本上限（2026-11-19）

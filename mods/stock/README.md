@@ -10,7 +10,7 @@ stock 是独立发行版，使用独立配置和存档；共享宿主与模型�
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt -r requirements-stock.txt
+.venv/bin/python -m pip install -r requirements.txt -r requirements/stock.txt
 .venv/bin/python mp_run.py --config configs/mp_config.stock.offline.example.json
 # 或 ./start.sh --config configs/mp_config.stock.offline.example.json
 ```

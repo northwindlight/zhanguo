@@ -20,7 +20,7 @@ def prepare_solver():
         from scipy.optimize import Bounds, LinearConstraint, milp
         from scipy.sparse import csc_matrix
     except ImportError as error:
-        raise RuntimeError('v14联合规划需要NumPy/SciPy：请在虚拟环境安装 requirements-ruleai.txt') from error
+        raise RuntimeError('v14联合规划需要NumPy/SciPy：请在虚拟环境安装 requirements/ruleai.txt') from error
     return np, Bounds, LinearConstraint, milp, csc_matrix
 
 

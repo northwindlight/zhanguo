@@ -4,10 +4,10 @@ host 加载 `Distribution.Session.Entry`，把运行时、外部配置和客户�
 
 ## 示例先看这里
 
-- [native Session](../mods/native/session.py)：落位、资源和首都、作用域、定时与手动登场、管理接口。
-- [独立 mini Session](../mods/examples/minigame/session.py)：自有 `mini:` 内容与客户端类型，九个领域模块，无 native 领域依赖或占位市场。
-- [experimental 议会服务](../mods/experimental/council.py)：统一处理国策提交、记录证据、裁决与交接，客户端无需知道审核流程。
-- [独立计数游戏验收](../tests/test_session_api.py)：不使用国家、建筑、地图或资源域，也能通过同一 host 开局、行动、结算和存取。
+- [native Session](../../mods/native/session.py)：落位、资源和首都、作用域、定时与手动登场、管理接口。
+- [独立 mini Session](../../mods/examples/minigame/session.py)：自有 `mini:` 内容与客户端类型，九个领域模块，无 native 领域依赖或占位市场。
+- [experimental 议会服务](../../mods/experimental/council.py)：统一处理国策提交、记录证据、裁决与交接，客户端无需知道审核流程。
+- [独立计数游戏验收](../../tests/test_session_api.py)：不使用国家、建筑、地图或资源域，也能通过同一 host 开局、行动、结算和存取。
 
 ```toml
 [Distribution.Session]
@@ -32,7 +32,7 @@ host.cycle()
 
 入口为 `包.模块:工厂名`，签名 `factory(runtime, cfg, client_factory)`。返回对象必须提供 `start / restore / to_save / save / player / cycle / actors / clock`。缺少入口或方法时启动失败。终端管理能力另行检查，无地图或无终端的游戏可以使用同一个 host。
 
-发行版通常继承 [engine.session.Session](../engine/session.py)，实现以下方法：
+发行版通常继承 [engine.session.Session](../../engine/session.py)，实现以下方法：
 
 | 方法 | 责任与返回值 |
 | --- | --- |
@@ -53,7 +53,7 @@ host.cycle()
 
 ### 可选方格场景策略
 
-[engine.scenario.GridSession](../engine/scenario.py) 继承通用 Session，提供 native 和 mini 共用的方格场景策略：圆形初始落位、手动登场时的空间搜索，以及按种子确定的定时登场。发行版只需实现 `grid()` 返回 `(size, seed)`，`occupied()` 返回已占用的 `(x, y)` 坐标，并提供自己的 `spawn()`。显式位置交给 `spawn()` 校验；自动落位采用最小切比雪夫距离 3。策略方法均可覆盖。
+[engine.scenario.GridSession](../../engine/scenario.py) 继承通用 Session，提供 native 和 mini 共用的方格场景策略：圆形初始落位、手动登场时的空间搜索，以及按种子确定的定时登场。发行版只需实现 `grid()` 返回 `(size, seed)`，`occupied()` 返回已占用的 `(x, y)` 坐标，并提供自己的 `spawn()`。显式位置交给 `spawn()` 校验；自动落位采用最小切比雪夫距离 3。策略方法均可覆盖。
 
 无地图、六边形地图或采用其他登场规则的发行版直接继承 Session，提供自身场景方法，无需伪造方格地图。通用 Session 不调用 `grid()` 或 `occupied()`。
 
@@ -84,7 +84,7 @@ host.cycle()
 
 ## 玩家 API 与服务
 
-`player(actor)` 返回 [BoundPlayer](../engine/api.py)，公共方法见 [玩家契约](客户端接线.md#玩家契约)。工具和事实继续来自模块声明，服务不会给模型添加内部对象接口。
+`player(actor)` 返回 [BoundPlayer](../../engine/api.py)，公共方法见 [玩家契约](客户端接线.md#玩家契约)。工具和事实继续来自模块声明，服务不会给模型添加内部对象接口。
 
 ```toml
 [Distribution.Session.Services.council]
@@ -119,7 +119,7 @@ Methods = ["enroll", "decide", "replace"]
 Mod = "scenario:eight-nations"
 ```
 
-外部配置用 `"scenario": "eight_nations"` 选择；未选择时不执行剧本钩子。未挂载的名称或非 ScenarioMod 拒绝启动。native 和 experimental 挂载 [同一个八国剧本 Mod](../mods/scenarios/eight_nations/mod.toml)。入口不能由玩家配置或存档传入任意 Python 路径。旧的发行版 `Entry` 程序仍可用于其他游戏，但同一声明不能同时使用 Mod 和 Entry。
+外部配置用 `"scenario": "eight_nations"` 选择；未选择时不执行剧本钩子。未挂载的名称或非 ScenarioMod 拒绝启动。native 和 experimental 挂载 [同一个八国剧本 Mod](../../mods/scenarios/eight_nations/mod.toml)。入口不能由玩家配置或存档传入任意 Python 路径。旧的发行版 `Entry` 程序仍可用于其他游戏，但同一声明不能同时使用 Mod 和 Entry。
 
 ```python
 from engine.scenario_mod import ScenarioMod
@@ -158,7 +158,7 @@ LLM 和规则 AI 按新代次读取交接上下文，`context.reset_memory=true`
 
 `zhanguo.session/5` 保存模块依赖与状态、客户端状态、服务状态、roster、场景文案、代次、交接上下文和审计。只保存完整周期边界；失败周期不能覆盖最近完整存档。服务清单、身份或依赖不匹配会拒绝加载。
 
-1.0 前不提供旧档承诺、兼容适配或迁移。当前 UI 对事实布局和地图图例的完整抽象、领域语言键体系仍是后续任务，见 [PLAN](plans/PLAN.md)。
+1.0 前不提供旧档承诺、兼容适配或迁移。当前 UI 对事实布局和地图图例的完整抽象、领域语言键体系仍是后续任务，见 [PLAN](../plans/PLAN.md)。
 
 配置准备独立于 Session 生命周期，通过 `Distribution.Configuration.Entry` 组织组件配置；见 [配置层契约](配置层.md)。Session 接收配置副本，不再负责 native / mini 的场景规范化。
 

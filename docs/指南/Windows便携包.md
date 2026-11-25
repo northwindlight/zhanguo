@@ -8,9 +8,9 @@
 目标为 Windows 10/11、x64。完整解压后双击 `Zhanguo.exe`，无需安装 Godot、Python 或 .NET SDK。
 主菜单可选玩家模式或看海模式。玩家先定制本国和地图，再设置 AI 对手；看海默认使用v13规则AI八国局，可选择v14候选／v11plus，点开始和继续即可离线观看。
 
-v0.7.1新增v14联合经济规划，Windows包自带NumPy／SciPy求解器；源码启动需安装`requirements.txt`。新局默认v13，可选v14候选，旧档保留原策略；[版本说明](releases/v0.7.1.md)、[验证与限制](reviews/v14联合经济规划-20261029.md)。同提交CI通过后自动公开Pre-release。
+v0.7.1新增v14联合经济规划，Windows包自带NumPy／SciPy求解器；源码启动需安装`requirements.txt`。新局默认v13，可选v14候选，旧档保留原策略；[版本说明](../releases/v0.7.1.md)、[验证与限制](../reviews/v14联合经济规划-20261029.md)。同提交CI通过后自动公开Pre-release。
 
-v0.7.0完成两版计划的第二批：正式预付生产队列、持续鼠标军令与选中光环、发行版开关、旧档副本升级、简易地图／空位筛选、银行与经济报表邮箱。运行提交`c940304`通过[1075项与Windows九组验收](https://github.com/northwindlight/zhanguo/actions/runs/40818268137)，由同一次CI公开三附件；[发布说明](releases/v0.7.0.md)、[收尾验收](reviews/银行邮箱与规则收尾-20261029.md)。仍为单机一位真人，保持原18阶段结算。
+v0.7.0完成两版计划的第二批：正式预付生产队列、持续鼠标军令与选中光环、发行版开关、旧档副本升级、简易地图／空位筛选、银行与经济报表邮箱。运行提交`c940304`通过[1075项与Windows九组验收](https://github.com/northwindlight/zhanguo/actions/runs/40818268137)，由同一次CI公开三附件；[发布说明](../releases/v0.7.0.md)、[收尾验收](../reviews/银行邮箱与规则收尾-20261029.md)。仍为单机一位真人，保持原18阶段结算。
 
 生产队列与持续军令改变了旧档依赖。已知旧档在存档列表中选择“升级为新副本”，原档与历史保留；未知依赖仍拒绝，旧版包继续保留。
 
@@ -32,21 +32,21 @@ ZIP 中有：
 原始包从跟踪文件的白名单取运行源码，不复制已有存档、本机配置、缓存或开发环境。
 `music` 中新放的文件暂不自动播放，本版尚无正式音乐/音效；朋友可以先做小样，收到后再接入。
 
-2026-10-26 的单国收支、街道、集市与新字体开发包已通过[Windows 实际窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40268362667)，在该次 Actions 的 `Zhanguo-Windows-x64` 工件中下载。它采用运行提交 `9cfdaa7`，尚未替换已发布的 v0.5.1；[本轮截图与检查范围](reviews/GUI单国收支与街道演出-20261026.md)。
+2026-10-26 的单国收支、街道、集市与新字体开发包已通过[Windows 实际窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40268362667)，在该次 Actions 的 `Zhanguo-Windows-x64` 工件中下载。它采用运行提交 `9cfdaa7`，尚未替换已发布的 v0.5.1；[本轮截图与检查范围](../reviews/GUI单国收支与街道演出-20261026.md)。
 
-2026-10-26 的真人单机开发包已通过[Windows 真人窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40317006180)，运行代码 `19fec89`，在该次 Actions 的 `Zhanguo-Windows-x64` 工件下载。新建对局为一个国家选“真人”、填写昵称，即可从底部入口办理建设、军令、市场、外交与情报；[截图与验收](reviews/真人GUI第二步-20261026.md)。这批功能属于 main 开发包，v0.5.1 原发布包保持原样。
+2026-10-26 的真人单机开发包已通过[Windows 真人窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40317006180)，运行代码 `19fec89`，在该次 Actions 的 `Zhanguo-Windows-x64` 工件下载。新建对局为一个国家选“真人”、填写昵称，即可从底部入口办理建设、军令、市场、外交与情报；[截图与验收](../reviews/真人GUI第二步-20261026.md)。这批功能属于 main 开发包，v0.5.1 原发布包保持原样。
 
 2026-10-27 的图标操作开发包已通过[Windows 实际窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40442608814)，运行提交 `1f83661`，现作为 [v0.6.0 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.0) 发布，Windows 附件与验收工件字节相同。
 主菜单现在明确区分玩家／看海；玩家先定制本国与地图，再设置 AI 对手。点本国地块使用建设／征兵图标格，短悬停看费用与要求、长悬停看作用和预计收益；缺条件变暗，每格本期施工次数独立显示。
-独立城堡、林场、四种厂区及资源 SVG 附在 `美术预览/建设征兵SVG`；[截图与验收](reviews/真人GUI图标与交互-20261027.md)。
+独立城堡、林场、四种厂区及资源 SVG 附在 `美术预览/建设征兵SVG`；[截图与验收](../reviews/真人GUI图标与交互-20261027.md)。
 
 2026-10-27 的市场与驻军打磨版发布为 [v0.6.1 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.1)：市场增加十档买卖按钮和自动交易，施工可半额撤销，完工后可零返还拆除；驻军与军令移到地块面板顶部，野人待战／交锋使用同一编队与血量。左上角常驻显示燃料约束下的电力预计供电／需求，以及上期实际电网状态。
-运行提交 `b2c51b7`；[Windows 便携包与实际窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40477510475)、[本轮截图与范围](reviews/市场与建筑拆除及驻军-20261027.md)。本版请新开局，旧档继续用原发布包。
+运行提交 `b2c51b7`；[Windows 便携包与实际窗口验收](https://github.com/northwindlight/zhanguo/actions/runs/40477510475)、[本轮截图与范围](../reviews/市场与建筑拆除及驻军-20261027.md)。本版请新开局，旧档继续用原发布包。
 
 本轮 [v0.6.2 Pre-release](https://github.com/northwindlight/zhanguo/releases/tag/v0.6.2) 增加右侧地块／军队总览和筛选、资源悬浮产消明细，并修复军屯耕地占用、数字框需回车、市场期望库存与真人倍速切换。买卖、建设和征兵可在动画期间连续排队，支持取消尚未提交的指令；每笔按执行时条件核算。
-运行代码 `3f57e07`；[Windows构建与实际窗口](https://github.com/northwindlight/zhanguo/actions/runs/40494984758)，[本轮截图与范围](reviews/军队总览与地块筛选-20261027.md)。可读v0.6.1存档，保留旧档既有建筑，不自动拆除；更早版本原有严格检查保持。
+运行代码 `3f57e07`；[Windows构建与实际窗口](https://github.com/northwindlight/zhanguo/actions/runs/40494984758)，[本轮截图与范围](../reviews/军队总览与地块筛选-20261027.md)。可读v0.6.1存档，保留旧档既有建筑，不自动拆除；更早版本原有严格检查保持。
 
-本轮v0.6.3修复军令误拦截、已知逐格路线和瞭望塔限建，接通CI自动预发布；[实现范围与验收](reviews/GUI军令规则与自动预发布-20261028.md)。
+本轮v0.6.3修复军令误拦截、已知逐格路线和瞭望塔限建，接通CI自动预发布；[实现范围与验收](../reviews/GUI军令规则与自动预发布-20261028.md)。
 
 ## 发布顺序
 
@@ -60,7 +60,7 @@ ZIP 中有：
 
 自动发布已接入`ci.yml`：main上根目录`VERSION`对应尚未发布的标签时，离线回归、文档、C#与Windows实际窗口全部通过后直接发Pre-release。Windows附件来自同次成功构建，源码绑定同一提交，上传摘要核对完成再公开。重跑同提交可续传草稿，已公开附件不覆盖；后续完成版本递增`VERSION`并添加`docs/releases/v<版本>.md`。规则源码也会触发Windows构建；仅文档改动且无待发版本时不发包。
 
-[Windows便携包工作流](../.github/workflows/windows-portable.yml)在 Windows 构建机上执行。
+[Windows便携包工作流](../../.github/workflows/windows-portable.yml)在 Windows 构建机上执行。
 它使用官方 Godot 4.7.2 .NET 的导出模板、.NET 8 SDK和 Python 3.13.17嵌入式发行版；
 下载的工具均锁定版本和 SHA-256。SDK与编辑器仅用于构建，不要求接收者安装。
 

@@ -15,7 +15,7 @@ if [ ! -f mp_config.json ]; then
 fi
 
 if ! "$PY" -c "import pams" 2>/dev/null; then
-  echo "pams==0.3.0 is missing: $PY -m pip install -r requirements-stock.txt" >&2
+  echo "pams==0.3.0 is missing: $PY -m pip install -r requirements/stock.txt" >&2
   exit 2
 fi
 
