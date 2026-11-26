@@ -55,7 +55,7 @@ def main():
     env = dict(os.environ, PYTHONPATH=str(root/"legacy/python"), OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="2")
     driver = source / "analysis/autoregressive-policy/thought_ppo.py"
     common = [sys.executable, "-u", driver, "--library", build/"libzhanguo_eval.so",
-              "--checkpoint", parent, "--workers", workers]
+              "--checkpoint", parent, "--workers", workers, "--rollouts-per-device", 2, "--threads", 1]
     print(json.dumps(dict(stage="ppo_cuda_ready", parent_sha256=PARENT_SHA,
                           devices=[torch.cuda.get_device_name(i) for i in range(workers)])), flush=True)
     if START == 0:
@@ -72,7 +72,8 @@ def main():
             if not any(not torch.equal(x, after[k]) for k, x in before.items() if k.startswith(group)):
                 raise RuntimeError(f"CUDA preflight left {group} weights untouched")
         print(json.dumps(dict(stage="ppo_cuda_preflight_passed", games=workers, ppo=proof["ppo"])), flush=True)
-    print(json.dumps(dict(stage="ppo_production_begin", start=START, stop=STOP)), flush=True)
+    print(json.dumps(dict(stage="ppo_production_begin", start=START, stop=STOP,
+                          rollouts_per_device=2)), flush=True)
     result = subprocess.run(list(map(str, [*common, "--output", work, "--stop-games", STOP])), env=env)
     manifest = work/"state.json"
     if not manifest.exists():

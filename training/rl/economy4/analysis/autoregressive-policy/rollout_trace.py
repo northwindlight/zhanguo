@@ -103,13 +103,13 @@ def is_event(record) -> bool:
 class _ThoughtPending:
     logits: Tensor
     cache: tuple | None
-    value: float
+    value: Tensor | None
 
 
 @dataclass(frozen=True)
 class _GamePending:
     logits: Tensor
-    value: Tensor
+    value: Tensor | None
     state: Tensor
 
 
@@ -196,8 +196,12 @@ class SeatTrace:
         self.previous_operation = Op.START
         self.decoder_cache = None
         self.pending = None
+        self.recording = True
         self.records: list[Record | GameRecord | TurnBoundary] = []
         self.observations = ObservationArchive()
+        self._numbers = torch.arange(MAX_THOUGHTS + 1, device=self.device).view(-1, 1, 1)
+        self._graph_input = None
+        self._thought_masks = {}
 
     @classmethod
     def from_header(cls, policy: Policy, header: TraceHeader):
@@ -216,10 +220,12 @@ class SeatTrace:
         return self.policy.event_proj.weight.device
 
     def _number(self, value: int):
-        return torch.tensor([[value]], device=self.device, dtype=torch.long)
+        return self._numbers[value]
 
     def _map(self, graph: MemoryMap):
-        return torch.tensor([[graph.padded()]], device=self.device, dtype=torch.long)
+        if self._graph_input is None or graph != self._graph_input[0]:
+            self._graph_input = graph, torch.tensor([[graph.padded()]], device=self.device, dtype=torch.long)
+        return self._graph_input[1]
 
     @torch.inference_mode()
     def observe(self, revision: int, obs: dict[str, Tensor]):
@@ -229,12 +235,14 @@ class SeatTrace:
             return
         if obs["globals"].shape[0] != 1:
             raise ValueError("a trace owns exactly one seat")
-        current = {k: v.to(device=self.device, copy=True) for k, v in obs.items()}
+        current = {k: v.to(device=self.device, copy=True, non_blocking=True) for k, v in obs.items()}
         board = self.policy.snapshot(current, revision, self.board)
         _, history, _ = self.policy.observation_event(board, self.history)
-        self.observations.append(revision, obs)
+        self.candidate_mask = obs["cand_mask"].detach().to(device="cpu", copy=True)
         self.board, self.obs, self.history = board, current, history
-        self.records.append(Record(Event.OBSERVATION, revision))
+        if self.recording:
+            self.observations.append(revision, obs)
+            self.records.append(Record(Event.OBSERVATION, revision))
 
     @torch.inference_mode()
     def add_event(self, kind: Event, visible_payload: Tensor):
@@ -242,15 +250,31 @@ class SeatTrace:
             raise ValueError("use observe, the thought transition or commit_game to record this event")
         self._append_event(kind, visible_payload)
 
-    def _append_event(self, kind: Event, visible_payload: Tensor, operation: int | None = None):
+    def _append_event(self, kind: Event, visible_payload: Tensor, operation: int | None = None,
+                      archive_payload: Tensor | None = None):
         if self.board is None or self.pending is not None:
             raise ValueError("events require a current observation and no undecided action")
         if visible_payload.shape != (EVENT_WIDTH,):
             raise ValueError("expected one event payload")
         _, self.history, _ = self.policy.events(self._number(kind), visible_payload.to(self.device)[None, None],
                                                 self.history)
-        self.records.append(Record(kind, self.board.revision, operation,
-                                   payload=visible_payload.detach().to("cpu", copy=True)))
+        if self.recording:
+            payload = archive_payload if archive_payload is not None else visible_payload.detach().to("cpu", copy=True)
+            self.records.append(Record(kind, self.board.revision, operation, payload=payload))
+
+    @staticmethod
+    def _draw(logits, value, rng):
+        logits = logits.float()
+        index = torch.multinomial(logits.softmax(dim=-1), 1, generator=rng)
+        if value is None:
+            return int(index.item()), None
+        logp = logits.log_softmax(dim=-1).gather(0, index)
+        action, lp, v = torch.cat((index.to(logp.dtype), logp, value.reshape(1))).tolist()
+        return int(action), (lp, v)
+
+    @staticmethod
+    def _scores(logits, value, index):
+        return tuple(torch.stack((logits.float().log_softmax(dim=-1)[index], value.reshape(()))).tolist())
 
     @torch.inference_mode()
     def score_thought(self):
@@ -259,35 +283,47 @@ class SeatTrace:
         hidden, next_cache, _ = self.policy.decode(
             self._map(self.thought.graph), self._number(self.previous_operation),
             self._number(self.thought.writes), self.board, self.history, self.decoder_cache)
-        mask = torch.tensor(thought_mask(self.thought, self.thought_budget), dtype=torch.bool, device=self.device)
-        logits = self.policy.thought_logits(hidden[0, 0], mask)
-        self.pending = _ThoughtPending(logits, next_cache, float(self.policy.estimate_value(hidden[0, 0])))
+        mask = thought_mask(self.thought, self.thought_budget)
+        if mask not in self._thought_masks:
+            self._thought_masks[mask] = torch.tensor(mask, dtype=torch.bool, device=self.device)
+        logits = self.policy.thought_logits(hidden[0, 0], self._thought_masks[mask])
+        value = self.policy.estimate_value(hidden[0, 0]) if self.recording else None
+        self.pending = _ThoughtPending(logits, next_cache, value)
         return logits
 
     @torch.inference_mode()
-    def commit_thought(self, operation: int):
+    def sample_thought(self, rng):
+        logits = self.score_thought()
+        operation, scores = self._draw(logits, self.pending.value, rng)
+        return self.commit_thought(operation, scores=scores)
+
+    @torch.inference_mode()
+    def commit_thought(self, operation: int, *, scores=None):
         if not isinstance(self.pending, _ThoughtPending):
             raise ValueError("score the thought before committing it")
         updated, forced = advance_thought(self.thought, operation, self.thought_budget)
         pending = self.pending
-        logp = float(pending.logits.log_softmax(dim=-1)[operation])
         revision = self.board.revision
         _, self.history, _ = self.policy.thought_event(
             Event.THOUGHT, self._map(updated.graph), self._number(operation),
             self._number(updated.writes), self.board, self.history)
-        self.records.append(Record(Event.THOUGHT, revision, operation, updated.graph, updated.writes, logp,
-                                   value=pending.value))
+        if self.recording:
+            logp, value = scores if scores is not None else self._scores(pending.logits, pending.value, operation)
+            self.records.append(Record(Event.THOUGHT, revision, operation, updated.graph, updated.writes, logp,
+                                       value=value))
         if forced:
             # The engine's switch is an event, not a policy choice, and carries no probability.
             _, self.history, _ = self.policy.thought_event(
                 Event.THOUGHT_LIMIT, self._map(updated.graph), self._number(Op.GAME),
                 self._number(updated.writes), self.board, self.history)
-            self.records.append(Record(Event.THOUGHT_LIMIT, revision, graph=updated.graph, writes=updated.writes))
+            if self.recording:
+                self.records.append(Record(Event.THOUGHT_LIMIT, revision, graph=updated.graph, writes=updated.writes))
 
         self.thought = updated
         self.previous_operation = operation
         self.decoder_cache = None if updated.closed and not self.retain_thought_kv else pending.cache
         self.pending = None
+        return forced
 
     @torch.inference_mode()
     def game_embedding(self):
@@ -304,22 +340,33 @@ class SeatTrace:
             raise ValueError("commit the pending decision first")
         state = self.game_embedding()
         logits = self.policy.action_logits(state, self.obs, self.board)
-        value = self.policy.estimate_value(state)
+        value = self.policy.estimate_value(state) if self.recording else None
         self.pending = _GamePending(logits, value, state)
         return logits, value
 
     @torch.inference_mode()
-    def commit_game(self, index: int):
+    def sample_game(self, rng):
+        logits, value = self.score_game()
+        index, scores = self._draw(logits[0], value, rng)
+        self.commit_game(index, scores=scores)
+        return index
+
+    @torch.inference_mode()
+    def commit_game(self, index: int, *, scores=None):
         """Log the sampled candidate with its sampling log-probability and pre-action value."""
         if not isinstance(self.pending, _GamePending):
             raise ValueError("score the game action before committing it")
-        if not 0 <= index < self.obs["cand_mask"].shape[1] or not bool(self.obs["cand_mask"][0, index]):
+        if not 0 <= index < self.candidate_mask.shape[1] or not bool(self.candidate_mask[0, index]):
             raise ValueError("game action is not an offered candidate")
         pending = self.pending
-        logp = float(pending.logits[0].float().log_softmax(dim=-1)[index])
-        self.records.append(GameRecord(self.board.revision, index, logp, float(pending.value[0])))
+        archive_payload = None
+        if self.recording:
+            logp, value = scores if scores is not None else self._scores(pending.logits[0], pending.value, index)
+            self.records.append(GameRecord(self.board.revision, index, logp, value))
+            if self.observations.latest_revision == self.board.revision:
+                archive_payload = action_event(self.observations.latest, index)
         self.pending = None
-        self._append_event(Event.ACTION, action_event(self.obs, index), index)
+        self._append_event(Event.ACTION, action_event(self.obs, index), index, archive_payload)
 
     def next_turn(self):
         if self.pending is not None:

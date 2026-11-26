@@ -226,6 +226,13 @@ int zhanguo_eval_self_play(SelfPlay* match, int index) {
     return handle_error([&] { match->play(index); });
 }
 
+int zhanguo_eval_self_advance(SelfPlay* match, int index, int* period) {
+    return handle_error([&] {
+        match->play(index);
+        *period = match->episode.world.mperiod;
+    });
+}
+
 void zhanguo_eval_self_result(const SelfPlay* match, Result* out) {
     for (int seat = 0; seat < 4; ++seat) out[seat] = match->result(seat);
 }

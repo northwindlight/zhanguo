@@ -45,10 +45,10 @@ class Engine:
         self.bind("play", [ct.c_void_p, ct.c_int], ct.c_int)
         self.bind("result", [ct.c_void_p, ct.POINTER(Result)], None)
 
-    def bind(self, name, arguments, result, *, alias=None):
+    def bind(self, name, arguments, result):
         method = getattr(self.lib, f"zhanguo_eval_{name}")
         method.argtypes, method.restype = arguments, result
-        setattr(self, alias or name, method)
+        setattr(self, name, method)
 
     def check(self, condition):
         if not condition:
@@ -62,7 +62,7 @@ class Engine:
             self.bind("self_create", [ct.c_uint64, ct.c_int, ct.c_int], ct.c_void_p)
             self.bind("self_destroy", [ct.c_void_p], None)
             self.bind("self_observe", [ct.c_void_p, ct.POINTER(View), ct.POINTER(ct.c_int)], ct.c_int)
-            self.bind("self_play", [ct.c_void_p, ct.c_int], ct.c_int, alias="apply_self_action")
+            self.bind("self_advance", [ct.c_void_p, ct.c_int, ct.POINTER(ct.c_int)], ct.c_int)
             self.bind("self_result", [ct.c_void_p, ct.POINTER(Result)], None)
         return SelfPlay(self, seed, size, turns)
 
@@ -137,7 +137,9 @@ class SelfPlay:
         return actor.value, view.turn, bool(view.is_new_turn), tensors(view)
 
     def play(self, action):
-        self.engine.check(self.engine.apply_self_action(self.handle, action) == 0)
+        period = ct.c_int()
+        self.engine.check(self.engine.self_advance(self.handle, action, ct.byref(period)) == 0)
+        return period.value
 
     def result(self):
         result = (Result * 4)()

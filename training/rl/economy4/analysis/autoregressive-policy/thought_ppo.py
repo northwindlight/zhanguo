@@ -13,7 +13,7 @@ import torch
 from torch.nn import functional as F
 
 from bc_train import atomic_save, emit, publish, sha
-from evaluate_thought import SCALE, sample, territory_gdp
+from evaluate_thought import SCALE, territory_gdp
 from model import Policy
 from native_eval import Engine
 from replay import max_errors, move_history, replay_turn, replay_turn_stepwise
@@ -66,6 +66,8 @@ def returns_from_events(events):
                                       territory_gdp(max(0, row["land"] - row["initial_land"]))) / SCALE
         else:
             seat, record = data
+            if record is None:
+                continue
             if record in returns[seat]:
                 raise ValueError("Duplicate self-play decision in global timeline")
             returns[seat][record] = accumulated[seat]
@@ -98,36 +100,31 @@ def rollout(policy, library, seed, size, turns, samples_per_seat):
                 if last_turn[seat]:
                     trace.next_turn()
                 last_turn[seat] = turn
-                if turn in chosen[seat]:
+                trace.recording = turn in chosen[seat]
+                if trace.recording:
                     open_window[seat] = (len(trace.records), move_history(trace.history, "cpu"),
                                          trace.thought.graph)
             trace.observe(len(events), obs)
             while not trace.thought.closed:
-                logits = trace.score_thought()
-                chosen_op = sample(logits, streams[seat + 4])
-                event = len(trace.records)
-                trace.commit_thought(chosen_op)
+                event = len(trace.records) if trace.recording else None
+                forced = trace.sample_thought(streams[seat + 4])
                 events.append(("thought", (seat, event)))
                 thoughts += 1
                 if trace.thought.closed:
-                    if len(trace.records) == event + 2:
+                    if forced:
                         forced_stops += 1
                     else:
                         thought_stops += 1
-            logits, _ = trace.score_game()
-            action = sample(logits[0], streams[seat])
-            event = len(trace.records)
-            trace.commit_game(action)
+            event = len(trace.records) if trace.recording else None
+            action = trace.sample_game(streams[seat])
             events.append(("game", (seat, event)))
             games += 1
-            world.play(action)
-            # The next action turn follows the last completed settlement.
-            rows = world.result()
-            if rows[0]["turn"] != period:
-                if rows[0]["turn"] != period + 1:
+            settled = world.play(action)
+            if settled != period:
+                if settled != period + 1:
                     raise ValueError("Missing global settlement")
-                events.append(("settlement", rows))
-                period += 1
+                events.append(("settlement", world.result()))
+                period = settled
         final = world.result()
 
     targets = returns_from_events(events)
@@ -135,7 +132,7 @@ def rollout(policy, library, seed, size, turns, samples_per_seat):
         if open_window[seat] is not None:
             start, history, graph = open_window[seat]
             starts[seat].append((start, len(trace.records), history, graph))
-    if sum(len(x) for x in targets) != games + thoughts or sum(r["decisions"] for r in final) != games:
+    if len(events) != games + thoughts + period or sum(r["decisions"] for r in final) != games:
         raise ValueError("World trace and native decision counts differ")
     for seat, trace in enumerate(traces):
         if sum(getattr(r,"logp",None) is not None for r in trace.records) != len(targets[seat]):
@@ -162,6 +159,19 @@ def replay(policy, window):
     method = replay_turn_stepwise if window.stepwise else replay_turn
     return method(policy, window.header, window.records, window.observations, window.history,
                   window.graph, window.game_records)
+
+
+def rollout_on_stream(policy, *args):
+    device = policy.event_proj.weight.device
+    if device.type != "cuda":
+        return rollout(policy, *args)
+    stream = torch.cuda.Stream(device=device)
+    # Model weights are loaded on the default stream before read-only sampling.
+    stream.wait_stream(torch.cuda.default_stream(device))
+    with torch.cuda.stream(stream):
+        result = rollout(policy, *args)
+    stream.synchronize()
+    return result
 
 
 def action_group(decisions, window):
@@ -325,16 +335,18 @@ def train(args):
             opt.load_state_dict(state[name])
     args.output.mkdir(parents=True, exist_ok=True)
     emit("ppo_started", start=completed, target=args.stop_games, devices=devices, contract=state["contract"])
-    with ThreadPoolExecutor(max_workers=len(policies)) as pool:
+    parallel = len(policies) * args.rollouts_per_device
+    sample_world = rollout if args.rollouts_per_device == 1 else rollout_on_stream
+    with ThreadPoolExecutor(max_workers=parallel) as pool:
         while completed < args.stop_games:
             batch_size = min(args.stop_games - completed, args.batch_games)
             windows, statistics_rows = [], []
-            for start in range(0, batch_size, len(policies)):
+            for start in range(0, batch_size, parallel):
                 jobs = []
-                for i in range(min(len(policies), batch_size - start)):
+                for i in range(min(parallel, batch_size - start)):
                     position = completed + start + i
                     seed = args.seed + position + 4 * (position % 4)
-                    jobs.append(pool.submit(rollout, policies[i], args.library, seed,
+                    jobs.append(pool.submit(sample_world, policies[i % len(policies)], args.library, seed,
                                             args.size, args.turns, args.samples_per_seat))
                 for job in jobs:
                     selections, row = job.result()
@@ -378,6 +390,7 @@ def arguments():
     p.add_argument("--target-kl", type=float, default=.02)
     p.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
     p.add_argument("--workers", type=int, choices=(1, 2), default=2)
+    p.add_argument("--rollouts-per-device", type=int, choices=(1, 2), default=1)
     p.add_argument("--threads", type=int, default=2)
     args = p.parse_args()
     if min(args.stop_games, args.batch_games, args.samples_per_seat, args.ppo_epochs, args.turns) < 1:

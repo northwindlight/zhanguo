@@ -82,7 +82,7 @@ def replay_stepwise(policy: Policy, header: TraceHeader, records, observations: 
             logits = trace.score_thought()
             value = trace.pending.value
             decisions.append(Decision("thought", n, logits.log_softmax(dim=-1)[record.operation],
-                                      torch.tensor(value), record.logp, record.value))
+                                      value, record.logp, record.value))
             trace.commit_thought(record.operation)
             if trace.thought.graph != record.graph or trace.thought.writes != record.writes:
                 raise ValueError(f"record {n}: thought state diverged")
