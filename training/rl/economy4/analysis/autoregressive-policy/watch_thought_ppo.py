@@ -11,7 +11,7 @@ from watch_thought_eval import KERNEL as WARMUP_KERNEL, source_bundle
 
 
 HERE = Path(__file__).resolve().parent
-KERNEL = "northwindlight/zhanguo-adaptive-thought-ppo"
+KERNEL = "northwindlight/zhanguo-full-turn-ppo"
 
 
 def kernel_ref(start):
@@ -34,7 +34,7 @@ def package(output, start, stop, parent):
         template = template.replace(f"{name} = None\n", f"{name} = {value!r}\n", 1)
     compile(template, str(stage/"kernel.py"), "exec")
     (stage/"kernel.py").write_text(template)
-    title = "Zhanguo Adaptive Thought PPO" if not start else f"Zhanguo Adaptive Thought PPO From {start:04}"
+    title = "Zhanguo Full Turn PPO" if not start else f"Zhanguo Full Turn PPO From {start:04}"
     remote.publish(stage/"kernel-metadata.json", dict(id=kernel_ref(start), title=title,
         code_file="kernel.py", language="python", kernel_type="script", is_private=True, enable_gpu=True,
         enable_internet=False, dataset_sources=[SOURCES[1]], competition_sources=[], kernel_sources=[parent["kernel"]]))
@@ -84,7 +84,7 @@ def watch(output, start, stop, goal):
                     if tag and tag.startswith("ppo_cuda_"):
                         report[tag] = row
                     if production and tag in ("ppo_game_complete","ppo_batch_complete","ppo_replay_verified",
-                                              "ppo_replay_reference","ppo_segment_interrupted"):
+                                              "ppo_replay_reference","ppo_segment_interrupted","ppo_coverage","ppo_replay_progress"):
                         report[tag] = row
                 remote.publish(output/"live.json", report)
                 if current == "COMPLETE":
@@ -110,6 +110,16 @@ def archive(output, start, stop, parent):
     if (not start < games <= stop or segment["games"] != games or segment["sha256"] != state["sha256"]
             or segment["complete"] and games != stop or state["checkpoint"] != f"games-{games:04}.pt"):
         raise ValueError("Adaptive PPO segment manifest failed validation")
+    if state["contract"].get("coverage") != "all_turns_all_decisions":
+        raise ValueError("Checkpoint is not from the full-coverage campaign")
+    for batch_file in work.glob("games-*.json"):
+        batch = json.loads(batch_file.read_text())
+        metrics = batch["metrics"]
+        for epoch in batch["ppo"]:
+            for trained, collected in (("trained_turns", "seat_turns"), ("trained_game_actions", "game_decisions"),
+                                       ("trained_thoughts", "thoughts")):
+                if epoch[trained] != sum(world[collected] for world in metrics):
+                    raise ValueError(f"Incomplete PPO coverage in {batch_file.name}: {trained}")
     checkpoint = work/state["checkpoint"]
     pull_files(job, stage, rf"^work/games-{games:04}\.pt$", log)
     if state["initial_sha256"] != parent["initial_sha256"] or remote.sha(checkpoint) != state["sha256"]:
@@ -142,7 +152,8 @@ def main(args):
                 verified_games=parent["games"], segment=segment, time=time.time()))
             return
         start = parent["games"]
-        stop = min(args.goal, start + args.segment)
+        segment_games = min(4, args.segment) if start == 0 else args.segment
+        stop = min(args.goal, start + segment_games)
         submit(output, start, stop, parent)
         watch(output, start, stop, args.goal)
         parent = archive(output, start, stop, parent)

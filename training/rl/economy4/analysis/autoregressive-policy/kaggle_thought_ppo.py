@@ -61,7 +61,7 @@ def main():
     if START == 0:
         preflight = root / "preflight"
         subprocess.run(list(map(str, [*common, "--output", preflight, "--stop-games", workers,
-                                      "--size", 24, "--turns", 2, "--samples-per-seat", 2, "--ppo-epochs", 1])),
+                                      "--size", 24, "--turns", 2, "--ppo-epochs", 1])),
                        check=True, env=env)
         proof = json.loads((preflight/"state.json").read_text())
         if not any(row["accepted"] and row["actor_norm"] > 0 and row["critic_norm"] > 0 for row in proof["ppo"]):

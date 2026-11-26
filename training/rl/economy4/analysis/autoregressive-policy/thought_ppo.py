@@ -14,15 +14,19 @@ from torch.nn import functional as F
 
 from bc_train import atomic_save, emit, publish, sha
 from evaluate_thought import SCALE, territory_gdp
-from model import Policy
+from history import DeltaState, SparseCache
+from model import History, Policy
 from native_eval import Engine
-from replay import max_errors, move_history, replay_turn, replay_turn_stepwise
-from rollout_trace import GameRecord, SeatTrace
+from replay import max_errors, replay_turn, replay_turn_stepwise
+from rollout_trace import GameRecord, ObservationArchive, SeatTrace
+
+WINDOW_GAMES = 8
 
 CONTRACT = dict(thought_budget=[8, 30], retain_thought_kv=False, actor_observation_gdp="nominal_only",
                 reward="nominal_gdp+territory_holding", reward_scale=SCALE,
                 clock="global_events", gamma=1., gae_lambda=1., game_sequences=[2, 4],
-                replay="turn_truncated_with_behavior_prefix", seats=4, shared_policy=True,
+                coverage="all_turns_all_decisions", window_games=WINDOW_GAMES,
+                replay="window_truncated_with_behavior_prefix", seats=4, shared_policy=True,
                 precision="fp32")
 
 
@@ -30,29 +34,75 @@ CONTRACT = dict(thought_budget=[8, 30], retain_thought_kv=False, actor_observati
 class Window:
     header: object
     records: list
-    observations: dict
+    observations: ObservationArchive
     history: object
     graph: object
-    game_records: frozenset
+    game_records: tuple
+    groups: tuple
+    game_phase: bool
     targets: dict
     stepwise: bool = False
 
 
-def training_windows(trace, starts, returns, rng):
-    result = []
-    for start, stop, history, graph in starts:
-        records = trace.records[start:stop]
-        games = [i for i, r in enumerate(records) if isinstance(r, GameRecord)]
-        if not games:
-            continue
+@dataclass
+class Opening:
+    delta: tuple
+    latest: torch.Tensor
+    tail: torch.Tensor
+    tokens: int
+    blocks: int
+
+    @classmethod
+    def capture(cls, history):
+        if history is None:
+            return None
+
+        def cpu(tensor):
+            return tensor.detach().to(device="cpu", copy=True)
+
+        delta = tuple(DeltaState(cpu(x.matrix), cpu(x.conv_tail)) for x in history.delta)
+        sparse = history.sparse
+        return cls(delta, cpu(history.latest), cpu(sparse.index_tail),
+                   sparse.key.size(1), sparse.block_key.size(1))
+
+    def prefix(self, key, value, block_key):
+        # Completed K/V rows are append-only. All openings share the final CPU backing store.
+        return History(self.delta, SparseCache(key[:, :self.tokens], value[:, :self.tokens],
+                                               block_key[:, :self.blocks], self.tail), self.latest)
+
+
+def partition_games(games, rng):
+    groups = []
+    while games:
         count = min(len(games), rng.randint(2, 4))
-        offset = rng.randrange(len(games) - count + 1)
-        selected = frozenset(games[offset:offset + count])
-        records = records[:max(selected) + 2]
-        revisions = {r.revision for r in records if hasattr(r, "revision")}
-        observations = {rev: trace.observations[rev] for rev in revisions}
-        result.append(Window(trace.header, records, observations, history, graph, selected,
-                             {i: returns[start+i] for i in range(len(records)) if start+i in returns}))
+        if len(games) - count == 1:
+            count = count + 1 if count < 4 else count - 1
+        groups.append(games[:count])
+        games = games[count:]
+    return tuple(groups)
+
+
+def training_windows(trace, starts, returns, rng):
+    if not starts:
+        if returns:
+            raise ValueError("Missing replay windows for a live seat")
+        return []
+    sparse = trace.history.sparse
+    shared = tuple(t.detach().to(device="cpu", copy=True) for t in (sparse.key, sparse.value, sparse.block_key))
+    result, covered = [], set()
+    for start, stop, opening, graph, game_phase in starts:
+        records = trace.records[start:stop]
+        games = tuple(i for i, r in enumerate(records) if isinstance(r, GameRecord))
+        decisions = [start + i for i, r in enumerate(records) if getattr(r, "logp", None) is not None]
+        if not games or not covered.isdisjoint(decisions):
+            raise ValueError("Empty or overlapping replay window")
+        covered.update(decisions)
+        history = opening.prefix(*shared) if opening is not None else None
+        result.append(Window(trace.header, records, trace.observations, history, graph, games,
+                             partition_games(games, rng), game_phase,
+                             {i-start: returns[i] for i in decisions}))
+    if covered != returns.keys():
+        raise ValueError("Replay windows omitted decisions")
     return result
 
 
@@ -74,10 +124,11 @@ def returns_from_events(events):
     return returns
 
 
-def rollout(policy, library, seed, size, turns, samples_per_seat):
+def rollout(policy, library, seed, size, turns):
     start_time = time.monotonic()
     rng = random.Random(seed)
-    chosen = [set(rng.sample(range(1, turns + 1), min(samples_per_seat, turns))) for _ in range(4)]
+    chunk_games = [0] * 4
+    seat_turns = 0
     traces = [SeatTrace(policy) for _ in range(4)]
     starts = [[] for _ in traces]
     last_turn, open_window = [0] * 4, [None] * 4
@@ -92,21 +143,21 @@ def rollout(policy, library, seed, size, turns, samples_per_seat):
             trace = traces[seat]
             if new_turn != (turn != last_turn[seat]):
                 raise ValueError("Native self-play turn marker mismatch")
-            if new_turn:
+            if new_turn or chunk_games[seat] == WINDOW_GAMES:
                 if open_window[seat] is not None:
-                    start, history, graph = open_window[seat]
-                    starts[seat].append((start, len(trace.records), history, graph))
-                    open_window[seat] = None
-                if last_turn[seat]:
-                    trace.next_turn()
-                last_turn[seat] = turn
-                trace.recording = turn in chosen[seat]
-                if trace.recording:
-                    open_window[seat] = (len(trace.records), move_history(trace.history, "cpu"),
-                                         trace.thought.graph)
+                    start, opening, graph, game_phase = open_window[seat]
+                    starts[seat].append((start, len(trace.records), opening, graph, game_phase))
+                if new_turn:
+                    if last_turn[seat]:
+                        trace.next_turn()
+                    last_turn[seat] = turn
+                    seat_turns += 1
+                open_window[seat] = (len(trace.records), Opening.capture(trace.history),
+                                     trace.thought.graph, not new_turn)
+                chunk_games[seat] = 0
             trace.observe(len(events), obs)
             while not trace.thought.closed:
-                event = len(trace.records) if trace.recording else None
+                event = len(trace.records)
                 forced = trace.sample_thought(streams[seat + 4])
                 events.append(("thought", (seat, event)))
                 thoughts += 1
@@ -115,10 +166,11 @@ def rollout(policy, library, seed, size, turns, samples_per_seat):
                         forced_stops += 1
                     else:
                         thought_stops += 1
-            event = len(trace.records) if trace.recording else None
+            event = len(trace.records)
             action = trace.sample_game(streams[seat])
             events.append(("game", (seat, event)))
             games += 1
+            chunk_games[seat] += 1
             settled = world.play(action)
             if settled != period:
                 if settled != period + 1:
@@ -130,8 +182,8 @@ def rollout(policy, library, seed, size, turns, samples_per_seat):
     targets = returns_from_events(events)
     for seat, trace in enumerate(traces):
         if open_window[seat] is not None:
-            start, history, graph = open_window[seat]
-            starts[seat].append((start, len(trace.records), history, graph))
+            start, opening, graph, game_phase = open_window[seat]
+            starts[seat].append((start, len(trace.records), opening, graph, game_phase))
     if len(events) != games + thoughts + period or sum(r["decisions"] for r in final) != games:
         raise ValueError("World trace and native decision counts differ")
     for seat, trace in enumerate(traces):
@@ -146,7 +198,10 @@ def rollout(policy, library, seed, size, turns, samples_per_seat):
                for w in training_windows(trace, starts[i], targets[i], rng)]
     if not windows or period < 1:
         raise ValueError("No usable adaptive self-play windows")
-    stats = dict(seed=seed, turns=period, game_decisions=games, thoughts=thoughts,
+    counts = coverage(windows)
+    if (counts["trained_turns"], counts["trained_game_actions"], counts["trained_thoughts"]) != (seat_turns, games, thoughts):
+        raise ValueError("Full PPO coverage differs from the collected rollout")
+    stats = dict(seed=seed, turns=period, seat_turns=seat_turns, game_decisions=games, thoughts=thoughts,
                  active_stops=thought_stops, forced_stops=forced_stops,
                  minutes=(time.monotonic()-start_time)/60,
                  nominal_gdp=statistics.mean(r["total_nominal_gdp"]/period for r in final),
@@ -158,7 +213,7 @@ def rollout(policy, library, seed, size, turns, samples_per_seat):
 def replay(policy, window):
     method = replay_turn_stepwise if window.stepwise else replay_turn
     return method(policy, window.header, window.records, window.observations, window.history,
-                  window.graph, window.game_records)
+                  window.graph, window.game_records, game_phase=window.game_phase)
 
 
 def rollout_on_stream(policy, *args):
@@ -177,10 +232,20 @@ def rollout_on_stream(policy, *args):
 def action_group(decisions, window):
     thoughts = [(d.logp, d.sampled_logp, window.targets[d.record] - d.sampled_value)
                 for d in decisions if d.kind == "thought"]
-    games = [d for d in decisions if d.kind == "game"]
-    game = (torch.stack([d.logp for d in games]).sum(), sum(d.sampled_logp for d in games),
-            window.targets[games[0].record] - games[0].sampled_value)
-    return thoughts, game
+    games = {d.record: d for d in decisions if d.kind == "game"}
+    groups = []
+    for indices in window.groups:
+        first = games[indices[0]]
+        group = [games[i] for i in indices]
+        groups.append((torch.stack([d.logp for d in group]).sum(), sum(d.sampled_logp for d in group),
+                       window.targets[first.record] - first.sampled_value))
+    return thoughts, groups
+
+
+def coverage(windows):
+    games = sum(len(w.game_records) for w in windows)
+    return dict(trained_turns=sum(not w.game_phase for w in windows), trained_game_actions=games,
+                trained_thoughts=sum(len(w.targets) for w in windows) - games)
 
 
 def clipped(new, old, advantage):
@@ -191,11 +256,12 @@ def clipped(new, old, advantage):
 def learning_pass(policy, windows, actor, critic, check):
     game_adv, thought_adv, total = [], [], 0
     for w in windows:
+        group_starts = {group[0] for group in w.groups}
         for i, record in enumerate(w.records):
             if i not in w.targets:
                 continue
             if i in w.game_records:
-                if i == min(w.game_records):
+                if i in group_starts:
                     game_adv.append(w.targets[i] - record.value)
                 total += 1
             elif not isinstance(record, GameRecord):
@@ -209,7 +275,7 @@ def learning_pass(policy, windows, actor, critic, check):
     totals = dict(actor=0., critic=0.)
     actor.zero_grad(set_to_none=True)
     critic.zero_grad(set_to_none=True)
-    for w in windows:
+    for number, w in enumerate(windows, 1):
         decisions = replay(policy, w)
         if check:
             lp, ve = max_errors(decisions)
@@ -226,10 +292,11 @@ def learning_pass(policy, windows, actor, critic, check):
             logp_error, value_error = max(logp_error, lp), max(value_error, ve)
             if not (lp <= 2e-5 and ve <= 2e-5):
                 raise ValueError(f"Adaptive rollout/replay drift: logp={lp:.7g}, V={ve:.7g}")
-        thought, game = action_group(decisions, w)
+        if len(decisions) != len(w.targets) or {d.record for d in decisions} != w.targets.keys():
+            raise ValueError("Replayed decision IDs differ from sampled decision IDs")
+        thought, groups = action_group(decisions, w)
         thought_loss = sum(clipped(new, old, (a - mean)/std) for new, old, a in thought)
-        new, old, adv = game
-        game_loss = clipped(new, old, (adv - mean)/std)
+        game_loss = sum(clipped(new, old, (adv - mean)/std) for new, old, adv in groups)
         actor_loss = .5 * (thought_loss / len(thought_adv) + game_loss / len(game_adv))
         current_value = torch.stack([d.value for d in decisions])
         target = current_value.new_tensor([w.targets[d.record] for d in decisions])
@@ -240,10 +307,12 @@ def learning_pass(policy, windows, actor, critic, check):
         loss.backward()
         totals["actor"] += float(actor_loss.detach())
         totals["critic"] += float(critic_loss.detach())
+        if number % 250 == 0:
+            emit("ppo_replay_progress", windows=number, total_windows=len(windows), first_epoch=check)
     actor_norm = torch.nn.utils.clip_grad_norm_(actor.param_groups[0]["params"], 1., error_if_nonfinite=True)
     critic_norm = torch.nn.utils.clip_grad_norm_(critic.param_groups[0]["params"], 1., error_if_nonfinite=True)
     return dict(**totals, actor_norm=float(actor_norm), critic_norm=float(critic_norm),
-                game_fragments=len(game_adv), trained_thoughts=len(thought_adv),
+                game_fragments=len(game_adv), **coverage(windows),
                 replay_logp_error=logp_error, replay_value_error=value_error,
                 reference_windows=reference_windows)
 
@@ -254,9 +323,9 @@ def anchor_kl(policy, anchors):
     for w in anchors:
         decisions = replay(policy, w)
         sampled = [d.logp - d.sampled_logp for d in decisions if d.kind == "thought"]
-        new, old, _ = action_group(decisions, w)[1]
+        groups = action_group(decisions, w)[1]
         thought.extend(sampled)
-        game.append(new - old)
+        game.extend(new - old for new, old, _ in groups)
     return tuple(float((r.expm1() - r).mean()) for r in map(torch.stack, (thought, game)))
 
 
@@ -285,7 +354,9 @@ def actor_step(policy, optimizer, anchors, args):
 
 def optimize(policy, windows, actor, critic, args, seed):
     rng = random.Random(seed)
-    anchors = rng.sample(windows, min(6, len(windows)))
+    first = rng.choice([w for w in windows if not w.game_phase])
+    others = [w for w in windows if w is not first]
+    anchors = [first, *rng.sample(others, min(5, len(others)))]
     rows = []
     for i in range(args.ppo_epochs):
         rng.shuffle(windows)
@@ -347,12 +418,13 @@ def train(args):
                     position = completed + start + i
                     seed = args.seed + position + 4 * (position % 4)
                     jobs.append(pool.submit(sample_world, policies[i % len(policies)], args.library, seed,
-                                            args.size, args.turns, args.samples_per_seat))
+                                            args.size, args.turns))
                 for job in jobs:
                     selections, row = job.result()
                     windows.extend(selections)
                     statistics_rows.append(row)
                     emit("ppo_game_complete", **row)
+            emit("ppo_coverage", games=completed + batch_size, windows=len(windows), **coverage(windows))
             rows = optimize(policy, windows, actor, critic, args, args.seed + completed)
             if not any(row["accepted"] for row in rows):
                 raise RuntimeError("No accepted actor update in this PPO batch")
@@ -381,7 +453,6 @@ def arguments():
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--stop-games", type=int, required=True)
     p.add_argument("--batch-games", type=int, default=4)
-    p.add_argument("--samples-per-seat", type=int, default=4)
     p.add_argument("--ppo-epochs", type=int, default=2)
     p.add_argument("--size", type=int, default=24)
     p.add_argument("--turns", type=int, default=100)
@@ -393,7 +464,7 @@ def arguments():
     p.add_argument("--rollouts-per-device", type=int, choices=(1, 2), default=1)
     p.add_argument("--threads", type=int, default=2)
     args = p.parse_args()
-    if min(args.stop_games, args.batch_games, args.samples_per_seat, args.ppo_epochs, args.turns) < 1:
+    if min(args.stop_games, args.batch_games, args.ppo_epochs, args.turns) < 1:
         p.error("Training counts must be positive")
     return args
 

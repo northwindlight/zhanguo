@@ -126,10 +126,10 @@ class _Turn:
     games: list
 
 
-def _plan(header: TraceHeader, records, graph=MemoryMap()):
+def _plan(header: TraceHeader, records, graph=MemoryMap(), *, game_phase=False):
     """Walk the records with the same state machine as sampling, without touching the network."""
     events, turns = [], [_Turn([], [])]
-    thought = opening_thought(graph, header.thought_budget)
+    thought = opening_thought(graph, 0 if game_phase else header.thought_budget)
     previous = Op.START
     revision = None
     expect_limit = expect_action = None
@@ -261,19 +261,19 @@ def move_history(history, device):
                    copy(history.latest))
 
 
-def replay_turn(policy, header, records, observations, prefix, graph, game_records):
-    """Train one turn, conditioning on the detached history at its opening.
+def replay_turn(policy, header, records, observations, prefix, graph, game_records, *, game_phase=False):
+    """Train a contiguous window from its exact detached opening history.
 
-    Replay all sampled thoughts and one consecutive game-action fragment. Earlier
-    observations still enter history, but retain board gradients only at scored views.
+    Game-phase continuations start with the private map and the completed thought phase.
+    Earlier observations still enter history; board gradients are retained at scored views.
     """
-    events, turn = _turn_plan(header, records, graph, game_records)
+    events, turn = _turn_plan(header, records, graph, game_records, game_phase=game_phase)
     return _replay(policy, header, events, [turn], observations, prefix, True, full_board_gradient=False)
 
 
-def _turn_plan(header, records, graph, game_records):
+def _turn_plan(header, records, graph, game_records, *, game_phase=False):
     require_adaptive(header, retain_thought_kv=False)
-    events, turns = _plan(header, records, graph)
+    events, turns = _plan(header, records, graph, game_phase=game_phase)
     if len(turns) != 1:
         raise ValueError("Expected a single turn fragment")
     turn = turns[0]
@@ -283,9 +283,9 @@ def _turn_plan(header, records, graph, game_records):
     return events, turn
 
 
-def replay_turn_stepwise(policy, header, records, observations, prefix, graph, game_records):
+def replay_turn_stepwise(policy, header, records, observations, prefix, graph, game_records, *, game_phase=False):
     """Rebuild a training window with sampler-shaped tensors and autograd enabled."""
-    events, turn = _turn_plan(header, records, graph, game_records)
+    events, turn = _turn_plan(header, records, graph, game_records, game_phase=game_phase)
     scored = {s.cutoff: s for s in (*turn.thoughts, *turn.games)}
     gradient_views = {s.revision for s in scored.values()}
     device = policy.event_proj.weight.device
