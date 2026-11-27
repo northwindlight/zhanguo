@@ -16,7 +16,8 @@ import torch
 from torch import Tensor
 from torch.nn import functional as F
 
-from batch_policy import reproduce_action_logits, reproduce_decode, reproduce_snapshot
+from batch_policy import (board_row, pack_observations, packed_snapshot, reproduce_action_logits,
+                          reproduce_decode, reproduce_snapshot)
 from history import DeltaState, SparseCache
 from memory_map import MemoryMap, Op
 from model import KV, Event, History, Policy, Snapshot
@@ -269,14 +270,16 @@ def move_history(history, device):
                    copy(history.latest))
 
 
-def replay_turn(policy, header, records, observations, prefix, graph, game_records, *, game_phase=False):
+def replay_turn(policy, header, records, observations, prefix, graph, game_records, *, game_phase=False,
+                pack_boards=True):
     """Train a contiguous window from its exact detached opening history.
 
     Game-phase continuations start with the private map and the completed thought phase.
     Earlier observations still enter history; board gradients are retained at scored views.
     """
     events, turn = _turn_plan(header, records, graph, game_records, game_phase=game_phase)
-    return _replay(policy, header, events, [turn], observations, prefix, True, full_board_gradient=False)
+    return _replay(policy, header, events, [turn], observations, prefix, True, full_board_gradient=False,
+                   pack_boards=pack_boards)
 
 
 def _turn_plan(header, records, graph, game_records, *, game_phase=False):
@@ -349,27 +352,39 @@ def replay_turn_stepwise(policy, header, records, observations, prefix, graph, g
     return decisions
 
 
-def _replay(policy, header, events, turns, observations, prefix, sparse, *, full_board_gradient):
+def _replay(policy, header, events, turns, observations, prefix, sparse, *, full_board_gradient, pack_boards=False):
     device = policy.event_proj.weight.device
     scored = {step.revision for turn in turns for step in (*turn.thoughts, *turn.games)}
-    obs, raw_observations, boards, summaries = {}, {}, {}, {}
-    for record in events:
-        if record.kind is not Event.OBSERVATION:
-            continue
-        rev = record.revision
-        raw = raw_observations[rev] = observations[rev]
-        if full_board_gradient or rev in scored:
-            obs[rev] = {k: v.to(device=device, copy=True, non_blocking=True) for k, v in raw.items()}
-            boards[rev] = policy.snapshot(obs[rev], rev)
+    obs, candidates, boards, summaries = {}, {}, {}, {}
+    revisions = [r.revision for r in events if r.kind is Event.OBSERVATION]
+    # In a training fragment each game query normally has its own scored snapshot.
+    # Match their order exactly before sharing the packed board, masks and entity pointers.
+    combined = None
+    if (pack_boards and len(turns) == 1 and 1 < len(revisions) <= 8
+            and revisions == [g.revision for g in turns[0].games]):
+        rows = [observations[rev] for rev in revisions]
+        packed, _ = pack_observations(rows, device)
+        combined = packed_snapshot(policy, packed, -1)
+        for i, (rev, raw) in enumerate(zip(revisions, rows, strict=True)):
+            candidates[rev] = {"cand": raw["cand"]}
+            boards[rev] = board_row(combined, i, rev)
             summaries[rev] = boards[rev].global_token
-        else:
-            with torch.no_grad():
-                view = {k: v.to(device, non_blocking=True) for k, v in raw.items()}
-                encoded, _, _ = policy.board.encode(view)
-                summaries[rev] = policy.board_proj(encoded)[:, :1].clone()
+    else:
+        for rev in revisions:
+            raw = observations[rev]
+            candidates[rev] = {"cand": raw["cand"]}
+            if full_board_gradient or rev in scored:
+                obs[rev] = {k: v.to(device=device, copy=True, non_blocking=True) for k, v in raw.items()}
+                boards[rev] = policy.snapshot(obs[rev], rev)
+                summaries[rev] = boards[rev].global_token
+            else:
+                with torch.no_grad():
+                    view = {k: v.to(device, non_blocking=True) for k, v in raw.items()}
+                    encoded, _, _ = policy.board.encode(view)
+                    summaries[rev] = policy.board_proj(encoded)[:, :1].clone()
     prefix = move_history(prefix, device)
     offset = 0 if prefix is None else prefix.sparse.key.shape[1]
-    timeline, history, _ = policy._encode_events(_event_inputs(policy, events, summaries, raw_observations, device), prefix,
+    timeline, history, _ = policy._encode_events(_event_inputs(policy, events, summaries, candidates, device), prefix,
                                                  sparse=sparse)
     decisions = []
     for turn in turns:
@@ -408,12 +423,17 @@ def _replay(policy, header, events, turns, observations, prefix, sparse, *, full
         x = x + torch.cat([boards[g.revision].global_token for g in games], dim=1)
         x, _ = policy.sparse.read(x + timeline[:, cutoff], history.sparse, cutoff=cutoff + offset, sparse=sparse)
         previous = _expand(cache, len(games)) if header.retain_thought_kv else None
-        hidden, _ = policy.decode_tokens(x[0, :, None], _pad_boards(policy, [boards[g.revision] for g in games]),
-                                         previous)
+        game_boards = combined if combined is not None else _pad_boards(policy, [boards[g.revision] for g in games])
+        hidden, _ = policy.decode_tokens(x[0, :, None], game_boards, previous)
         values = policy.estimate_value(hidden[:, 0])
+        if combined is None:
+            logps = [policy.action_logits(hidden[i:i + 1, 0], obs[g.revision], boards[g.revision])[0]
+                     .float().log_softmax(dim=-1) for i, g in enumerate(games)]
+        else:
+            logits = policy.action_logits(hidden[:, 0], packed, combined)
+            logps = logits.float().log_softmax(dim=-1)
         for i, g in enumerate(games):
-            logits = policy.action_logits(hidden[i:i + 1, 0], obs[g.revision], boards[g.revision])[0]
-            logp = logits.float().log_softmax(dim=-1)[g.sampled.index]
-            decisions.append(Decision("game", g.record, logp, values[i], g.sampled.logp, g.sampled.value))
+            decisions.append(Decision("game", g.record, logps[i][g.sampled.index], values[i],
+                                      g.sampled.logp, g.sampled.value))
     decisions.sort(key=lambda d: d.record)
     return decisions

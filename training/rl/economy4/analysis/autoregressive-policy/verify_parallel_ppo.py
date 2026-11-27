@@ -13,6 +13,7 @@ import torch.multiprocessing as mp
 from memory_map import MemoryMap
 from model import Policy
 from parallel_ppo import ReplayGroup
+from replay import replay_turn
 from rollout_trace import GameRecord, TraceHeader, TurnBoundary
 from thought_ppo import Window, learning_pass, optimize, partition_games, replay
 from verify_replay import play
@@ -39,6 +40,25 @@ def examples(model):
     return result
 
 
+def check_packed_boards(policy, window):
+    reference = None
+    for packed in (False, True):
+        policy.zero_grad(set_to_none=True)
+        steps = replay_turn(policy, window.header, window.records, window.observations, window.history,
+                            window.graph, window.game_records, game_phase=window.game_phase, pack_boards=packed)
+        outputs = torch.stack([torch.stack((step.logp, step.value)) for step in steps])
+        outputs.mean().backward()
+        grads = {name: p.grad.clone() for name, p in policy.named_parameters() if p.grad is not None}
+        if reference is None:
+            reference = outputs.detach(), grads
+        else:
+            torch.testing.assert_close(outputs, reference[0], atol=2e-5, rtol=0)
+            assert grads.keys() == reference[1].keys()
+            for name, grad in grads.items():
+                torch.testing.assert_close(grad, reference[1][name], atol=2e-6, rtol=2e-5, msg=name)
+    policy.zero_grad(set_to_none=True)
+
+
 def check(rank, rendezvous):
     torch.set_num_threads(1)
     torch.manual_seed(1357)
@@ -48,6 +68,7 @@ def check(rank, rendezvous):
         group = ReplayGroup(rank, 2, "cpu")
         initial = Policy(width=64, heads=4, inner=96, board_width=32).eval()
         windows = examples(initial)
+        check_packed_boards(initial, windows[0])
         reference = copy.deepcopy(initial)
         candidate = copy.deepcopy(initial)
         ref_opts = optimizers(reference)

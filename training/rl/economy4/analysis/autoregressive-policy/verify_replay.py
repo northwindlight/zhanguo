@@ -26,7 +26,7 @@ GAMES_PER_TURN = 3
 
 
 def observation(rng: np.random.Generator, armies: int):
-    tiles, nations, candidates = 24, 4, 10
+    tiles, nations, candidates = 24, 4, 7 + armies
     pointer = -np.ones((candidates, 3), np.int32)
     pointer[:, 0] = rng.integers(0, tiles, candidates)
     pointer[::2, 1] = rng.integers(0, armies, (candidates + 1) // 2)
