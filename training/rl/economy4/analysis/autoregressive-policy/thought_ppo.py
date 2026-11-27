@@ -279,6 +279,15 @@ def clipped(new, old, advantage):
     return -torch.minimum(ratio * advantage, ratio.clamp(.8, 1.2) * advantage)
 
 
+def fragment_loss(rows, mean, std):
+    if not rows:
+        return 0.
+    new = torch.stack([item[0] for item in rows])
+    old = new.new_tensor([item[1] for item in rows])
+    advantage = new.new_tensor([(item[2] - mean) / std for item in rows])
+    return clipped(new, old, advantage).sum()
+
+
 def learning_pass(policy, windows, actor, critic, check, group=None):
     game_adv, thought_adv, total = [], [], 0
     for w in windows:
@@ -330,8 +339,8 @@ def learning_pass(policy, windows, actor, critic, check, group=None):
         if len(decisions) != len(w.targets) or {d.record for d in decisions} != w.targets.keys():
             raise ValueError("Replayed decision IDs differ from sampled decision IDs")
         thought, groups = action_group(decisions, w)
-        thought_loss = sum(clipped(new, old, (a - mean)/std) for new, old, a in thought)
-        game_loss = sum(clipped(new, old, (adv - mean)/std) for new, old, adv in groups)
+        thought_loss = fragment_loss(thought, mean, std)
+        game_loss = fragment_loss(groups, mean, std)
         actor_loss = .5 * (thought_loss / thought_count + game_loss / game_count)
         current_value = torch.stack([d.value for d in decisions])
         target = current_value.new_tensor([w.targets[d.record] for d in decisions])
@@ -478,6 +487,9 @@ def train(args, group=None):
     policies = [Policy().to(device).eval() for device in local_devices]
     for policy in policies:
         policy.load_state_dict(state["model"])
+        if getattr(args, "cuda_graph_history", False):
+            from history import DeltaStepGraph
+            policy.sampling_delta_graph = DeltaStepGraph(policy.delta)
     policy = policies[0]
     actor = torch.optim.AdamW([p for name, p in policy.named_parameters() if not name.startswith("value.")],
                               lr=args.lr, weight_decay=0)
@@ -572,10 +584,15 @@ def arguments():
     p.add_argument("--workers", type=int, choices=(1, 2), default=2)
     p.add_argument("--distributed-update", action="store_true")
     p.add_argument("--batch-inference", action="store_true")
+    p.add_argument("--cuda-graph-history", action="store_true",
+                   help="Replay the three single-event DeltaNet layers as one CUDA graph during sampling")
     p.add_argument("--rollouts-per-device", type=int, default=1,
                    help="Worlds per device in one wave (independent CUDA streams when batching is off)")
     p.add_argument("--threads", type=int, default=2)
     args = p.parse_args()
+    if args.cuda_graph_history and (args.device != "cuda" or
+                                    (args.rollouts_per_device > 1 and not args.batch_inference)):
+        p.error("CUDA graph sampling requires one sampling thread per CUDA device")
     if args.rollouts_per_device < 1 or (not args.batch_inference and args.rollouts_per_device > 2):
         p.error("Use a positive --rollouts-per-device; more than two worlds requires --batch-inference")
     if min(args.stop_games, args.batch_games, args.ppo_epochs, args.turns) < 1:

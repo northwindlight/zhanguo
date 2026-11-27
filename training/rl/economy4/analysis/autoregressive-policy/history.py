@@ -113,6 +113,45 @@ class SparseCache:
     index_tail: Tensor
 
 
+def delta_stack(layers, x, previous):
+    states = []
+    for i, layer in enumerate(layers):
+        x, state = layer(x, None if previous is None else previous[i])
+        states.append(state)
+    return x, tuple(states)
+
+
+class DeltaStepGraph:
+    """One CUDA graph per single-owner sampling replica, shared by its seats."""
+
+    @torch.inference_mode()
+    def __init__(self, layers):
+        weight = layers[0].qkv.weight
+        self.input = weight.new_zeros(1, 1, weight.size(1))
+        with torch.cuda.device(weight.device):
+            parent = torch.cuda.current_stream()
+            warmup = torch.cuda.Stream()
+            warmup.wait_stream(parent)
+            with torch.cuda.stream(warmup):
+                _, self.state = delta_stack(layers, self.input, None)
+                for _ in range(3):
+                    delta_stack(layers, self.input, self.state)
+            warmup.synchronize()
+            self.graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(self.graph, stream=warmup):
+                self.output, self.next_state = delta_stack(layers, self.input, self.state)
+            parent.wait_stream(warmup)
+
+    def __call__(self, x, previous):
+        self.input.copy_(x)
+        for dst, src in zip(self.state, previous, strict=True):
+            dst.matrix.copy_(src.matrix)
+            dst.conv_tail.copy_(src.conv_tail)
+        self.graph.replay()
+        # Later replays must not overwrite any seat's saved history.
+        return self.output.clone(), tuple(DeltaState(s.matrix.clone(), s.conv_tail.clone()) for s in self.next_state)
+
+
 class SparseBlock(nn.Module):
     def __init__(self, width: int, heads: int, kv_heads: int, inner: int, *,
                  block_size: int = 4, top_blocks: int = 16, index_heads: int = 4, index_width: int = 32):

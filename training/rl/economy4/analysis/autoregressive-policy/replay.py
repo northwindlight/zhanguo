@@ -45,9 +45,11 @@ def require_adaptive(header: TraceHeader, *, retain_thought_kv: bool):
 
 
 def max_errors(decisions: list[Decision]):
-    logp = max((abs(float(d.logp.detach()) - d.sampled_logp) for d in decisions), default=0.0)
-    value = max((abs(float(d.value.detach()) - d.sampled_value) for d in decisions), default=0.0)
-    return logp, value
+    if not decisions:
+        return 0., 0.
+    pairs = torch.stack([x.detach() for d in decisions for x in (d.logp, d.value)]).reshape(-1, 2).tolist()
+    return (max(abs(lp - d.sampled_logp) for (lp, _), d in zip(pairs, decisions)),
+            max(abs(v - d.sampled_value) for (_, v), d in zip(pairs, decisions)))
 
 
 @torch.inference_mode()
@@ -196,25 +198,30 @@ def _graphs(graphs, device):
 
 
 def _event_inputs(policy: Policy, events, summaries, observations, device):
-    width = policy.event_proj.weight.shape[0]
-    x = torch.zeros(1, len(events), width, device=device)
-    kind = policy.event_kind.weight
-    for n, record in enumerate(events):
-        if record.kind is Event.OBSERVATION:
-            x[0, n] = summaries[record.revision][0, 0] + kind[Event.OBSERVATION]
-        elif record.kind in (Event.THOUGHT, Event.THOUGHT_LIMIT):
-            operation = record.operation if record.kind is Event.THOUGHT else Op.GAME
-            vector = (policy.encode_graph(_graphs([record.graph], device))[0, 0]
-                      + policy.operation.weight[operation] + policy.thought_position.weight[record.writes])
-            x[0, n] = vector + summaries[record.revision][0, 0] + kind[record.kind]
-        else:
-            # Records are written under inference mode; a clone makes them usable in autograd.
-            payload = record.payload.to(device).clone()
-            if record.kind is Event.ACTION and not torch.equal(
-                    payload, action_event(observations[record.revision], record.operation).to(device)):
+    thoughts = [r for r in events if r.kind in (Event.THOUGHT, Event.THOUGHT_LIMIT)]
+    if thoughts:
+        operations = [r.operation if r.kind is Event.THOUGHT else Op.GAME for r in thoughts]
+        encoded = (policy.encode_graph(_graphs([r.graph for r in thoughts], device))
+                   + policy.operation(_numbers(operations, device))
+                   + policy.thought_position(_numbers([r.writes for r in thoughts], device)))
+        thought_rows = iter((encoded + torch.cat([summaries[r.revision] for r in thoughts], dim=1)).unbind(1))
+    payloads = [r for r in events if r.payload is not None]
+    if payloads:
+        for r in payloads:
+            if r.kind is Event.ACTION and not torch.equal(r.payload, action_event(observations[r.revision], r.operation)):
                 raise ValueError("ACTION payload differs from the archived candidate")
-            x[0, n] = policy.event_proj(payload) + kind[record.kind]
-    return x
+        # Stack the archived CPU rows outside inference mode before transferring them together.
+        raw = torch.stack([r.payload for r in payloads]).to(device, non_blocking=True)
+        payload_rows = iter(policy.event_proj(raw).split(1))
+    rows = []
+    for r in events:
+        if r.kind is Event.OBSERVATION:
+            rows.append(summaries[r.revision][:, 0])
+        elif r.kind in (Event.THOUGHT, Event.THOUGHT_LIMIT):
+            rows.append(next(thought_rows))
+        else:
+            rows.append(next(payload_rows))
+    return torch.stack(rows, dim=1) + policy.event_kind(_numbers([r.kind for r in events], device))
 
 
 def _pad_boards(policy: Policy, boards: list[Snapshot]) -> Snapshot:
@@ -254,7 +261,7 @@ def move_history(history, device):
         return None
 
     def copy(tensor):
-        return tensor.detach().to(device=device, copy=True)
+        return tensor.detach().to(device=device, copy=True, non_blocking=True)
 
     sparse = history.sparse
     return History(tuple(DeltaState(copy(x.matrix), copy(x.conv_tail)) for x in history.delta),
@@ -345,24 +352,24 @@ def replay_turn_stepwise(policy, header, records, observations, prefix, graph, g
 def _replay(policy, header, events, turns, observations, prefix, sparse, *, full_board_gradient):
     device = policy.event_proj.weight.device
     scored = {step.revision for turn in turns for step in (*turn.thoughts, *turn.games)}
-    obs, boards, summaries = {}, {}, {}
+    obs, raw_observations, boards, summaries = {}, {}, {}, {}
     for record in events:
         if record.kind is not Event.OBSERVATION:
             continue
         rev = record.revision
+        raw = raw_observations[rev] = observations[rev]
         if full_board_gradient or rev in scored:
-            obs[rev] = {k: v.to(device=device, copy=True) for k, v in observations[rev].items()}
+            obs[rev] = {k: v.to(device=device, copy=True, non_blocking=True) for k, v in raw.items()}
             boards[rev] = policy.snapshot(obs[rev], rev)
             summaries[rev] = boards[rev].global_token
         else:
-            obs[rev] = observations[rev]
             with torch.no_grad():
-                view = {k: v.to(device) for k, v in obs[rev].items()}
+                view = {k: v.to(device, non_blocking=True) for k, v in raw.items()}
                 encoded, _, _ = policy.board.encode(view)
                 summaries[rev] = policy.board_proj(encoded)[:, :1].clone()
     prefix = move_history(prefix, device)
     offset = 0 if prefix is None else prefix.sparse.key.shape[1]
-    timeline, history, _ = policy._encode_events(_event_inputs(policy, events, summaries, obs, device), prefix,
+    timeline, history, _ = policy._encode_events(_event_inputs(policy, events, summaries, raw_observations, device), prefix,
                                                  sparse=sparse)
     decisions = []
     for turn in turns:

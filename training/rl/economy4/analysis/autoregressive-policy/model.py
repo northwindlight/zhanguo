@@ -15,7 +15,7 @@ from rl.model import CandBlock
 from rl.obs import G_DIM, M_DIM, N_DIM, T_DIM, A_DIM
 from rl.candidates import FEAT_DIM
 
-from history import DeltaBlock, DeltaState, SparseBlock, SparseCache, SwiGLU, rope
+from history import DeltaBlock, DeltaState, SparseBlock, SparseCache, SwiGLU, delta_stack, rope
 from memory_map import CAPACITY, EXTENDED_THOUGHTS, MAX_THOUGHTS, SLOTS, SYMBOLS, Op
 
 
@@ -163,6 +163,7 @@ class Policy(nn.Module):
         self.event_proj = nn.Linear(EVENT_WIDTH, width, bias=False)
         self.event_kind = nn.Embedding(len(Event), width)
         self.delta = nn.ModuleList(DeltaBlock(width, heads, inner) for _ in range(3))
+        self.sampling_delta_graph = None
         self.sparse = SparseBlock(width, heads, 2, inner, top_blocks=top_blocks)
         self.decoder = nn.ModuleList(DecoderLayer(width, heads, inner) for _ in range(3))
         self.symbols = nn.Embedding(SYMBOLS + 1, 32, padding_idx=0)
@@ -246,14 +247,15 @@ class Policy(nn.Module):
                        distill: bool = False):
         if x.shape[1] == 0:
             raise ValueError("append requires at least one visible event")
-        states = []
-        for i, layer in enumerate(self.delta):
-            x, state = layer(x, None if previous is None else previous.delta[i])
-            states.append(state)
+        if (self.sampling_delta_graph is not None and torch.is_inference_mode_enabled()
+                and x.shape[:2] == (1, 1) and previous is not None):
+            x, states = self.sampling_delta_graph(x, previous.delta)
+        else:
+            x, states = delta_stack(self.delta, x, None if previous is None else previous.delta)
         x, cache, loss = self.sparse(x, None if previous is None else previous.sparse,
                                      sparse=sparse, distill=distill)
         # A copy keeps the latest state from pinning a complete inference input chunk.
-        return x, History(tuple(states), cache, x[:, -1:].clone()), loss
+        return x, History(states, cache, x[:, -1:].clone()), loss
 
     def history_query(self, graph, previous_operation, write_count, board, history, *, sparse=True, distill=False):
         x = self.encode_graph(graph) + self.operation(previous_operation) + self.thought_position(write_count)
