@@ -8,7 +8,7 @@ from torch import Tensor
 from torch.nn import functional as F
 
 from batch_policy import BatchRow, BoardLayout, reproduce_action_logits, reproduce_decode, reproduce_snapshot
-from memory_map import MAX_THOUGHTS, MIN_THOUGHTS, MemoryMap, Op, TurnThought
+from memory_map import EXTENDED_THOUGHTS, MAX_THOUGHTS, MIN_THOUGHTS, MemoryMap, Op, TurnThought
 from model import EVENT_WIDTH, FEAT_DIM, Event, Policy
 
 
@@ -50,10 +50,18 @@ class TraceHeader:
 
     thought_budget: int | None
     retain_thought_kv: bool
-    format: str = TRACE_FORMAT
+    format: str | None = None
+    thought_limit: int = MAX_THOUGHTS
 
     def __post_init__(self):
-        if self.format != TRACE_FORMAT:
+        if self.thought_limit not in (MAX_THOUGHTS, EXTENDED_THOUGHTS):
+            raise ValueError("unsupported adaptive thought limit")
+        if self.thought_limit != MAX_THOUGHTS and self.thought_budget is not None:
+            raise ValueError("extended thinking requires an adaptive trace")
+        version = TRACE_FORMAT if self.thought_limit == MAX_THOUGHTS else "zhanguo.seat-trace/2"
+        if self.format is None:
+            object.__setattr__(self, "format", version)
+        if self.format != version:
             raise ValueError(f"unsupported trace format {self.format!r}")
         if self.thought_budget not in (None, 0, MIN_THOUGHTS, MAX_THOUGHTS):
             raise ValueError("thought budget must be adaptive, 0, 8, or 30")
@@ -62,11 +70,11 @@ class TraceHeader:
 
     def as_dict(self):
         return {"format": self.format, "thought_budget": self.thought_budget,
-                "retain_thought_kv": self.retain_thought_kv}
+                "retain_thought_kv": self.retain_thought_kv, "thought_limit": self.thought_limit}
 
     @classmethod
     def from_dict(cls, value: dict):
-        return cls(value["thought_budget"], value["retain_thought_kv"], value["format"])
+        return cls(value["thought_budget"], value["retain_thought_kv"], value["format"], value.get("thought_limit", MAX_THOUGHTS))
 
 
 def thought_mask(thought: TurnThought, budget: int | None) -> tuple[bool, ...]:
@@ -75,14 +83,14 @@ def thought_mask(thought: TurnThought, budget: int | None) -> tuple[bool, ...]:
     return legal if budget is None else legal[:-1] + (False,)
 
 
-def advance_thought(thought: TurnThought, operation: int, budget: int | None):
+def advance_thought(thought: TurnThought, operation: int, budget: int | None, thought_limit=MAX_THOUGHTS):
     """Apply one sampled operation. Returns the new state and whether the engine forced the switch."""
     if budget is not None and operation == Op.STOP:
         raise ValueError("fixed thought budgets end automatically")
     if not thought_mask(thought, budget)[operation]:
         raise ValueError("illegal thought action for this phase")
-    updated = thought.choose(operation)
-    limit = MAX_THOUGHTS if budget is None else budget
+    limit = thought_limit if budget is None else budget
+    updated = thought.choose(operation, limit)
     forced = operation != Op.STOP and updated.writes == limit
     if forced:
         updated = TurnThought(updated.graph, updated.writes, closed=True)
@@ -190,8 +198,14 @@ class SeatTrace:
     (`GameRecord`) and turn boundaries, in the order the seat experienced them.
     """
 
-    def __init__(self, policy: Policy, *, thought_budget: int | None = None, retain_thought_kv: bool = False):
-        self.header = TraceHeader(thought_budget, retain_thought_kv)
+    def __init__(self, policy: Policy, *, thought_budget: int | None = None, retain_thought_kv: bool = False,
+                 thought_limit: int | None = None):
+        available = policy.thought_position.num_embeddings - 1
+        if thought_limit is None:
+            thought_limit = available if thought_budget is None else MAX_THOUGHTS
+        if thought_limit > available:
+            raise ValueError("Policy is missing extended thought positions")
+        self.header = TraceHeader(thought_budget, retain_thought_kv, thought_limit=thought_limit)
         self.policy = policy
         self.history = None
         self.board = None
@@ -204,13 +218,14 @@ class SeatTrace:
         self.recording = True
         self.records: list[Record | GameRecord | TurnBoundary] = []
         self.observations = ObservationArchive()
-        self._numbers = torch.arange(MAX_THOUGHTS + 1, device=self.device).view(-1, 1, 1)
+        self._numbers = torch.arange(self.header.thought_limit + 1, device=self.device).view(-1, 1, 1)
         self._graph_input = None
         self._thought_masks = {}
 
     @classmethod
     def from_header(cls, policy: Policy, header: TraceHeader):
-        return cls(policy, thought_budget=header.thought_budget, retain_thought_kv=header.retain_thought_kv)
+        return cls(policy, thought_budget=header.thought_budget, retain_thought_kv=header.retain_thought_kv,
+                   thought_limit=header.thought_limit)
 
     @property
     def thought_budget(self):
@@ -320,7 +335,7 @@ class SeatTrace:
     def commit_thought(self, operation: int, *, scores=None):
         if not isinstance(self.pending, _ThoughtPending):
             raise ValueError("score the thought before committing it")
-        updated, forced = advance_thought(self.thought, operation, self.thought_budget)
+        updated, forced = advance_thought(self.thought, operation, self.thought_budget, self.header.thought_limit)
         pending = self.pending
         revision = self.board.revision
         _, self.history, _ = self.policy.thought_event(

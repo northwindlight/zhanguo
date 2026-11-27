@@ -9,6 +9,7 @@ CAPACITY = 4
 SYMBOLS = 4
 MIN_THOUGHTS = 8
 MAX_THOUGHTS = 30
+EXTENDED_THOUGHTS = 100
 GAME_BUDGET = 60
 
 
@@ -60,13 +61,13 @@ class TurnThought:
             return (False,) * (Op.STOP + 1)
         return self.graph.write_mask() + (self.writes >= MIN_THOUGHTS,)
 
-    def choose(self, operation: int):
+    def choose(self, operation: int, limit: int = MAX_THOUGHTS):
         if not 0 <= operation <= Op.STOP or not self.mask()[operation]:
             raise ValueError("illegal thought action for this phase")
         if operation == Op.STOP:
             return replace(self, closed=True)
         writes = self.writes + 1
-        return TurnThought(self.graph.write(operation), writes, writes == MAX_THOUGHTS)
+        return TurnThought(self.graph.write(operation), writes, writes == limit)
 
     def next_turn(self):
         if not self.closed:

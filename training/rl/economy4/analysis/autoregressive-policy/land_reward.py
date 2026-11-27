@@ -47,6 +47,9 @@ class LandRewardSchedule:
             return cls()
         if state["lr"] != lr:
             raise ValueError("PPO continuation changed the learning rate")
+        # Earlier full-turn checkpoints used the same GDP gate without expanding thought capacity.
+        if old is not None and "thought_limit_after_gdp_trigger" not in old:
+            expected_contract = {k: v for k, v in expected_contract.items() if k != "thought_limit_after_gdp_trigger"}
         if old == expected_contract:
             saved = state["land_reward"]
             recent, trigger = tuple(saved["recent_gdp"]), saved["triggered_at"]

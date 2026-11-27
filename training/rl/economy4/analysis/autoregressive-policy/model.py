@@ -16,7 +16,7 @@ from rl.obs import G_DIM, M_DIM, N_DIM, T_DIM, A_DIM
 from rl.candidates import FEAT_DIM
 
 from history import DeltaBlock, DeltaState, SparseBlock, SparseCache, SwiGLU, rope
-from memory_map import CAPACITY, MAX_THOUGHTS, SLOTS, SYMBOLS, Op
+from memory_map import CAPACITY, EXTENDED_THOUGHTS, MAX_THOUGHTS, SLOTS, SYMBOLS, Op
 
 
 GAME_OBSERVATION_FIELDS = (
@@ -175,6 +175,37 @@ class Policy(nn.Module):
         self.action_bias = nn.Linear(board_width, 1)
         self.value = nn.Sequential(nn.Linear(width, 256), nn.SiLU(), nn.Linear(256, 1))
         self.candidate_scale = board_width ** -0.5
+
+    def extend_thought_positions(self, optimizer=None):
+        """Keep old positions and Adam state, and give steps 31..100 independent trainable rows."""
+        table = self.thought_position
+        if table.num_embeddings == EXTENDED_THOUGHTS + 1:
+            return
+        old = table.weight
+        extra = EXTENDED_THOUGHTS + 1 - table.num_embeddings
+        rows = torch.cat((old.detach(), old[-1:].detach().expand(extra, -1)))
+        new = nn.Parameter(rows, requires_grad=old.requires_grad)
+        if optimizer is not None:
+            locations = [(group["params"], index) for group in optimizer.param_groups
+                         for index, param in enumerate(group["params"]) if param is old]
+            if len(locations) != 1:
+                raise ValueError("Expected exactly one actor optimizer entry for thought positions")
+            params, index = locations[0]
+            params[index] = new
+            if old in optimizer.state:
+                state = optimizer.state.pop(old)
+                for key, value in state.items():
+                    if isinstance(value, Tensor) and value.shape == old.shape:
+                        state[key] = torch.cat((value, value.new_zeros(extra, value.shape[1])))
+                optimizer.state[new] = state
+        table.weight = new
+        table.num_embeddings = rows.shape[0]
+
+    def load_state_dict(self, state_dict, strict=True, assign=False):
+        positions = state_dict.get("thought_position.weight")
+        if positions is not None and positions.size(0) == EXTENDED_THOUGHTS + 1:
+            self.extend_thought_positions()
+        return super().load_state_dict(state_dict, strict=strict, assign=assign)
 
     def snapshot(self, obs: dict[str, Tensor], revision: int, previous: Snapshot | None = None):
         if previous is not None:

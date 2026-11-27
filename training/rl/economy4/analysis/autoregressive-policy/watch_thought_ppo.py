@@ -20,7 +20,7 @@ def kernel_ref(start):
 
 def campaign_sources(output):
     # Both execution modes implement the same reward rule. Preserve pre-migration bundles.
-    files = output/"campaign-gdp60-land-v1.zip"
+    files = output/"campaign-gdp60-thought100-v1.zip"
     if not files.exists():
         bundle = source_bundle(("thought_ppo.py", "replay.py", "parallel_ppo.py", "batched_rollout.py", "land_reward.py"))
         temp = files.with_suffix(".partial")
@@ -62,10 +62,12 @@ def submit(output, start, stop, parent, execution=None):
         code = remote.command(["kaggle", "kernels", "push", "-p", stage, "--accelerator", "NvidiaTeslaT4",
                                "-t", "25200"], log, timeout=600)
         message = log.read_text(errors="replace")
-        if "Maximum batch GPU session count" in message:
-            remote.publish(output/"live.json", dict(state="waiting_for_gpu_slot", kernel=job, verified_games=start,
+        quota_full = "Maximum weekly GPU quota" in message
+        if quota_full or "Maximum batch GPU session count" in message:
+            state = "waiting_for_weekly_gpu_quota" if quota_full else "waiting_for_gpu_slot"
+            remote.publish(output/"live.json", dict(state=state, kernel=job, verified_games=start,
                                                     segment_goal=stop, time=time.time()))
-            time.sleep(45)
+            time.sleep(900 if quota_full else 45)
             continue
         if code or ("successfully pushed" not in message.lower() and
                     status(job) not in ("QUEUED", "RUNNING", "COMPLETE")):

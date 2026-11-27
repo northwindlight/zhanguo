@@ -168,7 +168,7 @@ def _plan(header: TraceHeader, records, graph=MemoryMap(), *, game_phase=False):
             legal = thought_mask(thought, header.thought_budget)
             step = _Thought(n, len(events) - 1, revision, thought.graph, previous, thought.writes,
                             record.operation, legal, record)
-            thought, forced = advance_thought(thought, record.operation, header.thought_budget)
+            thought, forced = advance_thought(thought, record.operation, header.thought_budget, header.thought_limit)
             if thought.graph != record.graph or thought.writes != record.writes:
                 raise ValueError(f"record {n}: thought state diverged")
             turns[-1].thoughts.append(step)

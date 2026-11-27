@@ -16,7 +16,7 @@ from bc_train import atomic_save, emit, publish, sha
 from evaluate_thought import SCALE, territory_gdp
 from history import DeltaState, SparseCache
 from land_reward import RULE as LAND_REWARD_RULE, LandRewardSchedule
-from memory_map import Op
+from memory_map import EXTENDED_THOUGHTS, MAX_THOUGHTS, Op
 from model import Event, History, Policy
 from native_eval import Engine
 from replay import max_errors, replay_turn, replay_turn_stepwise
@@ -24,7 +24,7 @@ from rollout_trace import GameRecord, ObservationArchive, SeatTrace
 
 WINDOW_GAMES = 8
 
-CONTRACT = dict(thought_budget=[8, 30], retain_thought_kv=False, actor_observation_gdp="nominal_only",
+CONTRACT = dict(thought_budget=[8, MAX_THOUGHTS], thought_limit_after_gdp_trigger=EXTENDED_THOUGHTS, retain_thought_kv=False, actor_observation_gdp="nominal_only",
                 reward="nominal_gdp+territory_holding", reward_scale=SCALE, land_reward_schedule=LAND_REWARD_RULE,
                 clock="global_events", gamma=1., gae_lambda=1., game_sequences=[2, 4],
                 coverage="all_turns_all_decisions", window_games=WINDOW_GAMES,
@@ -502,9 +502,17 @@ def train(args, group=None):
                 begin = (batch_size * group.rank) // group.size
                 end = (batch_size * (group.rank + 1)) // group.size
                 seeds = seeds[begin:end]
+            thought_limit = MAX_THOUGHTS if land_schedule.triggered_at is None else EXTENDED_THOUGHTS
+            if thought_limit == EXTENDED_THOUGHTS:
+                for replica in policies:
+                    replica.extend_thought_positions(actor if replica is policy else None)
+            elif policy.thought_position.num_embeddings != MAX_THOUGHTS + 1:
+                raise ValueError("Extended positions in a checkpoint without a GDP trigger")
             sampled_at = time.monotonic()
             land_weight = land_schedule.weight(completed + batch_size)
             windows, statistics_rows = sample_batch(pool, policies, seeds, args, land_weight)
+            if any(w.header.thought_limit != thought_limit for w in windows):
+                raise ValueError("Replay window uses a different adaptive thought limit from this batch")
             counts = coverage(windows)
             window_count = len(windows)
             if group is not None:
@@ -514,7 +522,7 @@ def train(args, group=None):
             sample_seconds = time.monotonic() - sampled_at
             if leader:
                 emit("ppo_coverage", games=completed + batch_size, windows=window_count,
-                     sample_seconds=sample_seconds, land_reward_weight=land_weight, **counts)
+                     sample_seconds=sample_seconds, land_reward_weight=land_weight, thought_limit=thought_limit, **counts)
             update_at = time.monotonic()
             rows = optimize(policy, windows, actor, critic, args, args.seed + completed, group)
             update_seconds = time.monotonic() - update_at
@@ -533,7 +541,7 @@ def train(args, group=None):
                                   value_warmup=state["value_warmup"]))
             summary = dict(games=completed, checkpoint=out.name, sha256=sha(out),
                            initial_sha256=initial, metrics=statistics_rows, ppo=rows, land_reward=land_schedule.state_dict(),
-                           land_reward_weight=land_weight, rolling_final_gdp=land_schedule.rolling_gdp,
+                           land_reward_weight=land_weight, thought_limit=thought_limit, rolling_final_gdp=land_schedule.rolling_gdp,
                            sample_seconds=sample_seconds, update_seconds=update_seconds,
                            contract=contract)
             publish(args.output / f"games-{completed:04}.json", summary)
