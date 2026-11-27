@@ -1,5 +1,7 @@
 # 战国自回归策略原型与设计审查
 
+本地 CPU 与 Vulkan 运行入口见[推理说明](INFERENCE.md)。
+
 本原型实现了一个 **18,180,507 参数**的 PyTorch 策略。局面编码复用现有 RL 观测和候选结构。历史层宽 384，使用三层 Gated DeltaNet 和一层 Qwen Sparse Attention。另有三层独立因果解码器，直接读取局面、历史和四槽内存图。GDN 接手循环状态。
 
 ## 执行契约

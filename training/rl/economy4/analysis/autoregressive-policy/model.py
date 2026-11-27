@@ -90,8 +90,11 @@ class Board(nn.Module):
         groups = [self.proj[field](obs[field]) + self.kind.weight[i]
                   for i, (field, _) in enumerate(GAME_OBSERVATION_FIELDS)]
         valid, slices = self.layout(obs)
-        encoded = self.norm(self.encoder(torch.cat(groups, dim=1), src_key_padding_mask=~valid))
+        encoded = self.norm(self.encode_tokens(torch.cat(groups, dim=1), valid))
         return encoded, valid, slices
+
+    def encode_tokens(self, tokens: Tensor, valid: Tensor):
+        return self.encoder(tokens, src_key_padding_mask=~valid)
 
     @staticmethod
     def _gather(tokens: Tensor, pointer: Tensor):
@@ -130,7 +133,8 @@ class DecoderLayer(nn.Module):
         k, v = self.cross_kv(board).reshape(shape).unbind(2)
         return KV(k.transpose(1, 2), v.transpose(1, 2))
 
-    def forward(self, x: Tensor, board: KV, board_valid: Tensor, previous: KV | None):
+    def forward(self, x: Tensor, board: KV, board_valid: Tensor, previous: KV | None,
+                *, attention=F.scaled_dot_product_attention):
         batch, steps, width = x.shape
         offset = 0 if previous is None else previous.key.shape[2]
         positions = offset + torch.arange(steps, device=x.device)
@@ -142,12 +146,12 @@ class DecoderLayer(nn.Module):
             k = torch.cat((previous.key, k), dim=2)
             v = torch.cat((previous.value, v), dim=2)
         causal = torch.arange(k.shape[2], device=x.device)[None, :] <= positions[:, None]
-        y = F.scaled_dot_product_attention(q, k, v, attn_mask=causal)
+        y = attention(q, k, v, attn_mask=causal)
         x = x + self.self_out(y.transpose(1, 2).reshape(batch, steps, width))
 
         q = self.cross_query(self.cross_norm(x)).reshape(batch, steps, self.heads, self.head_width)
-        y = F.scaled_dot_product_attention(q.transpose(1, 2), board.key, board.value,
-                                           attn_mask=board_valid[:, None, None, :])
+        y = attention(q.transpose(1, 2), board.key, board.value,
+                      attn_mask=board_valid[:, None, None, :])
         x = x + self.cross_out(y.transpose(1, 2).reshape(batch, steps, width))
         return x + self.ff(self.ff_norm(x)), KV(k, v)
 
@@ -276,10 +280,12 @@ class Policy(nn.Module):
         x, states = self.decode_tokens(x, board, previous)
         return x, states, loss
 
-    def decode_tokens(self, x: Tensor, board: Snapshot, previous: tuple[KV, ...] | None = None):
+    def decode_tokens(self, x: Tensor, board: Snapshot, previous: tuple[KV, ...] | None = None,
+                      *, attention=F.scaled_dot_product_attention):
         states = []
         for i, layer in enumerate(self.decoder):
-            x, kv = layer(x, board.projected[i], board.valid, None if previous is None else previous[i])
+            x, kv = layer(x, board.projected[i], board.valid, None if previous is None else previous[i],
+                          attention=attention)
             states.append(kv)
         return self.decoder_norm(x), tuple(states)
 
