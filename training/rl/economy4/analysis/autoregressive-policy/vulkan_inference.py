@@ -2,10 +2,11 @@
 
 import numpy as np
 import torch
-from torch import Tensor, nn
+from torch import Tensor
 from torch.nn import functional as F
 
-from model import Board, Policy
+
+MIN_GPU_QUERY_KEY_PAIRS = 128 * 1024
 
 
 class VulkanAttention:
@@ -31,6 +32,7 @@ class VulkanAttention:
         self.device_index = device_index
         self.device_name = devices[device_index].device_name()
         self.calls = 0
+        self.cpu_calls = 0
         self.networks = {masked: self._network(masked) for masked in (False, True)}
 
     def _network(self, masked: bool):
@@ -84,6 +86,10 @@ class VulkanAttention:
         keys = key.shape[-2]
         if keys == 0:
             return torch.zeros_like(query)
+        if queries * keys < MIN_GPU_QUERY_KEY_PAIRS:
+            # Short decoder and candidate requests are dominated by synchronous Vulkan dispatch.
+            self.cpu_calls += 1
+            return F.scaled_dot_product_attention(query, key, value, attn_mask=attn_mask)
 
         key_masks = None
         matrix_masks = None
@@ -115,60 +121,3 @@ class VulkanAttention:
                 result.masked_fill_(~valid_queries[None, :, None], 0)
             rows.append(result)
         return torch.stack(rows)
-
-
-class _MultiheadAttention(nn.MultiheadAttention):
-    """Use the original packed q/k/v and output weights around ncnn SDPA."""
-
-    def __init__(self, original: nn.MultiheadAttention, attention: VulkanAttention):
-        super().__init__(original.embed_dim, original.num_heads, batch_first=True)
-        self.load_state_dict(original.state_dict())
-        self.attention = attention
-
-    def forward(self, query, key, value, key_padding_mask=None, need_weights=True):
-        if need_weights:
-            raise ValueError("Vulkan policy attention only returns activations")
-        weights = self.in_proj_weight.chunk(3)
-        biases = self.in_proj_bias.chunk(3)
-        projected = [F.linear(tensor, weight, bias)
-                     for tensor, weight, bias in zip((query, key, value), weights, biases, strict=True)]
-        head_width = self.embed_dim // self.num_heads
-        q, k, v = (tensor.unflatten(-1, (self.num_heads, head_width)).transpose(1, 2)
-                   for tensor in projected)
-        valid = None if key_padding_mask is None else ~key_padding_mask[:, None, None, :]
-        output = self.attention(q, k, v, attn_mask=valid).transpose(1, 2).flatten(-2)
-        return self.out_proj(output), None
-
-
-class _VulkanBoard(Board):
-    def __init__(self, width: int, attention: VulkanAttention):
-        super().__init__(width)
-        for layer in self.encoder.layers:
-            layer.self_attn = _MultiheadAttention(layer.self_attn, attention)
-        for block in self.candidates:
-            block.sattn = _MultiheadAttention(block.sattn, attention)
-            block.attn = _MultiheadAttention(block.attn, attention)
-
-    def encode_tokens(self, tokens: Tensor, valid: Tensor):
-        # Keep the existing pre-norm encoder path and bypass PyTorch's fused CPU attention.
-        pad = ~valid
-        for layer in self.encoder.layers:
-            x = layer.norm1(tokens)
-            attended, _ = layer.self_attn(x, x, x, key_padding_mask=pad, need_weights=False)
-            tokens = tokens + layer.dropout1(attended)
-            x = layer.norm2(tokens)
-            x = layer.linear2(layer.dropout(layer.activation(layer.linear1(x))))
-            tokens = tokens + layer.dropout2(x)
-        return tokens
-
-
-class VulkanPolicy(Policy):
-    """Run board, candidate and decoder attention with ncnn Vulkan."""
-
-    def __init__(self, attention: VulkanAttention):
-        super().__init__()
-        self.board = _VulkanBoard(self.board.norm.normalized_shape[0], attention)
-        self.attention = attention
-
-    def decode_tokens(self, x, board, previous=None):
-        return super().decode_tokens(x, board, previous, attention=self.attention)

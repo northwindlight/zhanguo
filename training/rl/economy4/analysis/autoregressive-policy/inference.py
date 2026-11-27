@@ -8,7 +8,7 @@ from time import perf_counter
 
 import torch
 
-from model import Policy
+from inference_policy import InferencePolicy
 from native_eval import Engine
 from rollout_trace import SeatTrace
 
@@ -18,11 +18,11 @@ def load_policy(checkpoint: Path, *, backend: str = "cpu", vulkan_device: int | 
     if backend == "cpu":
         if vulkan_device is not None:
             raise ValueError("GPU selection requires the Vulkan backend")
-        policy = Policy()
+        policy = InferencePolicy()
     elif backend == "vulkan":
-        from vulkan_inference import VulkanAttention, VulkanPolicy
+        from vulkan_inference import VulkanAttention
 
-        policy = VulkanPolicy(VulkanAttention(vulkan_device))
+        policy = InferencePolicy(VulkanAttention(vulkan_device))
     else:
         raise ValueError(f"Unknown backend: {backend}")
 
@@ -137,9 +137,8 @@ def main():
     report.update(backend=args.backend, checkpoint_sha256=checksum, seed=args.seed, size=args.size,
                   thought_limit=policy.thought_position.num_embeddings - 1, selection=args.selection)
     if args.backend == "vulkan":
-        report.update(vulkan_device=policy.attention.device_name, vulkan_attention_calls=policy.attention.calls)
-        if report["decisions"] and not policy.attention.calls:
-            raise RuntimeError("The match completed without executing Vulkan attention")
+        report.update(vulkan_device=policy.attention.device_name, vulkan_attention_calls=policy.attention.calls,
+                      cpu_attention_calls=policy.attention.cpu_calls)
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
 
 

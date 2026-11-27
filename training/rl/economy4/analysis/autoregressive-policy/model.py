@@ -129,8 +129,11 @@ class DecoderLayer(nn.Module):
         self.ff = SwiGLU(width, inner)
 
     def board_kv(self, board: Tensor) -> KV:
-        shape = (*board.shape[:2], 2, self.heads, self.head_width)
-        k, v = self.cross_kv(board).reshape(shape).unbind(2)
+        return self.split_board_kv(self.cross_kv(board))
+
+    def split_board_kv(self, projected: Tensor) -> KV:
+        shape = (*projected.shape[:2], 2, self.heads, self.head_width)
+        k, v = projected.reshape(shape).unbind(2)
         return KV(k.transpose(1, 2), v.transpose(1, 2))
 
     def forward(self, x: Tensor, board: KV, board_valid: Tensor, previous: KV | None,
