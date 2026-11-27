@@ -1,5 +1,7 @@
 # 四国经济 PPO
 
+当前 18M 训练的完整启动与备份流程见 [Linux 全回合 PPO](linux/README.md)。
+
 2026-11-24 最新：改为全程纯脚本示范，前1–30回合经济、第31回合起军需扩张，总地12结束；1000局已采完、998成功、90540条示范，旧模型目标全部排除。相同结构随机初始化，双T4做BC十轮，每两轮下载校验，再自动接全局事件／2–4动作联合片段PPO。预算60及可见剩余/已用/上限、条件性电力观测已实施；actor GDP只为真实名义GDP，土地折算仅进训练回报。实时状态须查script-bc-kaggle-results/live.json和script-global-ppo-results/live.json。完整契约见[pure-script-bc/CONTRACT.txt](pure-script-bc/CONTRACT.txt)。下列旧A/B与混合BC说明均保留为历史。
 
 2026-11-24 用户停止旧训练后明确要求「降低学习率，重来」：从工业军事 BC 第四轮重启，LR 1e-4、全新 PPO 优化器，重新计 2000 世界；使用同局 A/B 各两席独立 PPO、动态回合与 legacy 订单观测。新双 T4 任务先做 CUDA 检查再正式采样。入口见 [A/B 动态 PPO](ab-dynamic-ppo/README.md)，状态见 `ab-dynamic-ppo-results/`。以下 5e-4 和旧阶段描述是历史。

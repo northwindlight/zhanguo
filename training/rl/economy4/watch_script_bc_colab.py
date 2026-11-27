@@ -1,6 +1,7 @@
 """Transfer, start, and continuously back up the Colab pure-script BC run."""
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from shutil import which
 import hashlib,json,subprocess,time
 from mixed_bc_run import publish,digest
 
@@ -8,7 +9,7 @@ ROOT=Path(__file__).resolve().parent
 OUT=ROOT/'script-bc-colab-results'
 REMOTE='/content/zhanguo-pure-script-bc/work'
 SESSION='zg-pure-bc-t4'
-COLAB='/home/northwind/.local/bin/colab'
+COLAB=which('colab') or str(Path.home()/'.local/bin/colab')
 
 def command(args,timeout=300,input=None):
     # CLI transport errors can contain proxy credentials: never relay raw output.
@@ -55,6 +56,7 @@ def main():
     upload(ROOT/'script_bc_colab_lowmem.py','script_bc_colab_lowmem.py')
     command(['exec','-s',SESSION,'--file',ROOT/'launch_script_bc_colab.py','--timeout',60],timeout=90)
     probe="""from pathlib import Path
+from shutil import which
 import json
 p=Path('/content/zhanguo-pure-script-bc/work');r={}
 for name in ('state.json','preflight.json','failure.json','segment.json'):

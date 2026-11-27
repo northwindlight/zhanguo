@@ -6,5 +6,16 @@
     "economy4/industry-bc-results/code.zip": "ccbdc3506daf5525bbe009378273dbf4bd70ba9711eda78a88b7241e0012f136",
     "economy4/pure-script-bc/code-data/script-code.bundle": "96decbb52664d91d9e6ff425faa87a26e4d75df10c7f15588b5f61ee02ade489",
     "economy4/script-global-ppo/code-data/ab-code.bundle": "fed4e575874e631c9209d0ed554a81a1e0474144f539e56d82c2852113fdfe33"
+  },
+  "full_turn_ppo_18m": {
+    "verified_engine_and_policy_commit": "9e0210657c5c7232440ce81def227d29c1b40f7e",
+    "script_corpus_bundle_sha256": "f81ff13ba26d6e0692a7d82126ed418bae3fb6a39197118a47705e000342680b",
+    "bc_epoch_10_sha256": "c3e7dbf0a1a5f54fce908f8cdd231347b1f8a0a08dbc01ff076a4a384dff77f8",
+    "value_warm_sha256": "b4964a788d4261724d503ddc5dbbe21d9061e00156b9bfe0c12171a5835cc44b",
+    "verified_resume_example": {
+      "checkpoint": "games-0120.pt",
+      "sha256": "13a61a5d3e19faa23197ce5d2946fe7254ed62485e361fe7e355efa5968a8a8b"
+    },
+    "linux_runbook": "economy4/linux/README.md"
   }
 }
