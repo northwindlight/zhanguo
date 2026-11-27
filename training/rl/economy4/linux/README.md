@@ -59,6 +59,17 @@ systemd-run --user --unit=zhanguo-ppo-backup --property=Restart=on-failure --pro
     "$HOME/zhanguo-ppo-backup" --anchor /path/to/seed/games-0120.json --watch --keep-every 16
 ```
 
+## 终端训练看板
+
+在备份机的 `training/rl/economy4` 目录启动，把最后一个路径换为含 `verified.json` 的备份目录。看板每 5 秒读取本地报告，支持报告放在备份目录或它的 `work/` 子目录。实际同步间隔由备份服务决定。
+
+```bash
+tmux new-session -d -s zg-ppo python3 "$PWD/linux/dashboard.py" "$HOME/zhanguo-ppo-backup"
+tmux attach -t zg-ppo
+```
+
+按 `1` 至 `4` 查看总览、逐局逐席数据、两轮 PPO 参数和最近八批趋势。用上下箭头或 `PgUp/PgDn` 滚动，按 `Ctrl-b` 再按 `d` 分离。全程每四局计一批。下一批预计完成时间以训练机上批报告的落盘时间为起点，采用最近五批每局耗时的中位数。有实时状态文件 `live.json` 时，进入更新阶段后改用本批实际采样耗时加历史更新耗时；若同步超时则暂停显示预计时间。日期和时刻均为北京时间。
+
 ## 验收与其他后端
 
 - `verify_full_ppo.py --library "$RUN/build/libzhanguo_eval.so" --checkpoint <权重>` 用真实 C++ 对局核对覆盖、两种回放和一次策略更新。`verify_parallel_ppo.py` 对照双进程与单进程梯度和权重。
