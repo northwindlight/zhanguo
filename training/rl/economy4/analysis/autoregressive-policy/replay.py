@@ -16,6 +16,7 @@ import torch
 from torch import Tensor
 from torch.nn import functional as F
 
+from batch_policy import reproduce_action_logits, reproduce_decode, reproduce_snapshot
 from history import DeltaState, SparseCache
 from memory_map import MemoryMap, Op
 from model import KV, Event, History, Policy, Snapshot
@@ -75,11 +76,11 @@ def replay_stepwise(policy: Policy, header: TraceHeader, records, observations: 
             trace.commit_game(record.index)
             action_pending = record.index
         elif record.kind is Event.OBSERVATION:
-            trace.observe(record.revision, observations[record.revision])
+            trace.observe(record.revision, observations[record.revision], layout=record.board_layout)
         elif record.kind is Event.THOUGHT:
             if trace.thought.closed:
                 raise ValueError(f"record {n}: thought recorded after the phase closed under this header")
-            logits = trace.score_thought()
+            logits = trace.score_thought(decoder_row=record.decoder_row)
             value = trace.pending.value
             decisions.append(Decision("thought", n, logits.log_softmax(dim=-1)[record.operation],
                                       value, record.logp, record.value))
@@ -294,9 +295,15 @@ def replay_turn_stepwise(policy, header, records, observations, prefix, graph, g
     decisions = []
     for index, record in enumerate(events):
         if record.kind is Event.OBSERVATION:
-            obs = {k: v.to(device=device, copy=True) for k, v in observations[record.revision].items()}
+            raw = observations[record.revision]
+            layout = record.board_layout
+            candidate_count = raw["cand"].size(1)
             with torch.set_grad_enabled(torch.is_grad_enabled() and record.revision in gradient_views):
-                board = policy.snapshot(obs, record.revision)
+                if layout is None:
+                    obs = {k: v.to(device=device, copy=True) for k, v in raw.items()}
+                    board = policy.snapshot(obs, record.revision)
+                else:
+                    obs, board = reproduce_snapshot(policy, raw, record.revision, layout)
             _, history, _ = policy.observation_event(board, history)
         elif record.kind in (Event.THOUGHT, Event.THOUGHT_LIMIT):
             operation = record.operation if record.kind is Event.THOUGHT else Op.GAME
@@ -313,17 +320,19 @@ def replay_turn_stepwise(policy, header, records, observations, prefix, graph, g
         if step is None:
             continue
         if isinstance(step, _Thought):
-            hidden, cache, _ = policy.decode(_graphs([step.graph], device), _numbers([step.previous], device),
-                                             _numbers([step.writes], device), board, history, cache)
+            query, _ = policy.history_query(_graphs([step.graph], device), _numbers([step.previous], device),
+                                            _numbers([step.writes], device), board, history)
+            hidden, cache = reproduce_decode(policy, query, board, cache, step.sampled.decoder_row)
             mask = torch.tensor(step.legal, dtype=torch.bool, device=device)
             logits = policy.thought_logits(hidden[0, 0], mask)
             logp = logits.log_softmax(dim=-1)[step.operation]
             value = policy.estimate_value(hidden[0, 0])
             kind = "thought"
         else:
-            hidden, _, _ = policy.decode(_graphs([step.graph], device), _numbers([Op.GAME], device),
-                                         _numbers([0], device), board, history)
-            logits = policy.action_logits(hidden[:, 0], obs, board)
+            query, _ = policy.history_query(_graphs([step.graph], device), _numbers([Op.GAME], device),
+                                            _numbers([0], device), board, history)
+            hidden, _ = reproduce_decode(policy, query, board, None, layout.row if layout else None)
+            logits = reproduce_action_logits(policy, hidden[:, 0], obs, board, layout)[:, :candidate_count]
             logp = logits[0].float().log_softmax(dim=-1)[step.sampled.index]
             value = policy.estimate_value(hidden[:, 0])[0]
             kind = "game"

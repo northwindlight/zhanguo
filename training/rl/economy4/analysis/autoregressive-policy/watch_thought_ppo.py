@@ -18,18 +18,19 @@ def kernel_ref(start):
     return KERNEL if start == 0 else f"{KERNEL}-from-{start:04}"
 
 
-def package(output, start, stop, parent):
+def package(output, start, stop, parent, execution=None):
     stage = output/"kernel"
     stage.mkdir(exist_ok=True)
     template = (HERE/"kaggle_thought_ppo.py").read_text()
-    files = output/"campaign-code.zip"
+    # An opt-in run may continue a campaign whose original bundle predates these flags.
+    files = output/("campaign-parallel-code.zip" if execution else "campaign-code.zip")
     if not files.exists():
-        bundle = source_bundle(("thought_ppo.py", "replay.py"))
+        bundle = source_bundle(("thought_ppo.py", "replay.py", "parallel_ppo.py", "batched_rollout.py"))
         temp = files.with_suffix(".partial")
         temp.write_bytes(bundle)
         temp.replace(files)
     fields = dict(SOURCES=b64encode(files.read_bytes()).decode(), PARENT_SHA=parent["sha256"],
-                  PARENT_NAME=parent["checkpoint"], START=start, STOP=stop)
+                  PARENT_NAME=parent["checkpoint"], START=start, STOP=stop, EXECUTION=execution)
     for name, value in fields.items():
         template = template.replace(f"{name} = None\n", f"{name} = {value!r}\n", 1)
     compile(template, str(stage/"kernel.py"), "exec")
@@ -41,7 +42,7 @@ def package(output, start, stop, parent):
     return stage
 
 
-def submit(output, start, stop, parent):
+def submit(output, start, stop, parent, execution=None):
     marker = output/f"submitted-{start:04}.json"
     job = kernel_ref(start)
     if marker.exists():
@@ -51,11 +52,23 @@ def submit(output, start, stop, parent):
         return
     if status(job) in ("QUEUED", "RUNNING", "COMPLETE"):
         raise RuntimeError("Existing adaptive PPO job has no local submission record")
-    stage = package(output, start, stop, parent)
-    if remote.command(["kaggle", "kernels", "push", "-p", stage, "--accelerator", "NvidiaTeslaT4", "-t", "25200"],
-                      output/f"submit-{start:04}.log", timeout=600):
-        raise RuntimeError("Adaptive PPO submission failed")
-    remote.publish(marker, dict(kernel=job, parent_sha256=parent["sha256"], stop=stop, time=time.time()))
+    stage = package(output, start, stop, parent, execution)
+    log = output/f"submit-{start:04}.log"
+    while True:
+        code = remote.command(["kaggle", "kernels", "push", "-p", stage, "--accelerator", "NvidiaTeslaT4",
+                               "-t", "25200"], log, timeout=600)
+        message = log.read_text(errors="replace")
+        if "Maximum batch GPU session count" in message:
+            remote.publish(output/"live.json", dict(state="waiting_for_gpu_slot", kernel=job, verified_games=start,
+                                                    segment_goal=stop, time=time.time()))
+            time.sleep(45)
+            continue
+        if code or ("successfully pushed" not in message.lower() and
+                    status(job) not in ("QUEUED", "RUNNING", "COMPLETE")):
+            raise RuntimeError(f"Adaptive PPO submission failed; see {log}")
+        break
+    remote.publish(marker, dict(kernel=job, parent_sha256=parent["sha256"], stop=stop,
+                                execution=execution, time=time.time()))
 
 
 def watch(output, start, stop, goal):
@@ -145,6 +158,10 @@ def main(args):
                       sha256=warmup["sha256"], initial_sha256=warmup["sha256"])
     if remote.sha(Path(parent["local_checkpoint"])) != parent["sha256"]:
         raise ValueError("Failed to verify local PPO parent hash")
+    execution = None
+    if args.distributed_update or args.batch_inference or args.rollouts_per_device != 1:
+        execution = dict(distributed_update=args.distributed_update, batch_inference=args.batch_inference,
+                         rollouts_per_device=args.rollouts_per_device)
     while parent["games"] < args.goal:
         segment = parent.get("segment")
         if segment is not None and not segment["complete"]:
@@ -154,7 +171,7 @@ def main(args):
         start = parent["games"]
         segment_games = min(4, args.segment) if start == 0 else args.segment
         stop = min(args.goal, start + segment_games)
-        submit(output, start, stop, parent)
+        submit(output, start, stop, parent, execution)
         watch(output, start, stop, args.goal)
         parent = archive(output, start, stop, parent)
     remote.publish(output/"live.json", dict(state="complete", verified_games=parent["games"], time=time.time()))
@@ -166,9 +183,14 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--goal", type=int, default=2000)
     parser.add_argument("--segment", type=int, default=16)
+    parser.add_argument("--distributed-update", action="store_true")
+    parser.add_argument("--batch-inference", action="store_true")
+    parser.add_argument("--rollouts-per-device", type=int, default=1)
     options = parser.parse_args()
     if min(options.goal,options.segment) < 1:
         parser.error("Campaign and segment counts must be positive")
+    if options.rollouts_per_device < 1 or (not options.batch_inference and options.rollouts_per_device > 2):
+        parser.error("Use a positive --rollouts-per-device; more than two worlds requires --batch-inference")
     try:
         main(options)
     except Exception as error:

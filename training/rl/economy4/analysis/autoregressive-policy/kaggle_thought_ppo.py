@@ -15,6 +15,7 @@ PARENT_SHA = None
 PARENT_NAME = None
 START = None
 STOP = None
+EXECUTION = None
 LEGACY_SHA = "96decbb52664d91d9e6ff425faa87a26e4d75df10c7f15588b5f61ee02ade489"
 
 
@@ -54,8 +55,14 @@ def main():
     subprocess.run(["cmake", "--build", str(build), "--target", "zhanguo_eval", "-j3"], check=True)
     env = dict(os.environ, PYTHONPATH=str(root/"legacy/python"), OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="2")
     driver = source / "analysis/autoregressive-policy/thought_ppo.py"
+    execution = EXECUTION or {}
+    per_device = execution.get("rollouts_per_device", 1)
     common = [sys.executable, "-u", driver, "--library", build/"libzhanguo_eval.so",
-              "--checkpoint", parent, "--workers", workers, "--rollouts-per-device", 1, "--threads", 2]
+              "--checkpoint", parent, "--workers", workers, "--rollouts-per-device", per_device, "--threads", 2]
+    if execution.get("distributed_update"):
+        common.append("--distributed-update")
+    if execution.get("batch_inference"):
+        common.append("--batch-inference")
     print(json.dumps(dict(stage="ppo_cuda_ready", parent_sha256=PARENT_SHA,
                           devices=[torch.cuda.get_device_name(i) for i in range(workers)])), flush=True)
     if START == 0:
@@ -73,7 +80,8 @@ def main():
                 raise RuntimeError(f"CUDA preflight left {group} weights untouched")
         print(json.dumps(dict(stage="ppo_cuda_preflight_passed", games=workers, ppo=proof["ppo"])), flush=True)
     print(json.dumps(dict(stage="ppo_production_begin", start=START, stop=STOP,
-                          rollouts_per_device=1)), flush=True)
+                          rollouts_per_device=per_device, distributed_update=bool(execution.get("distributed_update")),
+                          batch_inference=bool(execution.get("batch_inference")))), flush=True)
     result = subprocess.run(list(map(str, [*common, "--output", work, "--stop-games", STOP])), env=env)
     manifest = work/"state.json"
     if not manifest.exists():

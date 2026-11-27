@@ -15,7 +15,8 @@ from torch.nn import functional as F
 from bc_train import atomic_save, emit, publish, sha
 from evaluate_thought import SCALE, territory_gdp
 from history import DeltaState, SparseCache
-from model import History, Policy
+from memory_map import Op
+from model import Event, History, Policy
 from native_eval import Engine
 from replay import max_errors, replay_turn, replay_turn_stepwise
 from rollout_trace import GameRecord, ObservationArchive, SeatTrace
@@ -124,7 +125,8 @@ def returns_from_events(events):
     return returns
 
 
-def rollout(policy, library, seed, size, turns):
+def world_steps(policy, library, seed, size, turns):
+    """Yield one native game decision request at a time, keeping each seat trajectory private."""
     start_time = time.monotonic()
     rng = random.Random(seed)
     chunk_games = [0] * 4
@@ -137,7 +139,8 @@ def rollout(policy, library, seed, size, turns):
     events = []
     thought_stops, forced_stops, thoughts, games = 0, 0, 0, 0
     period = 0
-    with torch.inference_mode(), Engine(library).self_play(seed, size, turns) as world:
+    batched_games = batched_thoughts = 0
+    with Engine(library).self_play(seed, size, turns) as world:
         while (view := world.observe()) is not None:
             seat, turn, new_turn, obs = view
             trace = traces[seat]
@@ -155,20 +158,20 @@ def rollout(policy, library, seed, size, turns):
                 open_window[seat] = (len(trace.records), Opening.capture(trace.history),
                                      trace.thought.graph, not new_turn)
                 chunk_games[seat] = 0
-            trace.observe(len(events), obs)
-            while not trace.thought.closed:
-                event = len(trace.records)
-                forced = trace.sample_thought(streams[seat + 4])
-                events.append(("thought", (seat, event)))
-                thoughts += 1
-                if trace.thought.closed:
-                    if forced:
-                        forced_stops += 1
-                    else:
-                        thought_stops += 1
-            event = len(trace.records)
-            action = trace.sample_game(streams[seat])
-            events.append(("game", (seat, event)))
+            first = len(trace.records)
+            action = yield trace, len(events), obs, streams[seat + 4], streams[seat]
+            for index in range(first, len(trace.records)):
+                record = trace.records[index]
+                if isinstance(record, GameRecord):
+                    events.append(("game", (seat, index)))
+                    batched_games += trace.board_layout is not None
+                elif record.kind is Event.THOUGHT:
+                    events.append(("thought", (seat, index)))
+                    thoughts += 1
+                    thought_stops += record.operation == Op.STOP
+                    batched_thoughts += record.decoder_row is not None
+                elif record.kind is Event.THOUGHT_LIMIT:
+                    forced_stops += 1
             games += 1
             chunk_games[seat] += 1
             settled = world.play(action)
@@ -202,12 +205,34 @@ def rollout(policy, library, seed, size, turns):
     if (counts["trained_turns"], counts["trained_game_actions"], counts["trained_thoughts"]) != (seat_turns, games, thoughts):
         raise ValueError("Full PPO coverage differs from the collected rollout")
     stats = dict(seed=seed, turns=period, seat_turns=seat_turns, game_decisions=games, thoughts=thoughts,
+                 batched_games=batched_games, batched_thoughts=batched_thoughts,
                  active_stops=thought_stops, forced_stops=forced_stops,
                  minutes=(time.monotonic()-start_time)/60,
                  nominal_gdp=statistics.mean(r["total_nominal_gdp"]/period for r in final),
                  final_nominal_gdp=statistics.mean(r["nominal_gdp"] for r in final),
                  land=statistics.mean(r["land"] for r in final), seats=final)
     return windows, stats
+
+
+def serial_decision(request):
+    trace, revision, obs, thought_rng, game_rng = request
+    trace.observe(revision, obs)
+    while not trace.thought.closed:
+        trace.sample_thought(thought_rng)
+    return trace.sample_game(game_rng)
+
+
+@torch.inference_mode()
+def rollout(policy, library, seed, size, turns):
+    generator = world_steps(policy, library, seed, size, turns)
+    try:
+        request = next(generator)
+        while True:
+            request = generator.send(serial_decision(request))
+    except StopIteration as done:
+        return done.value
+    finally:
+        generator.close()
 
 
 def replay(policy, window):
@@ -253,10 +278,10 @@ def clipped(new, old, advantage):
     return -torch.minimum(ratio * advantage, ratio.clamp(.8, 1.2) * advantage)
 
 
-def learning_pass(policy, windows, actor, critic, check):
+def learning_pass(policy, windows, actor, critic, check, group=None):
     game_adv, thought_adv, total = [], [], 0
     for w in windows:
-        group_starts = {group[0] for group in w.groups}
+        group_starts = {fragment[0] for fragment in w.groups}
         for i, record in enumerate(w.records):
             if i not in w.targets:
                 continue
@@ -268,8 +293,17 @@ def learning_pass(policy, windows, actor, critic, check):
                 thought_adv.append(w.targets[i] - record.value)
                 total += 1
     advantages = thought_adv + game_adv
-    mean = statistics.mean(advantages)
-    std = statistics.pstdev(advantages) + 1e-6
+    game_count, thought_count = len(game_adv), len(thought_adv)
+    if group is None:
+        mean = statistics.mean(advantages)
+        std = statistics.pstdev(advantages) + 1e-6
+    else:
+        game_count, thought_count, total, advantage_sum = group.totals(
+            [game_count, thought_count, total, math.fsum(advantages)])
+        count = game_count + thought_count
+        mean = advantage_sum / count
+        variance_sum, = group.totals([math.fsum((a - mean) ** 2 for a in advantages)])
+        std = math.sqrt(variance_sum / count) + 1e-6
     logp_error, value_error = 0., 0.
     reference_windows = 0
     totals = dict(actor=0., critic=0.)
@@ -297,7 +331,7 @@ def learning_pass(policy, windows, actor, critic, check):
         thought, groups = action_group(decisions, w)
         thought_loss = sum(clipped(new, old, (a - mean)/std) for new, old, a in thought)
         game_loss = sum(clipped(new, old, (adv - mean)/std) for new, old, adv in groups)
-        actor_loss = .5 * (thought_loss / len(thought_adv) + game_loss / len(game_adv))
+        actor_loss = .5 * (thought_loss / thought_count + game_loss / game_count)
         current_value = torch.stack([d.value for d in decisions])
         target = current_value.new_tensor([w.targets[d.record] for d in decisions])
         critic_loss = F.mse_loss(current_value, target, reduction="sum") / total
@@ -308,17 +342,25 @@ def learning_pass(policy, windows, actor, critic, check):
         totals["actor"] += float(actor_loss.detach())
         totals["critic"] += float(critic_loss.detach())
         if number % 250 == 0:
-            emit("ppo_replay_progress", windows=number, total_windows=len(windows), first_epoch=check)
+            emit("ppo_replay_progress", windows=number, total_windows=len(windows), first_epoch=check,
+                 rank=0 if group is None else group.rank)
+    counts = coverage(windows)
+    if group is not None:
+        group.sum_gradients(policy)
+        sums = group.totals([*counts.values(), reference_windows, totals["actor"], totals["critic"]])
+        counts = dict(zip(counts, map(int, sums[:len(counts)])))
+        reference_windows, totals["actor"], totals["critic"] = int(sums[-3]), sums[-2], sums[-1]
+        logp_error, value_error = group.totals([logp_error, value_error], torch.distributed.ReduceOp.MAX)
     actor_norm = torch.nn.utils.clip_grad_norm_(actor.param_groups[0]["params"], 1., error_if_nonfinite=True)
     critic_norm = torch.nn.utils.clip_grad_norm_(critic.param_groups[0]["params"], 1., error_if_nonfinite=True)
     return dict(**totals, actor_norm=float(actor_norm), critic_norm=float(critic_norm),
-                game_fragments=len(game_adv), **coverage(windows),
+                game_fragments=int(game_count), **counts,
                 replay_logp_error=logp_error, replay_value_error=value_error,
                 reference_windows=reference_windows)
 
 
 @torch.no_grad()
-def anchor_kl(policy, anchors):
+def anchor_kl(policy, anchors, group=None):
     game, thought = [], []
     for w in anchors:
         decisions = replay(policy, w)
@@ -326,10 +368,17 @@ def anchor_kl(policy, anchors):
         groups = action_group(decisions, w)[1]
         thought.extend(sampled)
         game.extend(new - old for new, old, _ in groups)
-    return tuple(float((r.expm1() - r).mean()) for r in map(torch.stack, (thought, game)))
+    if group is None:
+        return tuple(float((r.expm1() - r).mean()) for r in map(torch.stack, (thought, game)))
+    stats = []
+    for ratios in (thought, game):
+        r = policy.operation.weight.new_empty(0) if not ratios else torch.stack(ratios)
+        stats.extend((float((r.expm1() - r).sum(dtype=torch.float64)), len(ratios)))
+    thought_sum, thoughts, game_sum, games = group.totals(stats)
+    return thought_sum / thoughts, game_sum / games
 
 
-def actor_step(policy, optimizer, anchors, args):
+def actor_step(policy, optimizer, anchors, args, group=None):
     parameters = optimizer.param_groups[0]["params"]
     saved = [p.detach().clone() for p in parameters]
     optimizer_state = copy.deepcopy(optimizer.state_dict())
@@ -338,11 +387,12 @@ def actor_step(policy, optimizer, anchors, args):
     for attempt in range(attempts):
         optimizer.param_groups[0]["lr"] = lr
         optimizer.step()
-        thought_kl, game_kl = anchor_kl(policy, anchors)
+        thought_kl, game_kl = anchor_kl(policy, anchors, group)
         if all(math.isfinite(kl) and kl <= args.target_kl for kl in (thought_kl, game_kl)):
             return dict(accepted=True, thought_kl=thought_kl, game_kl=game_kl,
                         backtracks=attempt, accepted_lr=lr)
-        emit("ppo_actor_backtrack", attempt=attempt + 1, lr=lr, thought_kl=thought_kl, game_kl=game_kl)
+        if group is None or group.rank == 0:
+            emit("ppo_actor_backtrack", attempt=attempt + 1, lr=lr, thought_kl=thought_kl, game_kl=game_kl)
         with torch.no_grad():
             for p, original in zip(parameters, saved):
                 p.copy_(original)
@@ -352,20 +402,27 @@ def actor_step(policy, optimizer, anchors, args):
                 backtracks=attempts, accepted_lr=None)
 
 
-def optimize(policy, windows, actor, critic, args, seed):
+def optimize(policy, windows, actor, critic, args, seed, group=None):
     rng = random.Random(seed)
-    first = rng.choice([w for w in windows if not w.game_phase])
-    others = [w for w in windows if w is not first]
-    anchors = [first, *rng.sample(others, min(5, len(others)))]
+    phases, offset = ([w.game_phase for w in windows], 0) if group is None else group.global_windows(windows)
+    order = list(range(len(phases)))
+    first = rng.choice([i for i, phase in enumerate(phases) if not phase])
+    others = [i for i in order if i != first]
+    anchor_ids = [first, *rng.sample(others, min(5, len(others)))]
+
+    def local(indices):
+        return [windows[i-offset] for i in indices if offset <= i < offset + len(windows)]
+
+    anchors = local(anchor_ids)
     rows = []
     for i in range(args.ppo_epochs):
-        rng.shuffle(windows)
-        row = learning_pass(policy, windows, actor, critic, i == 0)
-        if i == 0:
+        rng.shuffle(order)
+        row = learning_pass(policy, local(order), actor, critic, i == 0, group)
+        if i == 0 and (group is None or group.rank == 0):
             emit("ppo_replay_verified", logp_error=row["replay_logp_error"],
                  value_error=row["replay_value_error"], trained_thoughts=row["trained_thoughts"],
                  game_fragments=row["game_fragments"], reference_windows=row["reference_windows"])
-        result = actor_step(policy, actor, anchors, args)
+        result = actor_step(policy, actor, anchors, args, group)
         critic.step()
         rows.append(dict(row, **result))
         if not result["accepted"]:
@@ -375,7 +432,32 @@ def optimize(policy, windows, actor, critic, args, seed):
     return rows
 
 
-def train(args):
+def sample_batch(pool, policies, seeds, args):
+    parallel = len(policies) * args.rollouts_per_device
+    sample_world = rollout if args.rollouts_per_device == 1 else rollout_on_stream
+    windows, statistics_rows = [], []
+    for start in range(0, len(seeds), parallel):
+        wave = seeds[start:start + parallel]
+        if args.batch_inference:
+            from batched_rollout import rollout_worlds
+            jobs = [(i, pool.submit(rollout_worlds, policy_copy, args.library,
+                                    wave[i::len(policies)], args.size, args.turns))
+                    for i, policy_copy in enumerate(policies) if i < len(wave)]
+            results = [None] * len(wave)
+            for i, job in jobs:
+                results[i::len(policies)] = job.result()
+        else:
+            jobs = [pool.submit(sample_world, policies[i % len(policies)], args.library, seed,
+                                args.size, args.turns) for i, seed in enumerate(wave)]
+            results = [job.result() for job in jobs]
+        for selections, row in results:
+            windows.extend(selections)
+            statistics_rows.append(row)
+            emit("ppo_game_complete", **row)
+    return windows, statistics_rows
+
+
+def train(args, group=None):
     torch.set_num_threads(args.threads)
     torch.backends.mha.set_fastpath_enabled(False)
     torch.backends.cuda.matmul.allow_tf32 = False
@@ -383,7 +465,9 @@ def train(args):
     if args.device == "cuda" and torch.cuda.device_count() < args.workers:
         raise RuntimeError("Fewer CUDA devices than required by the self-play sampler")
     devices = [f"cuda:{i}" if args.device == "cuda" else "cpu" for i in range(args.workers)]
-    state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+    local_devices = devices if group is None else [str(group.device)]
+    leader = group is None or group.rank == 0
+    state = torch.load(args.checkpoint, map_location="cpu", weights_only=True, mmap=True)
     if not state.get("value_warmup", {}).get("accepted"):
         raise ValueError("Expected the validated value warmup checkpoint")
     completed = state.get("games", 0)
@@ -394,7 +478,7 @@ def train(args):
     else:
         state["contract"] = dict(CONTRACT, size=args.size, turns=args.turns, seed=args.seed)
     initial = state.get("initial_sha256") or sha(args.checkpoint)
-    policies = [Policy().to(device).eval() for device in devices]
+    policies = [Policy().to(device).eval() for device in local_devices]
     for policy in policies:
         policy.load_state_dict(state["model"])
     policy = policies[0]
@@ -405,30 +489,43 @@ def train(args):
         if name in state:
             opt.load_state_dict(state[name])
     args.output.mkdir(parents=True, exist_ok=True)
-    emit("ppo_started", start=completed, target=args.stop_games, devices=devices, contract=state["contract"])
-    parallel = len(policies) * args.rollouts_per_device
-    sample_world = rollout if args.rollouts_per_device == 1 else rollout_on_stream
-    with ThreadPoolExecutor(max_workers=parallel) as pool:
+    if leader:
+        emit("ppo_started", start=completed, target=args.stop_games, devices=devices, contract=state["contract"],
+             update_workers=1 if group is None else group.size, batch_inference=args.batch_inference)
+
+    sample_threads = len(policies) if args.batch_inference else len(policies) * args.rollouts_per_device
+    with ThreadPoolExecutor(max_workers=sample_threads) as pool:
         while completed < args.stop_games:
             batch_size = min(args.stop_games - completed, args.batch_games)
-            windows, statistics_rows = [], []
-            for start in range(0, batch_size, parallel):
-                jobs = []
-                for i in range(min(parallel, batch_size - start)):
-                    position = completed + start + i
-                    seed = args.seed + position + 4 * (position % 4)
-                    jobs.append(pool.submit(sample_world, policies[i % len(policies)], args.library, seed,
-                                            args.size, args.turns))
-                for job in jobs:
-                    selections, row = job.result()
-                    windows.extend(selections)
-                    statistics_rows.append(row)
-                    emit("ppo_game_complete", **row)
-            emit("ppo_coverage", games=completed + batch_size, windows=len(windows), **coverage(windows))
-            rows = optimize(policy, windows, actor, critic, args, args.seed + completed)
+            seeds = [args.seed + position + 4 * (position % 4)
+                     for position in range(completed, completed + batch_size)]
+            if group is not None:
+                # Contiguous shards reproduce the single-process world/window ordering after gather.
+                begin = (batch_size * group.rank) // group.size
+                end = (batch_size * (group.rank + 1)) // group.size
+                seeds = seeds[begin:end]
+            sampled_at = time.monotonic()
+            windows, statistics_rows = sample_batch(pool, policies, seeds, args)
+            counts = coverage(windows)
+            window_count = len(windows)
+            if group is not None:
+                statistics_rows = [r for shard in group.gather(statistics_rows) for r in shard]
+                counts = dict(zip(counts, map(int, group.totals(list(counts.values())))))
+                window_count = int(group.totals([window_count])[0])
+            sample_seconds = time.monotonic() - sampled_at
+            if leader:
+                emit("ppo_coverage", games=completed + batch_size, windows=window_count,
+                     sample_seconds=sample_seconds, **counts)
+            update_at = time.monotonic()
+            rows = optimize(policy, windows, actor, critic, args, args.seed + completed, group)
+            update_seconds = time.monotonic() - update_at
             if not any(row["accepted"] for row in rows):
                 raise RuntimeError("No accepted actor update in this PPO batch")
             completed += batch_size
+            if not leader:
+                # Keep the next collection behind the durable checkpoint boundary on rank zero.
+                torch.distributed.barrier()
+                continue
             out = args.output / f"games-{completed:04}.pt"
             atomic_save(out, dict(model=policy.state_dict(), actor_optimizer=actor.state_dict(),
                                   critic_optimizer=critic.state_dict(), games=completed,
@@ -436,6 +533,7 @@ def train(args):
                                   value_warmup=state["value_warmup"]))
             summary = dict(games=completed, checkpoint=out.name, sha256=sha(out),
                            initial_sha256=initial, metrics=statistics_rows, ppo=rows,
+                           sample_seconds=sample_seconds, update_seconds=update_seconds,
                            contract=state["contract"])
             publish(args.output / f"games-{completed:04}.json", summary)
             publish(args.output / "state.json", summary)
@@ -444,6 +542,8 @@ def train(args):
             # mounts the exact terminal report, model and both optimizer states.
             for other in policies[1:]:
                 other.load_state_dict(policy.state_dict())
+            if group is not None:
+                torch.distributed.barrier()
 
 
 def arguments():
@@ -461,13 +561,23 @@ def arguments():
     p.add_argument("--target-kl", type=float, default=.02)
     p.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
     p.add_argument("--workers", type=int, choices=(1, 2), default=2)
-    p.add_argument("--rollouts-per-device", type=int, choices=(1, 2), default=1)
+    p.add_argument("--distributed-update", action="store_true")
+    p.add_argument("--batch-inference", action="store_true")
+    p.add_argument("--rollouts-per-device", type=int, default=1,
+                   help="Worlds per device in one wave (independent CUDA streams when batching is off)")
     p.add_argument("--threads", type=int, default=2)
     args = p.parse_args()
+    if args.rollouts_per_device < 1 or (not args.batch_inference and args.rollouts_per_device > 2):
+        p.error("Use a positive --rollouts-per-device; more than two worlds requires --batch-inference")
     if min(args.stop_games, args.batch_games, args.ppo_epochs, args.turns) < 1:
         p.error("Training counts must be positive")
     return args
 
 
 if __name__ == "__main__":
-    train(arguments())
+    options = arguments()
+    if options.distributed_update and options.workers > 1:
+        from parallel_ppo import launch
+        launch(options)
+    else:
+        train(options)

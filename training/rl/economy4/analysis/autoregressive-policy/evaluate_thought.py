@@ -230,7 +230,7 @@ def main():
     torch.set_num_threads(args.threads)
     path,parent_sha = checkpoint_path(args)
     sources=hashlib.sha256()
-    for name in ("evaluate_thought.py", "rollout_trace.py", "native_eval.py", "model.py", "history.py", "memory_map.py"):
+    for name in ("evaluate_thought.py", "rollout_trace.py", "batch_policy.py", "native_eval.py", "model.py", "history.py", "memory_map.py"):
         sources.update(Path(__file__).with_name(name).read_bytes())
     identity = {"parent_sha256":parent_sha,"engine_sha256":sha(args.library),"seed":args.seed,
                 "horizon":args.turns,"size":args.size,"device":args.device,"torch":str(torch.__version__),

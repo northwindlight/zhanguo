@@ -39,7 +39,7 @@ def source_bundle(extra=()):
         for path in sorted((ROOT / "cpp").iterdir()):
             if path.suffix in (".cpp", ".hpp", ".py") or path.name == "CMakeLists.txt":
                 archive.write(path, path.relative_to(ROOT))
-        for name in ("evaluate_thought.py","native_eval.py","rollout_trace.py","model.py","history.py",
+        for name in ("evaluate_thought.py","native_eval.py","rollout_trace.py","batch_policy.py","model.py","history.py",
                      "memory_map.py","bc_train.py",*extra):
             archive.write(HERE / name, f"analysis/autoregressive-policy/{name}")
     return bundle.getvalue()

@@ -7,6 +7,7 @@ from torch import Tensor
 
 from torch.nn import functional as F
 
+from batch_policy import BatchRow, BoardLayout, reproduce_action_logits, reproduce_decode, reproduce_snapshot
 from memory_map import MAX_THOUGHTS, MIN_THOUGHTS, MemoryMap, Op, TurnThought
 from model import EVENT_WIDTH, FEAT_DIM, Event, Policy
 
@@ -24,6 +25,8 @@ class Record:
     logp: float | None = None
     payload: Tensor | None = None
     value: float | None = None
+    board_layout: BoardLayout | None = None
+    decoder_row: BatchRow | None = None
 
 
 @dataclass(frozen=True)
@@ -104,6 +107,7 @@ class _ThoughtPending:
     logits: Tensor
     cache: tuple | None
     value: Tensor | None
+    row: BatchRow | None = None
 
 
 @dataclass(frozen=True)
@@ -191,6 +195,7 @@ class SeatTrace:
         self.policy = policy
         self.history = None
         self.board = None
+        self.board_layout = None
         self.obs = None
         self.thought = opening_thought(MemoryMap(), thought_budget)
         self.previous_operation = Op.START
@@ -228,21 +233,28 @@ class SeatTrace:
         return self._graph_input[1]
 
     @torch.inference_mode()
-    def observe(self, revision: int, obs: dict[str, Tensor]):
+    def observe(self, revision: int, obs: dict[str, Tensor], *, layout=None):
         if self.pending is not None:
             raise ValueError("commit the pending action against its original observation")
         if self.board is not None and self.board.revision == revision:
             return
         if obs["globals"].shape[0] != 1:
             raise ValueError("a trace owns exactly one seat")
-        current = {k: v.to(device=self.device, copy=True, non_blocking=True) for k, v in obs.items()}
-        board = self.policy.snapshot(current, revision, self.board)
+        if layout is None:
+            current = {k: v.to(device=self.device, copy=True, non_blocking=True) for k, v in obs.items()}
+            board = self.policy.snapshot(current, revision, self.board)
+        else:
+            current, board = reproduce_snapshot(self.policy, obs, revision, layout)
+        self.accept_snapshot(revision, obs, current, board, layout)
+
+    def accept_snapshot(self, revision, obs, current, board, layout):
+        self.board_layout = layout
         _, history, _ = self.policy.observation_event(board, self.history)
         self.candidate_mask = obs["cand_mask"].detach().to(device="cpu", copy=True)
         self.board, self.obs, self.history = board, current, history
         if self.recording:
             self.observations.append(revision, obs)
-            self.records.append(Record(Event.OBSERVATION, revision))
+            self.records.append(Record(Event.OBSERVATION, revision, board_layout=layout))
 
     @torch.inference_mode()
     def add_event(self, kind: Event, visible_payload: Tensor):
@@ -276,19 +288,26 @@ class SeatTrace:
     def _scores(logits, value, index):
         return tuple(torch.stack((logits.float().log_softmax(dim=-1)[index], value.reshape(()))).tolist())
 
+    def history_query(self, operation, position):
+        query, _ = self.policy.history_query(self._map(self.thought.graph), self._number(operation),
+                                             self._number(position), self.board, self.history)
+        return query
+
     @torch.inference_mode()
-    def score_thought(self):
+    def score_thought(self, *, decoder_row=None):
         if self.board is None or self.thought.closed or self.pending is not None:
             raise ValueError("a current snapshot and an open thought step are required")
-        hidden, next_cache, _ = self.policy.decode(
-            self._map(self.thought.graph), self._number(self.previous_operation),
-            self._number(self.thought.writes), self.board, self.history, self.decoder_cache)
+        query = self.history_query(self.previous_operation, self.thought.writes)
+        hidden, cache = reproduce_decode(self.policy, query, self.board, self.decoder_cache, decoder_row)
+        return self.accept_thought(hidden, cache, decoder_row)
+
+    def accept_thought(self, hidden, cache, decoder_row):
         mask = thought_mask(self.thought, self.thought_budget)
         if mask not in self._thought_masks:
             self._thought_masks[mask] = torch.tensor(mask, dtype=torch.bool, device=self.device)
         logits = self.policy.thought_logits(hidden[0, 0], self._thought_masks[mask])
         value = self.policy.estimate_value(hidden[0, 0]) if self.recording else None
-        self.pending = _ThoughtPending(logits, next_cache, value)
+        self.pending = _ThoughtPending(logits, cache, value, decoder_row)
         return logits
 
     @torch.inference_mode()
@@ -310,7 +329,7 @@ class SeatTrace:
         if self.recording:
             logp, value = scores if scores is not None else self._scores(pending.logits, pending.value, operation)
             self.records.append(Record(Event.THOUGHT, revision, operation, updated.graph, updated.writes, logp,
-                                       value=value))
+                                       value=value, decoder_row=pending.row))
         if forced:
             # The engine's switch is an event, not a policy choice, and carries no probability.
             _, self.history, _ = self.policy.thought_event(
@@ -329,9 +348,9 @@ class SeatTrace:
     def game_embedding(self):
         if self.board is None or not self.thought.closed:
             raise ValueError("finish thought before scoring game actions")
-        hidden, _, _ = self.policy.decode(
-            self._map(self.thought.graph), self._number(Op.GAME),
-            self._number(0), self.board, self.history, self.decoder_cache)
+        query = self.history_query(Op.GAME, 0)
+        row = None if self.board_layout is None else self.board_layout.row
+        hidden, _ = reproduce_decode(self.policy, query, self.board, self.decoder_cache, row)
         return hidden[:, 0]
 
     @torch.inference_mode()
@@ -339,7 +358,11 @@ class SeatTrace:
         if self.pending is not None:
             raise ValueError("commit the pending decision first")
         state = self.game_embedding()
-        logits = self.policy.action_logits(state, self.obs, self.board)
+        logits = reproduce_action_logits(self.policy, state, self.obs, self.board, self.board_layout)
+        return self.accept_game(state, logits)
+
+    def accept_game(self, state, logits):
+        logits = logits[:, :self.candidate_mask.shape[1]]
         value = self.policy.estimate_value(state) if self.recording else None
         self.pending = _GamePending(logits, value, state)
         return logits, value

@@ -224,9 +224,7 @@ class Policy(nn.Module):
         # A copy keeps the latest state from pinning a complete inference input chunk.
         return x, History(tuple(states), cache, x[:, -1:].clone()), loss
 
-    def decode(self, graph: Tensor, previous_operation: Tensor, write_count: Tensor,
-               board: Snapshot, history: History | None, previous: tuple[KV, ...] | None = None,
-               *, sparse: bool = True, distill: bool = False):
+    def history_query(self, graph, previous_operation, write_count, board, history, *, sparse=True, distill=False):
         x = self.encode_graph(graph) + self.operation(previous_operation) + self.thought_position(write_count)
         query = x + board.global_token
         loss = None
@@ -235,6 +233,13 @@ class Policy(nn.Module):
             x, loss = self.sparse.read(query + history.latest, history.sparse, sparse=sparse, distill=distill)
         else:
             x = query
+        return x, loss
+
+    def decode(self, graph: Tensor, previous_operation: Tensor, write_count: Tensor,
+               board: Snapshot, history: History | None, previous: tuple[KV, ...] | None = None,
+               *, sparse: bool = True, distill: bool = False):
+        x, loss = self.history_query(graph, previous_operation, write_count, board, history,
+                                     sparse=sparse, distill=distill)
         x, states = self.decode_tokens(x, board, previous)
         return x, states, loss
 
