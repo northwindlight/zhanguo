@@ -50,3 +50,18 @@ CPU 融合注意力在这台机的单局延迟最低。短注意力交给 CPU �
 单独对照 GPU 频率时，混合路径动态频率用时 10.40 秒，固定 585 MHz 用时 9.69 秒。固定频率也复现了试验性 IREE 整图的 `VK_ERROR_DEVICE_LOST`。同一个针对 Adreno 编译的整图模块在 llvmpipe 上也输出错误，通用目标则可运行但与 PyTorch 存在差异。正式 Vulkan 路径继续使用已校验的 ncnn SDPA。
 
 [ncnn Vulkan SDPA 实现](https://github.com/Tencent/ncnn/blob/20261020/src/layer/vulkan/sdpa_vulkan.cpp)
+
+## GPU 后端进一步诊断
+
+[IREE LayerNorm 最小复现](diagnostics/iree-layernorm/)使用无仿射权重的一层 LayerNorm，输入只有两行 192 维数据。IREE 3.14.0 的 Adreno 配置按 64 线程生成归约，却没有声明运行时要求；raphael 上 Turnip 默认使用 128。仅补上要求 64 的管线元数据，原 SPIR-V 逐字节相同，误差从 0.382 降至 1.19×10⁻⁷。另一个独立问题是编译器输出的 SPIR-V 1.3 使用了未声明扩展的 `NoSignedWrap`；只改版本头能通过验证，数值错误照常复现。
+
+这是单算子的定位。整图 O2 给九个 subgroup reduction 都补充 64 的要求后仍发生 `VK_ERROR_DEVICE_LOST`。改用 128 目标时，O0/O1 的棋盘输出最大绝对差约 4.87×10⁻³，O2 的部分 kernel 超过 32 KiB 工作组共享内存限制。
+
+### MNN Vulkan 同回合对照
+
+MNN 3.6.2 从源码启用 Vulkan buffer 后端，用 FP32 高精度运行四层棋盘编码器；其余推理沿用现有 CPU 实现。使用第 144 局的相同 PPO 权重、24×24 地图、种子 640020 与四个大核。各路径单跑两次取中位数；配对校验单独运行并完成 53 次决策，两种 MNN 模型与 CPU 的最高分选项均一致。算子回调确认棋盘算子在 Adreno 上执行，融合图包含四个 Vulkan Attention 算子。
+
+| 棋盘测试图 | 对应 PyTorch CPU 对照 | MNN Vulkan | 最大分数误差 |
+| --- | ---: | ---: | ---: |
+| 普通转换图 | 5.75 秒 | 26.51 秒 | 3.3e-05 |
+| 原生 Attention 融合图 | 6.00 秒 | 47.47 秒 | 2.5e-05 |
