@@ -18,18 +18,22 @@ def kernel_ref(start):
     return KERNEL if start == 0 else f"{KERNEL}-from-{start:04}"
 
 
+def campaign_sources(output):
+    # Both execution modes implement the same reward rule. Preserve pre-migration bundles.
+    files = output/"campaign-gdp60-land-v1.zip"
+    if not files.exists():
+        bundle = source_bundle(("thought_ppo.py", "replay.py", "parallel_ppo.py", "batched_rollout.py", "land_reward.py"))
+        temp = files.with_suffix(".partial")
+        temp.write_bytes(bundle)
+        temp.replace(files)
+    return files.read_bytes()
+
+
 def package(output, start, stop, parent, execution=None):
     stage = output/"kernel"
     stage.mkdir(exist_ok=True)
     template = (HERE/"kaggle_thought_ppo.py").read_text()
-    # An opt-in run may continue a campaign whose original bundle predates these flags.
-    files = output/("campaign-parallel-code.zip" if execution else "campaign-code.zip")
-    if not files.exists():
-        bundle = source_bundle(("thought_ppo.py", "replay.py", "parallel_ppo.py", "batched_rollout.py"))
-        temp = files.with_suffix(".partial")
-        temp.write_bytes(bundle)
-        temp.replace(files)
-    fields = dict(SOURCES=b64encode(files.read_bytes()).decode(), PARENT_SHA=parent["sha256"],
+    fields = dict(SOURCES=b64encode(campaign_sources(output)).decode(), PARENT_SHA=parent["sha256"],
                   PARENT_NAME=parent["checkpoint"], START=start, STOP=stop, EXECUTION=execution)
     for name, value in fields.items():
         template = template.replace(f"{name} = None\n", f"{name} = {value!r}\n", 1)

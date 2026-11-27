@@ -15,6 +15,7 @@ from torch.nn import functional as F
 from bc_train import atomic_save, emit, publish, sha
 from evaluate_thought import SCALE, territory_gdp
 from history import DeltaState, SparseCache
+from land_reward import RULE as LAND_REWARD_RULE, LandRewardSchedule
 from memory_map import Op
 from model import Event, History, Policy
 from native_eval import Engine
@@ -24,7 +25,7 @@ from rollout_trace import GameRecord, ObservationArchive, SeatTrace
 WINDOW_GAMES = 8
 
 CONTRACT = dict(thought_budget=[8, 30], retain_thought_kv=False, actor_observation_gdp="nominal_only",
-                reward="nominal_gdp+territory_holding", reward_scale=SCALE,
+                reward="nominal_gdp+territory_holding", reward_scale=SCALE, land_reward_schedule=LAND_REWARD_RULE,
                 clock="global_events", gamma=1., gae_lambda=1., game_sequences=[2, 4],
                 coverage="all_turns_all_decisions", window_games=WINDOW_GAMES,
                 replay="window_truncated_with_behavior_prefix", seats=4, shared_policy=True,
@@ -107,14 +108,14 @@ def training_windows(trace, starts, returns, rng):
     return result
 
 
-def returns_from_events(events):
+def returns_from_events(events, land_weight=1.0):
     """Reverse the global event clock, with an independent reward channel per country."""
     returns, accumulated = [{}, {}, {}, {}], [0., 0., 0., 0.]
     for kind, data in reversed(events):
         if kind == "settlement":
             for seat, row in enumerate(data):
                 accumulated[seat] += (row["nominal_gdp"] +
-                                      territory_gdp(max(0, row["land"] - row["initial_land"]))) / SCALE
+                                      land_weight * territory_gdp(max(0, row["land"] - row["initial_land"]))) / SCALE
         else:
             seat, record = data
             if record is None:
@@ -125,7 +126,7 @@ def returns_from_events(events):
     return returns
 
 
-def world_steps(policy, library, seed, size, turns):
+def world_steps(policy, library, seed, size, turns, land_weight=1.0):
     """Yield one native game decision request at a time, keeping each seat trajectory private."""
     start_time = time.monotonic()
     rng = random.Random(seed)
@@ -182,7 +183,7 @@ def world_steps(policy, library, seed, size, turns):
                 period = settled
         final = world.result()
 
-    targets = returns_from_events(events)
+    targets = returns_from_events(events, land_weight)
     for seat, trace in enumerate(traces):
         if open_window[seat] is not None:
             start, opening, graph, game_phase = open_window[seat]
@@ -223,8 +224,8 @@ def serial_decision(request):
 
 
 @torch.inference_mode()
-def rollout(policy, library, seed, size, turns):
-    generator = world_steps(policy, library, seed, size, turns)
+def rollout(policy, library, seed, size, turns, land_weight=1.0):
+    generator = world_steps(policy, library, seed, size, turns, land_weight)
     try:
         request = next(generator)
         while True:
@@ -432,7 +433,7 @@ def optimize(policy, windows, actor, critic, args, seed, group=None):
     return rows
 
 
-def sample_batch(pool, policies, seeds, args):
+def sample_batch(pool, policies, seeds, args, land_weight):
     parallel = len(policies) * args.rollouts_per_device
     sample_world = rollout if args.rollouts_per_device == 1 else rollout_on_stream
     windows, statistics_rows = [], []
@@ -441,14 +442,14 @@ def sample_batch(pool, policies, seeds, args):
         if args.batch_inference:
             from batched_rollout import rollout_worlds
             jobs = [(i, pool.submit(rollout_worlds, policy_copy, args.library,
-                                    wave[i::len(policies)], args.size, args.turns))
+                                    wave[i::len(policies)], args.size, args.turns, land_weight))
                     for i, policy_copy in enumerate(policies) if i < len(wave)]
             results = [None] * len(wave)
             for i, job in jobs:
                 results[i::len(policies)] = job.result()
         else:
             jobs = [pool.submit(sample_world, policies[i % len(policies)], args.library, seed,
-                                args.size, args.turns) for i, seed in enumerate(wave)]
+                                args.size, args.turns, land_weight) for i, seed in enumerate(wave)]
             results = [job.result() for job in jobs]
         for selections, row in results:
             windows.extend(selections)
@@ -471,12 +472,8 @@ def train(args, group=None):
     if not state.get("value_warmup", {}).get("accepted"):
         raise ValueError("Expected the validated value warmup checkpoint")
     completed = state.get("games", 0)
-    if "contract" in state:
-        expected = dict(CONTRACT, size=args.size, turns=args.turns, seed=args.seed)
-        if state["contract"] != expected or state["lr"] != args.lr:
-            raise ValueError("PPO continuation changed the task contract")
-    else:
-        state["contract"] = dict(CONTRACT, size=args.size, turns=args.turns, seed=args.seed)
+    contract = dict(CONTRACT, size=args.size, turns=args.turns, seed=args.seed)
+    land_schedule = LandRewardSchedule.from_checkpoint(state, args.checkpoint, contract, args.lr)
     initial = state.get("initial_sha256") or sha(args.checkpoint)
     policies = [Policy().to(device).eval() for device in local_devices]
     for policy in policies:
@@ -490,8 +487,9 @@ def train(args, group=None):
             opt.load_state_dict(state[name])
     args.output.mkdir(parents=True, exist_ok=True)
     if leader:
-        emit("ppo_started", start=completed, target=args.stop_games, devices=devices, contract=state["contract"],
-             update_workers=1 if group is None else group.size, batch_inference=args.batch_inference)
+        emit("ppo_started", start=completed, target=args.stop_games, devices=devices, contract=contract,
+             update_workers=1 if group is None else group.size, batch_inference=args.batch_inference,
+             rolling_final_gdp=land_schedule.rolling_gdp, land_triggered_at=land_schedule.triggered_at)
 
     sample_threads = len(policies) if args.batch_inference else len(policies) * args.rollouts_per_device
     with ThreadPoolExecutor(max_workers=sample_threads) as pool:
@@ -505,7 +503,8 @@ def train(args, group=None):
                 end = (batch_size * (group.rank + 1)) // group.size
                 seeds = seeds[begin:end]
             sampled_at = time.monotonic()
-            windows, statistics_rows = sample_batch(pool, policies, seeds, args)
+            land_weight = land_schedule.weight(completed + batch_size)
+            windows, statistics_rows = sample_batch(pool, policies, seeds, args, land_weight)
             counts = coverage(windows)
             window_count = len(windows)
             if group is not None:
@@ -515,13 +514,14 @@ def train(args, group=None):
             sample_seconds = time.monotonic() - sampled_at
             if leader:
                 emit("ppo_coverage", games=completed + batch_size, windows=window_count,
-                     sample_seconds=sample_seconds, **counts)
+                     sample_seconds=sample_seconds, land_reward_weight=land_weight, **counts)
             update_at = time.monotonic()
             rows = optimize(policy, windows, actor, critic, args, args.seed + completed, group)
             update_seconds = time.monotonic() - update_at
             if not any(row["accepted"] for row in rows):
                 raise RuntimeError("No accepted actor update in this PPO batch")
             completed += batch_size
+            land_schedule = land_schedule.after_batch(completed, statistics_rows)
             if not leader:
                 # Keep the next collection behind the durable checkpoint boundary on rank zero.
                 torch.distributed.barrier()
@@ -529,12 +529,13 @@ def train(args, group=None):
             out = args.output / f"games-{completed:04}.pt"
             atomic_save(out, dict(model=policy.state_dict(), actor_optimizer=actor.state_dict(),
                                   critic_optimizer=critic.state_dict(), games=completed,
-                                  contract=state["contract"], lr=args.lr, initial_sha256=initial,
+                                  contract=contract, lr=args.lr, initial_sha256=initial, land_reward=land_schedule.state_dict(),
                                   value_warmup=state["value_warmup"]))
             summary = dict(games=completed, checkpoint=out.name, sha256=sha(out),
-                           initial_sha256=initial, metrics=statistics_rows, ppo=rows,
+                           initial_sha256=initial, metrics=statistics_rows, ppo=rows, land_reward=land_schedule.state_dict(),
+                           land_reward_weight=land_weight, rolling_final_gdp=land_schedule.rolling_gdp,
                            sample_seconds=sample_seconds, update_seconds=update_seconds,
-                           contract=state["contract"])
+                           contract=contract)
             publish(args.output / f"games-{completed:04}.json", summary)
             publish(args.output / "state.json", summary)
             emit("ppo_batch_complete", **summary)

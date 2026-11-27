@@ -67,11 +67,11 @@ def batch_decisions(policy, requests):
 
 
 @torch.inference_mode()
-def rollout_worlds(policy, library, seeds, size, turns):
+def rollout_worlds(policy, library, seeds, size, turns, land_weight=1.0):
     """Sample independent adaptive PPO games on one device with retain_thought_kv=False."""
     from thought_ppo import serial_decision, world_steps
 
-    generators = [world_steps(policy, library, seed, size, turns) for seed in seeds]
+    generators = [world_steps(policy, library, seed, size, turns, land_weight) for seed in seeds]
     results = [None] * len(generators)
     pending = {}
     try:

@@ -1,5 +1,6 @@
 """Exercise the full-coverage sampler and update on the native four-country game."""
 import argparse
+import math
 import random
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,7 +10,35 @@ import torch
 import thought_ppo as ppo
 
 
+def verify_land_reward():
+    from land_reward import FADE_GAMES, LandRewardSchedule, WINDOW
+
+    # Even a high lifetime (or shaped) GDP cannot trigger the terminal nominal GDP rule.
+    schedule = LandRewardSchedule()
+    for completed in range(1, WINDOW + 1):
+        schedule = schedule.after_batch(completed, [dict(final_nominal_gdp=59., nominal_gdp=100.)])
+    assert schedule.triggered_at is None and schedule.weight(WINDOW + 4) == 1.
+    batch = [dict(final_nominal_gdp=63.)] * 4
+    trigger = WINDOW + 4
+    schedule = schedule.after_batch(trigger, batch)
+    assert schedule.triggered_at == trigger and schedule.rolling_gdp == 60.
+    assert schedule.weight(trigger + 4) == .98
+    dipped = schedule.after_batch(trigger + 4, [dict(final_nominal_gdp=1.)] * 4)
+    checkpoint = dict(games=trigger + 4, contract=ppo.CONTRACT, lr=1e-4, land_reward=dipped.state_dict())
+    resumed = LandRewardSchedule.from_checkpoint(checkpoint, None, ppo.CONTRACT, 1e-4)
+    assert resumed == dipped and resumed.triggered_at == trigger
+    assert [resumed.weight(trigger + n) for n in (100, FADE_GAMES, FADE_GAMES + 4)] == [.5, 0., 0.]
+
+    seats = [dict(nominal_gdp=12., land=n, initial_land=5) for n in (7, 6, 5, 4)]
+    events = [("game", (seat, 0)) for seat in range(4)] + [("settlement", seats)]
+    for weight in (1., .5, 0.):
+        returns = ppo.returns_from_events(events, weight)
+        for values, bonus in zip(returns, (15, 10, 0, 0)):
+            assert math.isclose(values[0] * ppo.SCALE, 12 + weight * bonus)
+
+
 def verify(library, checkpoint):
+    verify_land_reward()
     torch.set_num_threads(2)
     torch.backends.mha.set_fastpath_enabled(False)
     policy = ppo.Policy().eval()
