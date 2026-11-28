@@ -56,6 +56,25 @@ class TestOrchestration(unittest.TestCase):
         self.addCleanup(patch.stopall)
         patch('clients.llm.make_backend',side_effect=backend).start()
 
+    def test_minister_receives_game_rules_and_opening_guide_in_first_model_request(self):
+        openings = {
+            'zh-CN': ('回合制战略游戏', '只有君主有权制定和修订国策', '市政厅会亡国', '从下回合开始生产', '【开局指南】'),
+            'en-US': ('turn-based strategy game', 'Only the monarch can issue or revise', 'no completed town hall', 'first produce next turn', 'OPENING GUIDE'),
+        }
+        for language, expected in openings.items():
+            with self.subTest(language=language):
+                options = cfg()
+                options['language'] = language
+                host = GameHost.new(options)
+                self.minister.responses = [reply(call('ask','ask_monarch',reason='Request first policy')),
+                                           reply(call('end','end_turn',summary='Ready to begin'))]
+                self.monarch.responses = [reply(call('policy','plan',**POLICY))]
+                host.cycle()
+                first_prompt = self.minister.requests[-2][0]['content']
+                for phrase in (*expected,'query(panel=manual, doc=basics)','ask_monarch'):
+                    self.assertIn(phrase,first_prompt)
+                self.assertNotIn(expected[-1],self.monarch.requests[-1][0]['content'])
+
     def test_roles_share_a_view_and_audit_receipts_without_crossing_conversations(self):
         host=GameHost.new(cfg());player=host.player(QIN)
         host.player(CHU).submit('plan',{'text':'外国私有国策'})
