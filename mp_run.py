@@ -19,6 +19,8 @@ from clients.config import require_model_fields, model_issues
 
 CONSOLE=None
 ANSI_ESCAPE=re.compile(r'\033\[[0-9;]*m')
+MODEL_PROTOCOLS={'openai':'OpenAI Chat Completions','responses':'OpenAI Responses',
+                 'anthropic':'Anthropic Messages','gemini':'Gemini API'}
 
 
 def report_faults(host,observer,ui,journal_path):
@@ -76,10 +78,54 @@ class Observer:
         # 看海时最常问的两件事：现在是谁在行动、他为什么这么做。
         # (period,actor) 作键：同一国跨回合连续行动时也要重新打抬头。
         self.current_actor=None;self.started_at=0;self.show_thinking='brief';self.last_thinking=''
+        self.model_contexts={};self.consultations={}
         self.settlement_period=None
         # 完整思考另存一份：日志只保留结论和回执，免得一局几千行全是内心戏。
         self.thoughts=Path(journal_path).with_suffix('.thoughts.md')
     def names(self):return {a:r['name'] for a,r in self.host.roster.items()}
+    def role_marker(self,actor,period=None):
+        info=self.model_contexts.get(actor)
+        if info is None or info['period']!=(self.host.clock() if period is None else period):return ''
+        role=info['role']
+        if role=='minister':return self.ui.text('console.role_minister')
+        if role in ('monarch','governing_monarch'):return self.ui.text('console.role_monarch')
+        return ''
+    def actor_label(self,actor):
+        name=self.host.roster[actor]['name']
+        role=self.role_marker(actor)
+        return f'{role} {name}' if role else name
+    def show_model_context(self,actor,info,*,journal=True):
+        protocol=MODEL_PROTOCOLS.get(info['protocol'],info['protocol'])
+        label=self.actor_label(actor)
+        identity=self.ui.text('console.model_identity',actor=label,model=info['model'] or 'LLM',protocol=protocol)
+        heading=identity+'\n'+info['text'].replace('🧠 '+actor+' ','🧠 '+label+' ',1)
+        if journal:panel_note(self.path,heading,head=True)
+        elif CONSOLE is not None and CONSOLE.panel_on:CONSOLE.set_panel(head=heading)
+    def model_event(self,actor,event,fields):
+        if event=='context':
+            self.actor_start(actor)
+            if fields['role']=='monarch':
+                if self.pending.get(actor):self.flush(actor)
+                self.consultations[actor]=self.model_contexts.get(actor)
+                if CONSOLE is not None:CONSOLE.clear_panel()
+            self.model_contexts[actor]=fields
+            self.show_model_context(actor,fields)
+        elif event=='resume' and actor in self.consultations:
+            context=self.consultations.pop(actor)
+            if context is not None:
+                self.model_contexts[actor]=context
+                if CONSOLE is not None:CONSOLE.clear_panel()
+                self.show_model_context(actor,context,journal=False)
+        elif event=='request':
+            role=self.model_contexts[actor]['role']
+            key='console.model_deliberating' if role=='monarch' else 'console.model_waiting'
+            text=self.ui.text(key,actor=self.actor_label(actor),**fields)
+            if CONSOLE is not None and CONSOLE.panel_on:CONSOLE.set_panel(note=text)
+            else:echo_line(text)
+        elif event=='text':self.model_output(fields['text'])
+        elif event=='receipt':self.result(actor,fields['action'],fields['arguments'],fields['receipt'])
+        elif event=='batch':self.on_call(actor,fields['step'],fields['receipts'])
+
     def snapshot(self):
         method=getattr(self.host,'observer_snapshot',None)
         if not callable(method):raise ValueError(self.ui.text('console.unsupported',name='observer_snapshot'))
@@ -99,7 +145,8 @@ class Observer:
             to_journal(self.path,text)
             return
         # Preserve speech and reasoning in the journal; reasoning may be folded on screen.
-        for actor,name in self.names().items():
+        for actor in self.host.roster:
+            name=self.actor_label(actor)
             for icon in ('🗣','💭','🧠','⚠','⏳'):
                 text=text.replace(icon+' '+actor+' ',icon+' '+name+' ',1)
         if text.startswith('💭'):
@@ -154,7 +201,8 @@ class Observer:
                 if callable(clear):clear()
                 self.line(self.ui.text('console.settlement_start',period=period))
         else:self.actor_start(actor)
-        self.pending.setdefault(actor,[]).append((action,arguments,receipt))
+        role=self.role_marker(actor,receipt.get('period'))
+        self.pending.setdefault(actor,[]).append((action,arguments,receipt,role))
         automatic_march=receipt.get('automatic')=='march_orders'
         if self.host.clients[actor].kind=='rule' or automatic_march:
             self.flush(actor)
@@ -174,18 +222,19 @@ class Observer:
         # no longer has a player view and must not be queried for one.
         if callable(remember) and actor in self.host.actors():
             remember(self.host.player(actor).observe())
-        for action,args,receipt in self.pending.pop(actor,[]):
+        for action,args,receipt,role in self.pending.pop(actor,[]):
             # Settlement receipts may be flushed after the clock advances.
             period=receipt.get('period')
             if type(period) is not int:period=self.host.clock()
             full=self.ui.console.action(period,actor,action,args,receipt,self.names())
+            if role:full=role+' '+full
             to_journal(self.path,full)
             preview=getattr(self.ui.console,'preview',None)
             echo_line(preview(full,action=action) if callable(preview) else full)
 
     def on_call(self,actor,step,receipts):
         self.actor_start(actor)
-        self.line(self.ui.text('console.call',actor=self.host.roster[actor]['name'],count=step+1));self.flush(actor)
+        self.line(self.ui.text('console.call',actor=self.actor_label(actor),count=step+1));self.flush(actor)
         self.action_events()
         if not _commands(self.host,self):self.stop_requested=True
         if any(r.get('action')=='end_turn' and r.get('ok') for r in receipts):self.actor_finish(actor)
@@ -491,7 +540,7 @@ def run(argv=None):
             if observer.stop_requested:break
             observer.show_overview()
             host.cycle(on_result=observer.result,emit=observer.model_output,
-                       head=observer.context_head,on_call=observer.on_call)
+                       head=observer.context_head,on_call=observer.on_call,on_model=observer.model_event)
             # A completed cycle is durable before any observer formatting runs.
             # Display failures must not roll back already settled world state.
             host.save(save_path)

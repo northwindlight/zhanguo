@@ -78,7 +78,7 @@ class Session:
         self.audit=[];self._audit_next=1;self._audit_stream=uuid.uuid4().hex;self._audit_archived={};self.generations={};self.contexts={};self.services={}
         # 模块内部异常（internal_fault）：本局运行期的故障日志，不进存档。
         self.faults=[]
-        self._callbacks=None;self._emit=None
+        self._callbacks=None;self._emit=None;self._model_observer=None
         for item in self.entries():
             policy=runtime.find_policy(item.get('polity')) if item.get('polity') else None
             if item.get('polity') and policy is None:raise ValueError('Configured scope module is not loaded')
@@ -397,6 +397,11 @@ class Session:
             handler=getattr(service,'record_dialogue',None)
             if handler:handler(player,wire(messages))
 
+    def report_model(self,actor,event,fields):
+        if self._model_observer is None:return False
+        with self.lock:self._model_observer(actor,event,wire(fields))
+        return True
+
     def before_actor(self, player):
         """Distribution action-start work; truthy requests a presentation flush."""
         return False
@@ -408,10 +413,10 @@ class Session:
         their effects only become visible after the turn is resolved."""
         pass
 
-    def cycle(self,*,on_result=None,emit=None,head=None,on_call=None,on_stream=None,on_batch=None,on_human=None):
+    def cycle(self,*,on_result=None,emit=None,head=None,on_call=None,on_stream=None,on_batch=None,on_human=None,on_model=None):
         if self.victory_event is not None:raise ValueError('Game has ended with a victory event')
         self.scheduled();receipts=[];self._boundary=False
-        self._callbacks=on_result;self._emit=emit
+        self._callbacks=on_result;self._emit=emit;self._model_observer=on_model
         try:
             if self._human_parallel(on_human,on_batch):
                 receipts.extend(self._cycle_human_parallel(emit,head,on_call,on_stream,on_batch,on_human))
@@ -440,7 +445,7 @@ class Session:
                 if settled:settled(self.player(actor))
             self.last_results=receipts;self._boundary=True
             return receipts
-        finally:self._callbacks=None;self._emit=None
+        finally:self._callbacks=None;self._emit=None;self._model_observer=None
 
     def _parallel_action(self,on_batch,on_human):
         """无真人时是否并发行动期；只有显式 planning_workers>1 才启用。

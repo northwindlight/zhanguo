@@ -1,5 +1,6 @@
 """Opt-in monarch/minister turns over the real session and mock endpoints."""
 from pathlib import Path
+from queue import Queue
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -8,6 +9,7 @@ from clients.llm import assert_paired
 from clients.provider import EndpointError
 from engine.config import ConfigError, require_ready
 from host import GameHost
+from mp_run import Observer
 from tests.test_player_clients import FakeBackend, call
 
 
@@ -74,6 +76,48 @@ class TestOrchestration(unittest.TestCase):
                 for phrase in (*expected,'query(panel=manual, doc=basics)','ask_monarch'):
                     self.assertIn(phrase,first_prompt)
                 self.assertNotIn(expected[-1],self.monarch.requests[-1][0]['content'])
+
+    def test_observer_shows_deliberation_receipts_and_switches_model_protocol(self):
+        host=GameHost.new(cfg())
+        self.minister.responses=[
+            reply(call('buy','economy',action='buy',resource='wood',quantity=1),
+                  call('ask','ask_monarch',reason='请确定本国路线')),
+            reply(call('accept','decide_control',accept=True),call('end','end_turn',summary='本期市场交易已经完成')),
+        ]
+        self.monarch.responses=[
+            reply(call('army','query',panel='army'),call('bad','query',panel='missing')),
+            reply(call('ask','request_control',reason='下期主持建设'),call('plan','plan',**POLICY)),
+            reply(call('buy','economy',action='buy',resource='wood',quantity=2),
+                  call('end','end_turn',summary='任内已实施采购')),
+        ]
+
+        class Panel:
+            panel_on = True
+            queue = Queue()
+            def __init__(self):self.heads=[];self.notes=[];self.screen=[]
+            def set_panel(self,*,head=None,note=None):
+                if head:self.heads.append(head)
+                if note:self.notes.append(note)
+            def clear_panel(self):pass
+            def write(self,text):self.screen.append(text)
+
+        panel=Panel()
+        with TemporaryDirectory() as directory,patch('mp_run.CONSOLE',panel):
+            observer=Observer(host,Path(directory)/'journal.md')
+            for _ in range(2):
+                host.cycle(on_model=observer.model_event,on_call=observer.on_call,
+                           on_result=observer.result,emit=observer.model_output)
+            journal=observer.path.read_text(encoding='utf-8')
+        self.assertIn('[首辅] 秦 · 模型 minister-a · 协议 OpenAI Chat Completions',panel.heads[0])
+        self.assertIn('[君主] 秦 · 模型 monarch-b · 协议 Anthropic Messages',panel.heads[1])
+        self.assertEqual(panel.heads[0],panel.heads[2])
+        self.assertTrue(any('[君主] 秦 议事中，第 2/20 次调用' in note for note in panel.notes))
+        self.assertIn('◈ [君主] 秦 第 1 次调用',journal)
+        self.assertIn('[君主] [0·行动] 秦 ◇ 军队',journal)
+        self.assertIn('[君主] [0·行动] 秦 ◇ query panel=missing',journal)
+        self.assertIn('[首辅] [0·行动] 秦 ◇ 购入 木头×1',journal)
+        self.assertIn('[君主] [1·行动] 秦 ◇ 购入 木头×2',journal)
+        self.assertEqual(journal.count('先发展后择机'),2)  # Published receipt and the separate help result.
 
     def test_roles_share_a_view_and_audit_receipts_without_crossing_conversations(self):
         host=GameHost.new(cfg());player=host.player(QIN)

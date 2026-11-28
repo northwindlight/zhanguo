@@ -106,21 +106,35 @@ class MonarchClient(LLMClient):
         self.had_valid_plan = bool(policy and policy['valid_until']>=self.period)
         self.published = None
         self.proposal = None
-        def progress(step, _receipts):
-            emit(self.ui.text('orchestration.progress',actor=player.actor,step=step+1,limit=MONARCH_STEPS))
-        self.play(player, max_steps=MONARCH_STEPS, on_call=progress if emit else None)
+        self._submitted_plan_receipt = None
+        def progress(step, receipts):
+            report=getattr(player,'report_model',None)
+            shown=report and report('batch',step=step,receipts=receipts)
+            if not shown and emit:emit(self.ui.text('orchestration.progress',actor=player.actor,step=step+1,limit=MONARCH_STEPS))
+        self.play(player,max_steps=MONARCH_STEPS,on_call=progress,
+                  on_result=lambda action,args,receipt:self._report_receipt(player,action,args,receipt))
         return self.published, self.proposal if self.published or self.had_valid_plan else None
 
-    def govern(self, player, term, *, max_steps=None, **callbacks):
+    def govern(self, player, term, *, max_steps=None, on_result=None, **callbacks):
         self.period = player.query('government')['period']
         self.published = None
+        self._submitted_plan_receipt = None
         self.term = term
         self.ui.role = 'governing_monarch'
+        def result(action,args,receipt):
+            if action in ('plan','action_log'):self._report_receipt(player,action,args,receipt)
+            if on_result:on_result(action,args,receipt)
         try:
-            return self.play(player,max_steps=MONARCH_STEPS if max_steps is None else max_steps,**callbacks)
+            return self.play(player,max_steps=MONARCH_STEPS if max_steps is None else max_steps,on_result=result,**callbacks)
         finally:
             self.term = None
             self.ui.role = 'monarch'
+
+    def _report_receipt(self,player,action,args,receipt):
+        # A bound policy submission already reaches the observer through Session.record.
+        report=getattr(player,'report_model',None)
+        if report and receipt is not self._submitted_plan_receipt:
+            report('receipt',action=action,arguments=args,receipt=receipt)
 
     def _completion_action(self):return 'end_turn' if self.term else 'plan'
 
@@ -186,6 +200,7 @@ class MonarchClient(LLMClient):
             if action=='plan':
                 if self.published is not None:raise ValueError(self.ui.text('orchestration.already_published'))
                 receipt = self.publish(player,self.period,{'text':self._policy_text(arguments)})
+                self._submitted_plan_receipt = receipt
                 if receipt['ok']:self.published = receipt
                 return receipt
             if action=='action_log':
@@ -336,6 +351,9 @@ class OrchestratedClient(LLMClient):
         except (EndpointError,TimeoutError) as exc:
             return local_receipt(player,period,'ask_monarch',self.ui.text('orchestration.endpoint',error=getattr(exc,'status_code',None) or type(exc).__name__,**budget),
                                  code='monarch_endpoint',data=budget)
+        finally:
+            report=getattr(player,'report_model',None)
+            if report:report('resume')
         if receipt is None and proposal is None:
             return local_receipt(player,period,'ask_monarch',self.ui.text('orchestration.no_plan',**budget),code='monarch_no_plan',data=budget)
         message = self.ui.text('orchestration.published') if receipt else ''
@@ -357,8 +375,11 @@ class OrchestratedClient(LLMClient):
                 if not isinstance(arguments,dict):raise ValueError(self.ui.text('orchestration.invalid_arguments'))
                 data = log_page(self.ui,self._handover_actions(),**arguments)
             except (ValueError,TypeError) as exc:
-                return local_receipt(player,period,action,str(exc),code='invalid_arguments')
-            return local_receipt(player,period,action,data=data)
+                receipt = local_receipt(player,period,action,str(exc),code='invalid_arguments')
+            else:receipt = local_receipt(player,period,action,data=data)
+            report=getattr(player,'report_model',None)
+            if report:report('receipt',action=action,arguments=arguments,receipt=receipt)
+            return receipt
         if action in ('ask_monarch','decide_control'):
             handler = self._ask if action=='ask_monarch' else self._decide_control
             receipt = handler(player,period,arguments)

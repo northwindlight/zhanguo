@@ -56,6 +56,11 @@ class BoundPlayer:
     @api_entry
     def rules(self, topic=''):return self.__session.raw_player(self.actor).rules(topic)
     @api_entry
+    def report_model(self,event,**fields):
+        """Notify the current session's optional model observer."""
+        return self.__session.report_model(self.actor,event,fields)
+
+    @api_entry
     def query(self, name, arguments=None):
         if name == 'player_state':
             if arguments is not None and not isinstance(arguments,dict):raise ValueError('Arguments must be an object')

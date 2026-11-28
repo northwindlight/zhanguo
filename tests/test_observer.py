@@ -194,7 +194,7 @@ class TestObserver(unittest.TestCase):
             observer.ui.console.remember(h.player(actor).observe())
             receipt=h.player(actor).submit('query',{'panel':'market'})
             self.assertTrue(receipt['ok'])
-            observer.pending[actor]=[('query',{'panel':'market'},receipt)]
+            observer.pending[actor]=[('query',{'panel':'market'},receipt,'')]
             capital=next(b for b in h.world.buildings.snapshot().instances
                          if h.world.buildings.site(b.site).owner==actor)
             h.world.buildings.demolish(actor,capital.id)
@@ -607,7 +607,7 @@ class TestObserver(unittest.TestCase):
             obs=Observer(h,Path(d)/'journal.md');obs.model_output('💭 s:q 静默保留思考\n第二行细节')
             self.assertIn('静默保留思考',out.getvalue())
             self.assertNotIn('第二行细节',out.getvalue())
-            obs.pending={'s:q':[('player_rules',{},receipt)]};obs.flush('s:q')
+            obs.pending={'s:q':[('player_rules',{},receipt,'')]};obs.flush('s:q')
             log=obs.path.read_text(encoding='utf-8');self.assertIn(full,log);self.assertNotIn('静默保留思考',log)
             thoughts=obs.thoughts.read_text(encoding='utf-8')
             self.assertIn('静默保留思考',thoughts);self.assertIn('第二行细节',thoughts)

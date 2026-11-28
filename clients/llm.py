@@ -250,8 +250,13 @@ class LLMClient:
         cache_key=self._cache_key(player)
         description=self.ui.context_plan(plan);hit=ctx.rolling_hit(cache_key)
         if hit is not None:description+=self.ui.text('context.observed',ratio=hit)
-        if head:head(self.ui.text('llm.context',actor=player.actor,plan=description))
-        elif emit:emit(self.ui.text('llm.context',actor=player.actor,plan=description))
+        heading=self.ui.text('llm.context',actor=player.actor,plan=description)
+        report=getattr(player,'report_model',None)
+        observed=report and report('context',text=heading,period=obs['period'],role=getattr(self.ui,'role','player'),
+                                   model=self.cfg.get('model') or '',protocol=str(self.cfg.get('provider') or 'openai').strip().lower())
+        if observed:emit=lambda message:report('text',text=message)
+        elif head:head(heading)
+        elif emit:emit(heading)
         start=len(messages)-1;receipts=[];ended=False;completion=self._completion_action()
         limit=int(max_steps if max_steps is not None else self.cfg.get('max_steps',28))
         if limit<1:raise ValueError('max_steps must be positive')
@@ -259,7 +264,8 @@ class LLMClient:
         if callable(note_step):note_step(0,limit)
         for step in range(limit):
             if callable(note_step):note_step(step+1,limit)
-            if emit:emit(self.ui.text('llm.request',actor=player.actor,count=step+1))
+            if observed:report('request',count=step+1,limit=limit)
+            elif emit:emit(self.ui.text('llm.request',actor=player.actor,count=step+1))
             def stream(event, **fields):
                 if on_stream:
                     try:on_stream(player.actor, {'event':event,'call':step+1,'period':obs['period'],**fields})
