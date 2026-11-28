@@ -20,10 +20,10 @@ def require_ready(cfg,*,runtime):
 
 
 def normalize(cfg,*,runtime,overrides):
+    from mods.experimental.assembly import NATIVE_FEATURES, ORCHESTRATION, selection
     if runtime.distribution.get('Id')=='native':
-        from mods.experimental.assembly import QUEUE_FEATURES, selection
-        enabled=selection({**cfg,**overrides},QUEUE_FEATURES)
-        if enabled!={key:runtime.feature_enabled(key) for key in QUEUE_FEATURES}:
+        enabled=selection({**cfg,**overrides},NATIVE_FEATURES)
+        if enabled!={key:runtime.feature_enabled(key) for key in NATIVE_FEATURES}:
             raise ConfigError('config.experimental_features: 与已装配的发行版不一致')
     cfg=SCENARIO.normalize(cfg,overrides=overrides)
     entries=cfg.get('nations')
@@ -40,6 +40,11 @@ def normalize(cfg,*,runtime,overrides):
         item['client']=item.get('client') or ('llm' if item.get('api_key',cfg.get('api_key')) else 'rule')
         if item['client'] not in runtime.distribution.get('ClientFactories',{}) and item['client'] not in ('llm','rule'):
             raise ConfigError(f'{path}.client: factory not declared')
+        if 'monarch' in item:
+            if item['client']!='llm' or not runtime.feature_enabled(ORCHESTRATION):
+                raise ConfigError(f'{path}.monarch: 仅启用君臣编排的 LLM 席位可以配置君主')
+            from clients.config import normalize as normalize_llm
+            item['monarch']=normalize_llm(item['monarch'],path=path+'.monarch')
         if item.get('enable_turn_max',item.get('enable_turn',0))<item.get('enable_turn',0):
             raise ConfigError(f'{path}.enable_turn_max: earlier than enable_turn')
         policy=runtime.find_policy(item['polity']) if item.get('polity') else None

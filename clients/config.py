@@ -69,8 +69,13 @@ def model_issues(cfg,*,path='config'):
     for index,nation in enumerate(nations):
         if not isinstance(nation,dict):continue
         if str(nation.get('client') or '').strip().lower()!='llm':continue
+        location=f'{path}.nations[{index}]'
+        name=nation.get('name') or ''
         missing=[key for key in MODEL_FIELDS if _placeholder(nation.get(key))]
-        if missing:issues.append((f'{path}.nations[{index}]',nation.get('name') or '',missing))
+        if missing:issues.append((location,name,missing))
+        if 'monarch' in nation:
+            missing=[key for key in MODEL_FIELDS if _placeholder(nation['monarch'].get(key))]
+            if missing:issues.append((location+'.monarch',name+'的君主',missing))
     return issues
 
 

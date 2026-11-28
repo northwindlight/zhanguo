@@ -261,9 +261,12 @@ class Session:
             grants[alias]=invoke
         return grants
 
+    def service_specs(self,item):
+        return {name:spec for name,spec in self.runtime.distribution.get('Session',{}).get('Services',{}).items()
+                if 'Clients' not in spec or item['client'] in spec['Clients']}
+
     def _services(self,item,records=None):
-        specs={name:spec for name,spec in self.runtime.distribution.get('Session',{}).get('Services',{}).items()
-               if 'Clients' not in spec or item['client'] in spec['Clients']}
+        specs=self.service_specs(item)
         restoring=records is not None
         records={} if records is None else records
         if restoring and (not isinstance(records,dict) or set(records)!=set(specs)):raise SaveFormatError('Session service identities disagree')
@@ -320,6 +323,10 @@ class Session:
     def invalidate(self,actor,context):
         with self.lock:
             self._dirty();self.generations[actor]+=1;self.contexts[actor]=wire(context)
+
+    def api_write_rejection(self,player,capability,method,action_label):
+        """Optional distribution permission check for the bound write API."""
+        return None
 
     def api_call(self,player,capability,method,arguments,next_call):
         """Write API calls pass through services that declare api(), not submit().

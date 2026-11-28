@@ -28,12 +28,14 @@ class ParliamentGovernment(Government):
         self._write();self._actor(owner)
         if owner in self._ended:raise ValueError('Nation already ended its action')
         if not isinstance(text,str) or not text.strip():raise ValueError('Plan cannot be empty')
+        row=self._reviews.get(owner)
+        if row is None and self._world.runtime.feature_enabled('model_orchestration') and owner not in self.human_actors():
+            return super().plan(owner,text)
         # 同一份正文再交一遍：不新建待审草稿，也不重置生效期。
         current=self._plans.get(owner)
         if current is not None and current.text.strip()==text.strip() and current.valid_until>=self._period:
             return {'text':current.text,'period':current.period,'status':'approved','message':'国策未变化'}
         # One submission per country and period, including rule clients.
-        row=self._reviews.get(owner)
         if row is None:raise ValueError('发行版尚未绑定议会服务，不能直接批准国策')
         if row['submitted']==self._period:raise ValueError('每回合只能提交一次国策；下一回合再提交')
         row.update(submitted=self._period,draft=text,approved=None,reason='',explanation='')
@@ -130,5 +132,6 @@ class ParliamentGovernmentMod(GovernmentMod):
         return ParliamentGovernmentAPI(world)
 
     def rule_sections(self,world=None):
+        scope='参加议会的 AI 国家' if self.runtime.feature_enabled('model_orchestration') else '每个 AI 国家'
         return (*super().rule_sections(world),RuleSection('议会国策审核',
-            '每个 AI 国家每回合只能提交一次国策。第一版直接生效，只告知君主存在议会；从第一次修订起，议会按旧国策及实际行为审核，再审新版。未通过必须 explain_plan 解释，下回合重提。连续三个回合未通过罢免君主。续档或接任不恢复第一版豁免，接任不重置本回合提交次数。真人不参加国策审核。'))
+            scope+'每回合只能提交一次国策。第一版直接生效，只告知君主存在议会；从第一次修订起，议会按旧国策及实际行为审核，再审新版。未通过必须 explain_plan 解释，下回合重提。连续三个回合未通过罢免君主。续档或接任不恢复第一版豁免，接任不重置本回合提交次数。真人不参加国策审核。'))

@@ -85,7 +85,8 @@ class Controller:
                     ('llm.context','stream','context',{'actor':'\ue000','plan':'\ue001'}),
                     ('llm.request','activity','request',{'actor':'\ue000','count':'\ue001'}),
                     ('llm.retry','activity','retry',{'actor':'\ue000','attempt':'\ue001','total':'T','error':'E','wait':'0'}),
-                    ('llm.compacting','activity','compacting',{'actor':'\ue000','attempt':'\ue001','limit':'L'}))
+                    ('llm.compacting','activity','compacting',{'actor':'\ue000','attempt':'\ue001','limit':'L'}),
+                    ('orchestration.progress','activity','monarch',{'actor':'\ue000','step':'\ue001','limit':'L'}))
             if callable(text):
                 for key,mode,kind,fields in shapes:
                     try:
@@ -117,7 +118,7 @@ class Controller:
                     number=''.join(ch for ch in token if ch.isdigit())
                     label={'request':f'正在思考（第{number}次调用）' if number else '正在思考',
                            'retry':f'模型API异常，自动重试中（第{number}次）' if number else '模型API异常，自动重试中',
-                           'compacting':'正在整理长期记忆'}[kind]
+                           'compacting':'正在整理长期记忆','monarch':f'君主议事（第{number}轮）' if number else '君主议事'}[kind]
                     self.send('activity',actor=actor,text=label)
                 break
         except Exception:pass

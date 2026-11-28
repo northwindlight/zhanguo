@@ -14,12 +14,13 @@ EDITIONS={'native':('原生版','mods.toml'),'experimental':('实验版','mods.e
 
 def describe(runtime):
     declaration=runtime.distribution;identity=declaration['Id']
-    from mods.experimental.assembly import FEATURES
+    from mods.experimental.assembly import FEATURES,NATIVE_FEATURES
     selected=declaration.get('Features',{})
+    available={'native':NATIVE_FEATURES,'experimental':FEATURES}.get(identity,{})
     import ruleai
     labels={'random':'随机经营偏好','balanced':'均衡经营','integrated':'自产配套','merchant':'市场贸易','buffer':'资源储备','liquid':'现金储备'}
     return {'id':identity,'name':EDITIONS.get(identity,(identity,''))[0],'version':declaration['Version'],
-            'features':{key:{**FEATURES[key],'enabled':value} for key,value in selected.items()},
+            'features':{key:{**spec,'enabled':selected.get(key,False)} for key,spec in available.items()},
             'rule_versions':list(ruleai.versions()),'default_rule_ai':ruleai.DEFAULT_RULE_AI,
             'rule_strategy_versions':list(ruleai.PROFILE_VERSIONS),
             'rule_strategies':[{'id':key,'name':labels.get(key,key)} for key in ('random',*ruleai.PROFILES)],

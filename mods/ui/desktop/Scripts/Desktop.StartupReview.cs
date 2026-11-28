@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
+using Zhanguo.Desktop.Layout;
 
 public partial class Desktop
 {
@@ -46,6 +47,16 @@ public partial class Desktop
                 await PointerClick(StartupControl<CheckButton>("Feature_"+key));
             var disabled=_menu.BuildConfig(out error,out _);
             if(disabled==null||disabled["experimental_features"]!.AsObject().Any(p=>p.Value!.GetValue<bool>()))throw new Exception("开关未进入配置："+error);
+            _menu.ReviewLlmCard();
+            _menu.SelectFeature("model_orchestration",true);
+            var monarch=StartupControl<OptionButton>("MonarchProfile");
+            monarch.Select(1);monarch.EmitSignal(OptionButton.SignalName.ItemSelected,1L);
+            var orchestrated=_menu.BuildConfig(out error,out string? orchestrationConfig);
+            if(orchestrated?["nations"]?[0]?["monarch"]?["model"]?.ToString()!="DeepSeek-Offline"||orchestrationConfig==null
+                ||orchestrated["nations"]!.AsArray().Skip(1).Any(n=>n?["monarch"]!=null))throw new Exception("君主档案未按席位生成："+error);
+            await DesktopSetup.Call(_runtime,new JsonObject { ["action"]="validate",["config"]=orchestrationConfig });
+            _menu.ValidateVisibleLayout();await Screenshot(stem+"-orchestration.png");
+            _menu.SelectFeature("model_orchestration",false);
             foreach(var client in _menu.FindChildren("NationClient","OptionButton",true,false).Cast<OptionButton>().Where(c=>c.IsVisibleInTree()))
                 for(int i=0;i<client.ItemCount;i++)if(client.GetItemId(i)==1)throw new Exception("未注册的简易客户端仍可选");
             var layouts=new JsonArray();
@@ -105,7 +116,7 @@ public partial class Desktop
             _host!.StandardInput.WriteLine("{\"command\":\"disconnect\"}");
             await WaitFor(()=>_host.HasExited,"验收宿主未退出",30);
             File.WriteAllText(path+".json",new JsonObject {
-                ["edition_selection"]=true,["real_feature_switches"]=true,["model_preflight"]=true,["registered_clients"]=true,
+                ["edition_selection"]=true,["real_feature_switches"]=true,["model_preflight"]=true,["registered_clients"]=true,["model_orchestration"]=true,
                 ["save_copy_upgrade"]=true,["originals_unchanged"]=true,["audit_preserved"]=true,["routes_preserved"]=true,
                 ["scripts_preserved"]=true,["resume_uses_save_rules"]=true,["actual_game_rules"]=true,["layouts"]=layouts }.ToJsonString());
             GD.Print("STARTUP_GUI_OK "+path);GetTree().Quit();

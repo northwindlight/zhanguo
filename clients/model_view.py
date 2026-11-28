@@ -23,13 +23,13 @@ FALLBACK={'capital':'frontier','threats':'threats','battle':'battle','territory'
 
 
 class ModelView:
-    def __init__(self,cfg,tool_layer=None,presentation=None):
+    def __init__(self,cfg,tool_layer=None,presentation=None,role='player'):
         if presentation is not None:
             if tool_layer is None:
                 tool_layer=getattr(presentation,'tool_layer',None)
             keys=getattr(getattr(presentation,'cfg',None),'get',lambda *_:None)('_content_keys',{})
             cfg={**cfg,'_content_keys':keys or {}}
-        self.cfg=cfg;self.text=Translator.from_config(cfg,tool_layer=tool_layer);self.sites={};self.has_scripts=False
+        self.cfg=cfg;self.role=role;self.text=Translator.from_config(cfg,tool_layer=tool_layer);self.sites={};self.has_scripts=False
         self.catalogs={};self.rulebook=[];self.period=0;self.at_war=False;self.polity=None
         # 工具表由 actions() 落进来：系统提示按发行版**实际暴露**的工具说话，
         # 不在这里写死任何发行版的面板名或命令名。
@@ -87,11 +87,15 @@ class ModelView:
         return self.receipts.receipt_body(presented.get('action'),args,presented,self.actor)
 
     def system(self):
-        text=self.text('llm.system')+'\n'+str(self.cfg.get('system_prompt') or '')+'\n'+str(self.cfg.get('extra_summary') or '')
+        key='llm.system' if self.role=='player' else 'llm.system.'+self.role
+        text=self.text(key)+'\n'+str(self.cfg.get('system_prompt') or '')+'\n'+str(self.cfg.get('extra_summary') or '')
         text+='\n'+self._tool_guidance()
         if 'plan' in self.tool_names:
             text+='国策是跨回合战略：经济、军事、情报、外交的目标、优先级、资源约束和调整条件应充分说明。'
-        text+='end_turn 的 summary 只用一两句写实际结果，详细流水已有回执。先阅读当前状态和行动简报；已有资料无需重复查询。互不依赖的工具可在同一批调用，依赖前一步结果的行动等待回执。坐标只用于实际动作与单格详情查询，其余查询按全国或整类返回。'
+        if 'end_turn' in self.tool_names:
+            text+='end_turn 的 summary 只用一两句写实际结果，详细流水已有回执。'
+        text+='先阅读当前状态和行动简报；已有资料无需重复查询。互不依赖的工具可在同一批调用，依赖前一步结果的行动等待回执。'
+        if self.role=='player':text+='坐标只用于实际动作与单格详情查询，其余查询按全国或整类返回。'
         # 规则正文默认靠 player_rules 按需查；发行版自己标记要进系统提示的节
         # （system=True）才在这里出现——宿主不认得任何发行版的专有名词。
         active=[section for section in self.rulebook if section.get('system')]
@@ -114,7 +118,7 @@ class ModelView:
         else:
             parts.append('只读查询用工具表里标着「只读」的工具；每个工具的说明写明参数与用途。')
         commands=self._command_tools()
-        if commands:
+        if commands and self.role!='monarch':
             parts.append('动作类工具按命令分：'+'、'.join(commands)+'，各自用 action 参数选动作；'
                          '可选动作与各自参数见工具说明。')
         parts.append('规则用 player_rules(topic)；近讯在状态末尾。')
@@ -167,8 +171,8 @@ class ModelView:
     def actions(self,schemas):
         # 工具名、参数名是 API；enum 与描述里提到的内容键值随语言走（zh=金/农场，en=gold/farm）。
         # 每回合自动 facts / 近讯已经覆盖这两个内置读法；模型不再单独调用。
-        schemas=deepcopy([schema for schema in schemas
-                          if schema['function']['name'] not in ('player_state','player_events')])
+        schemas=deepcopy([schema for schema in schemas if self.role=='monarch'
+                          or schema['function']['name'] not in ('player_state','player_events')])
         self.tool_schemas=schemas
         self.tool_names={schema['function']['name'] for schema in schemas}
         self.has_scripts=any(s['function']['name']=='script' for s in schemas)
@@ -229,7 +233,8 @@ class ModelView:
         # 国策是这个发行版的概念吗？government 事实里没有 plan 键就没有这个概念，
         # 不该对没有国策的发行版说「须提交国策」。
         has_plan='plan' in (facts.get('government') or {})
-        return {'plan_status':('须提交国策' if not plan or plan['valid_until']<period else '国策有效') if has_plan else None,
+        missing_plan='须请君主更新国策' if self.role=='minister' else '须提交国策'
+        return {'plan_status':(missing_plan if not plan or plan['valid_until']<period else '国策有效') if has_plan else None,
                 'production_tribute':preview.get('tribute'),
                 'production_tribute_receivables':preview.get('tribute_receivables'),
                 'energy_capacity':energy,'planned_regular_inputs':inputs,'full_load_outputs':outputs,

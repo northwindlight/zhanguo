@@ -130,7 +130,7 @@ class ScriptingMod(GameMod):
             'script(action=write) 保存或重写，script(action=patch) 精确修订，script(action=check) 免费语法/安全检查且不运行。'
             'script(action=run, inputs={...}) 每国每回合手动执行一次，失败也消耗脚本执行额度，但不阻止普通工具行动；修订、罢免不重置额度。'
             '已成功动作不撤销。api 提供绑定身份的标准 observe/call/events/rules/action_state；call(capability, method, ...) 只调模块 [PlayerAPI]，不用工具名；'
-            '国策同样经过议会。api.call 拒绝会返回原回执并终止脚本。'
+            '脚本调用遵守本席位的国策权限。api.call 拒绝会返回原回执并终止脚本。'
             'inputs 是本次 JSON 参数；变量每次重新创建。支持函数和递归、if/for/while、列表/字典和推导式。'
             f'总预算 {self.limits["steps"]} 计算单位，{self.limits["calls"]} 次 API 调用；计费按语法、数据长度与算法规模，'
             '不用墙钟或高精度计时器。禁止导入、安装库、文件、网络、反射、随机、动态执行和脚本控制工具嵌套。'

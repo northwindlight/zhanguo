@@ -1,8 +1,12 @@
 """Native distribution scenario and administrative APIs. No host game rules."""
+import hashlib
+import json
+from pathlib import Path
 import random
 from engine.player import wire, BUILTINS
-from engine.session import SaveFormatError
+from engine.session import SaveFormatError, write_json
 from engine.scenario import GridSession
+from mods.experimental.assembly import ORCHESTRATION
 from .observer import NativeObserver
 
 # 开局木料 60 → 200（用户 2026-10-17：前期木是硬瓶颈，开局先给够一批建材）。
@@ -10,6 +14,95 @@ START_RES={'native:gold':1500,'native:food':20,'native:wood':200,'native:ore':10
            'native:oil':0,'native:equipment':5,'native:supply':10}
 
 class NativeSession(NativeObserver,GridSession):
+    _publishing_monarch = None
+    _monarch_usage_dir = None
+
+    def service_specs(self,item):
+        specs=super().service_specs(item)
+        if 'monarch' in item:specs.pop('council',None)
+        return specs
+
+    def _client(self,item,record=None,joined_at=0):
+        if 'monarch' not in item:return super()._client(item,record,joined_at)
+        from mods.experimental.orchestration import OrchestratedClient
+        if record is not None and (not isinstance(record,dict) or set(record)!={'kind','version','state'} or record['kind']!='llm'):
+            raise SaveFormatError('Invalid orchestration client record')
+        return OrchestratedClient(self._client_cfg(item,joined_at),record=record,ui=self.presentation,
+                                  publish_plan=self._publish_monarch_plan,record_help=self._record_monarch_help,
+                                  persist_requests=self._persist_monarch_requests)
+
+    def _usage_dir(self,path):
+        path=Path(path).resolve()
+        return path.with_suffix(path.suffix+'.audit')/self._audit_stream/'monarch'
+
+    @staticmethod
+    def _usage_file(directory,actor):
+        return directory/(hashlib.sha256(actor.encode('utf-8')).hexdigest()+'.json')
+
+    def _persist_monarch_requests(self,player,period,requests):
+        with self.lock:
+            if period!=self.clock() or not player.action_state()['can_act']:return False
+            if self._monarch_usage_dir is not None:
+                write_json(self._usage_file(self._monarch_usage_dir,player.actor),requests)
+            return True
+
+    def load_sidecars(self,path):
+        if not self.runtime.feature_enabled(ORCHESTRATION):return
+        from mods.experimental.orchestration import HELP_WINDOW, valid_requests
+        self._monarch_usage_dir=self._usage_dir(path)
+        period=self.clock()
+        for actor,client in self.clients.items():
+            if not hasattr(client,'monarch'):continue
+            source=self._usage_file(self._monarch_usage_dir,actor)
+            if not source.is_file():continue
+            requests=json.loads(source.read_text(encoding='utf-8'))
+            if not valid_requests(requests,through=period):raise SaveFormatError('Invalid persisted monarch assistance budget')
+            # The game save is a turn boundary. The sidecar may already have
+            # counted requests in the interrupted turn, so keep the newer window.
+            candidates=[[used for used in row if period-used<HELP_WINDOW] for row in (client.requests,requests)]
+            client.requests=max(candidates,key=lambda row:tuple(reversed(row)))
+
+    def save(self,path):
+        super().save(path)
+        if not self.runtime.feature_enabled(ORCHESTRATION):return
+        target=self._usage_dir(path)
+        if target!=self._monarch_usage_dir:
+            for actor,client in self.clients.items():
+                if hasattr(client,'monarch') and client.requests:
+                    write_json(self._usage_file(target,actor),client.requests)
+            self._monarch_usage_dir=target
+
+    def _plan_denied(self,player,action):
+        return {'api':player.api_version,'actor':player.actor,'action':action,'period':self.clock(),
+                'ok':False,'status':'rejected','code':'monarch_required',
+                'message':'本国由君主制定国策。首辅可以用 ask_monarch 求助。','data':None}
+
+    def _publish_monarch_plan(self,player,period,arguments):
+        with self.lock:
+            if period!=self.clock() or not player.action_state()['can_act']:
+                return {**self._plan_denied(player,'plan'),'code':'unavailable_action','message':'行动期或控制权已变更。'}
+            self._publishing_monarch=player.actor
+            try:return player.submit('plan',arguments)
+            finally:self._publishing_monarch=None
+
+    def _record_monarch_help(self,player,arguments,receipt):
+        self.record(player,'ask_monarch',arguments,receipt)
+
+    def submit(self,player,action,arguments,next_submit):
+        client=self.clients.get(player.actor)
+        if action=='plan' and hasattr(client,'monarch') and self._publishing_monarch!=player.actor:
+            return self._plan_denied(player,action)
+        return super().submit(player,action,arguments,next_submit)
+
+    def api_write_rejection(self,player,capability,method,action_label):
+        if (capability,method)==('native:government','plan') and hasattr(self.clients.get(player.actor),'monarch'):
+            return self._plan_denied(player,action_label)
+        return super().api_write_rejection(player,capability,method,action_label)
+
+    def actor_model(self,actor):
+        if self._publishing_monarch==actor:return self.clients[actor].monarch.cfg['model']
+        return super().actor_model(actor)
+
     def _client_cfg(self,item,joined_at=0):
         cfg=super()._client_cfg(item,joined_at)
         if cfg.get('client')=='rule' and cfg.get('rule_seed') is None:
@@ -117,8 +210,9 @@ class NativeSession(NativeObserver,GridSession):
     def record(self,player,action,arguments,receipt,error=None):
         # 并发行动期会从多个工作线程记录：地图采样与审计必须与写入串行。
         with self.lock:
-            tool=self.runtime.tools.get(action)
-            if receipt and receipt.get('ok') and action not in BUILTINS and (tool is None or not tool.read_only):
+            tool=self.runtime.tools.get(action) if isinstance(action,str) else None
+            game_action=isinstance(action,str) and action not in (*BUILTINS,'ask_monarch') and (tool is None or not tool.read_only)
+            if receipt and receipt.get('ok') and game_action:
                 self.world.intelligence.capture_maps()
                 if receipt.get('automatic') not in ('production_queue','auto_trades','diplomacy_finish'):
                     # Unguarded captures already happened during this action.
@@ -127,6 +221,9 @@ class NativeSession(NativeObserver,GridSession):
                     for event in self.world.military.drain_events():
                         event['details']={**event.get('details',{}),'phase':'action'}
                         self.world.intelligence.emit(**event)
+            record_action=getattr(self.clients.get(player.actor),'record_action',None)
+            if game_action and receipt is not None and record_action:
+                record_action(action,self._audit_value(arguments),wire(receipt),error)
             return super().record(player,action,arguments,receipt,error)
 
     def finished(self):

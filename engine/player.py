@@ -83,7 +83,7 @@ class PlayerSession:
         clock = self.__runtime.distribution.get('PlayerClock')
         return self.__runtime.object_call(self.__world, clock['Capability'], clock['Method']) if clock else None
 
-    def actions(self):
+    def actions(self, *, read_only=False):
         with self.__lock:
             self._validate()
             result = [{'type':'function','function':{'name':name,'description':description,
@@ -91,6 +91,8 @@ class PlayerSession:
                       for name,(description,properties) in BUILTINS.items()]
             for schema in self.__runtime.schemas():
                 name = schema['function']['name']
+                if read_only and not self.__runtime.tools[name].read_only:
+                    continue
                 try:
                     self.__runtime.require_tool(self.__world, self.actor, name)
                 except ValueError:

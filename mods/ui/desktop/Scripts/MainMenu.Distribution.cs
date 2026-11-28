@@ -15,8 +15,9 @@ public partial class MainMenu
     private readonly List<(CheckButton Button,string Key)> _featureChecks=new();
     private readonly List<Control> _experimentalPanels=new();
     private readonly List<OptionButton> _reviewerPickers=new();
+    private readonly List<OptionButton> _monarchPickers=new();
     private readonly List<Label> _editionSummaries=new();
-    private int _editionIndex,_reviewerProfile;
+    private int _editionIndex,_reviewerProfile,_monarchProfile;
     private bool _starting;
     private DesktopRuntime SetupRuntime=>DesktopRuntime.Resolve(OS.GetExecutablePath(),ProjectSettings.GlobalizePath("res://"),
         !OS.HasFeature("editor"),OS.GetEnvironment("ZHANGUO_ROOT"),OS.GetEnvironment("ZHANGUO_PYTHON"),OS.GetName()=="Windows") with { DataRoot=System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(_settingsPath)!)! };
@@ -46,6 +47,8 @@ public partial class MainMenu
         }
         var reviewer=new OptionButton { Name="CouncilReviewer",TooltipText="议会启用时，规则AI使用所选档案审核；模型国家默认使用自己的模型。" };
         experimental.AddChild(reviewer);_reviewerPickers.Add(reviewer);reviewer.ItemSelected+=i=>{_reviewerProfile=(int)i;_hint.Text="";RefreshEditionControls();};
+        var monarch=new OptionButton { Name="MonarchProfile",TooltipText="为模型国家指定默认君主。某国可在附加 JSON 中用 monarch 单独配置。" };
+        experimental.AddChild(monarch);_monarchPickers.Add(monarch);monarch.ItemSelected+=i=>{_monarchProfile=(int)i;_hint.Text="";RefreshEditionControls();};
         var summary=new Label { Name="EditionSummary",AutowrapMode=TextServer.AutowrapMode.WordSmart,Modulate=new Color("b7c9ae") };
         summary.AddThemeFontSizeOverride("font_size",14);parent.AddChild(summary);_editionSummaries.Add(summary);
         RefreshEditionControls(false);
@@ -66,6 +69,13 @@ public partial class MainMenu
             foreach(var profile in _profiles)pick.AddItem("规则AI议会："+profile.Name);
             pick.Select(_reviewerProfile);pick.Visible=EditionId=="experimental"&&_featureSelection.GetValueOrDefault("council");
         }
+        _monarchProfile=Math.Clamp(_monarchProfile,0,_profiles.Count);
+        foreach(var pick in _monarchPickers)
+        {
+            pick.Clear();pick.AddItem("君主模型：按国配置");
+            foreach(var profile in _profiles)pick.AddItem("默认君主："+profile.Name);
+            pick.Select(_monarchProfile);pick.Visible=_featureSelection.GetValueOrDefault("model_orchestration");
+        }
         string features=string.Join(" · ",EditionFeatures.Select(p=>p.Value!["name"]+(_featureSelection[p.Key]?" 开":" 关")));
         foreach(var summary in _editionSummaries)summary.Text=$"本局规则：{SelectedEdition["name"]} {SelectedEdition["version"]}\n{features}";
         if(refreshClients&&_nationList!=null)RestoreNationEditor(_nations.ToList());
@@ -79,6 +89,14 @@ public partial class MainMenu
         var flags=SelectedFeatures();
         if(config["experimental_features"]!=null&&!JsonNode.DeepEquals(config["experimental_features"],flags)){error="附加JSON的实验开关与上方选择不一致。";return false;}
         if(EditionId=="experimental"||flags.Any(p=>p.Value!.GetValue<bool>()))config["experimental_features"]=flags;
+        if(_monarchProfile>0&&_featureSelection.GetValueOrDefault("model_orchestration"))
+        {
+            var profile=_profiles[_monarchProfile-1];
+            var monarch=new JsonObject { ["provider"]=profile.Provider,["base_url"]=profile.BaseUrl,["api_key"]=profile.ApiKey,["model"]=profile.Model };
+            ParseObject(profile.ExtraJson,"君主模型档案",ref error,monarch);
+            foreach(var nation in config["nations"]!.AsArray())
+                if(nation!["client"]!.ToString()=="llm"&&nation["monarch"]==null)nation["monarch"]=monarch.DeepClone();
+        }
         if(EditionId=="experimental")
         {
             if(_reviewerProfile>0&&_featureSelection["council"])

@@ -50,7 +50,7 @@ class BoundPlayer:
             return observation
 
     @api_entry
-    def actions(self):return self.__session.raw_player(self.actor).actions()
+    def actions(self, *, read_only=False):return self.__session.raw_player(self.actor).actions(read_only=read_only)
     @api_entry
     def events(self, cursor=0):return self.__session.raw_player(self.actor).events(cursor)
     @api_entry
@@ -150,7 +150,9 @@ class BoundPlayer:
                 return wire(receipt)
             label = action_label if isinstance(action_label, str) and action_label else detached.get('action', method)
             try:
-                receipt = wire(session.api_call(self, capability, method, detached, execute))
+                receipt = session.api_write_rejection(self, capability, method, label)
+                if receipt is None:receipt = session.api_call(self, capability, method, detached, execute)
+                receipt = wire(receipt)
                 if not isinstance(receipt, dict) or receipt.get('actor') != self.actor or receipt.get('action') != label:
                     raise ValueError('Invalid distribution API receipt')
             except Exception as exc:

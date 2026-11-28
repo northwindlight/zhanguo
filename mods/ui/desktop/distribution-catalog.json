@@ -29,6 +29,16 @@
             "rule"
           ],
           "enabled": false
+        },
+        "model_orchestration": {
+          "name": "君主与首辅",
+          "short_name": "君臣编排",
+          "description": "首辅执行本国行动，每十回合可请君主制定或修订国策三次。可为每个模型席位指定君主模型。",
+          "default": false,
+          "clients": [
+            "llm"
+          ],
+          "enabled": false
         }
       },
       "rule_versions": [
@@ -135,6 +145,16 @@
             "human",
             "llm",
             "rule"
+          ],
+          "enabled": false
+        },
+        "model_orchestration": {
+          "name": "君主与首辅",
+          "short_name": "君臣编排",
+          "description": "首辅执行本国行动，每十回合可请君主制定或修订国策三次。可为每个模型席位指定君主模型。",
+          "default": false,
+          "clients": [
+            "llm"
           ],
           "enabled": false
         }

@@ -96,6 +96,8 @@ SDK 版本固定在 `requirements/llm.txt`，Windows 便携包已内置。Linux�
 
 Windows 用 `.\start.ps1 --config mp_config.json --new`。API key 只写在本地的 `mp_config.json` 里（不入库），整局存档不含接入凭据。上下文窗口、推理预算等字段见[配置与启动](https://northwindlight.github.io/zhanguo/开始/03-配置与启动.html)。
 
+原生版和实验版可为 LLM 席位开启**君主与首辅**编排。首辅操作国家，君主受邀后查询本国局势并颁布十回合国策。两个角色可以使用不同模型和接入协议。[配置与玩法](mods/native/docs/游戏说明书.md#实验功能君主与首辅)
+
 ### 八国剧本：战国七雄与周王室
 
 用你的配置作模板，生成一局正式八国对局：

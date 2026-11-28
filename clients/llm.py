@@ -57,7 +57,7 @@ def assert_paired(messages):
 
 class LLMClient:
     kind='llm';version='2'
-    def __init__(self,cfg,state=None,backend=None,ui=None,record=None,services=None):
+    def __init__(self,cfg,state=None,backend=None,ui=None,record=None,services=None,role='player'):
         """接受宿主的客户端工厂契约（cfg / record / services）。
 
         发行版可以在 ``[Distribution.ClientFactories.llm]`` 里写
@@ -83,7 +83,7 @@ class LLMClient:
             from presentation.maps import expand_message
             ui=SimpleNamespace(cfg=self.cfg,tool_layer=None,expand_message=expand_message)
         self.presentation=ui
-        self.ui=ModelView(self.cfg,presentation=ui)
+        self.ui=ModelView(self.cfg,presentation=ui,role=role)
         self._allowed_actions=None
 
     def _provider(self):
@@ -159,11 +159,24 @@ class LLMClient:
     def _receipt(self,player,action,arguments,receipt):pass
     def _exchange(self,player,assistant,replies):pass
     def _after_batch(self,player,messages,emit):return False
+    def _schemas(self,player):
+        schemas=player.actions()
+        return schemas if any(s['function']['name']=='memory_search' for s in schemas) else [*schemas,deepcopy(memory.SCHEMA)]
+
+    def _tail(self,obs,batch,tool_tokens):return self.ui.state(obs,batch['items'])
+
+    def _completion_action(self):return 'end_turn'
+
+    def _continue_prompt(self):return self.ui.text('llm.continue')
+
+    def _cache_key(self,player):return player.actor
+
     def _context(self,player,obs,batch,tools):
-        tail,image=self.ui.state(obs,batch['items'])
+        tool_tokens=ctx.est_tokens(json.dumps(tools,ensure_ascii=False))
+        tail,image=self._tail(obs,batch,tool_tokens)
         return ctx.build(cfg=self.cfg,mem=self.state.replay,sums=self.state.summaries,blocks=self.state.blocks,
                          system_text=self._system(player),tail_text=tail,tail_map=image,archive_messages=self.ui.text,
-                         tool_tokens=ctx.est_tokens(json.dumps(tools,ensure_ascii=False)),long_memory=self.state.long_memory)
+                         tool_tokens=tool_tokens,long_memory=self.state.long_memory)
 
     def _compact(self,player,messages,plan,tools,emit):
         # ctx.slide operates on a client-owned memory store, never the game world.
@@ -225,17 +238,17 @@ class LLMClient:
         if callable(rules):rules(player.rules('all'))
         obs=player.observe()
         if not obs['can_act']:return []
-        schemas=player.actions()
-        tools=self.ui.actions(schemas if any(s['function']['name']=='memory_search' for s in schemas) else [*schemas,deepcopy(memory.SCHEMA)]);batch=player.events(self.state.event_cursor)
+        tools=self.ui.actions(self._schemas(player));batch=player.events(self.state.event_cursor)
         self._allowed_actions={tool['function']['name'] for tool in tools}
         self._observed_period=obs['period']
         messages,plan=self._context(player,obs,batch,tools)
         self._dialogue(player,[messages[0],messages[-1]])
-        description=self.ui.context_plan(plan);hit=ctx.rolling_hit(player.actor)
+        cache_key=self._cache_key(player)
+        description=self.ui.context_plan(plan);hit=ctx.rolling_hit(cache_key)
         if hit is not None:description+=self.ui.text('context.observed',ratio=hit)
         if head:head(self.ui.text('llm.context',actor=player.actor,plan=description))
         elif emit:emit(self.ui.text('llm.context',actor=player.actor,plan=description))
-        start=len(messages)-1;receipts=[];ended=False
+        start=len(messages)-1;receipts=[];ended=False;completion=self._completion_action()
         limit=int(max_steps if max_steps is not None else self.cfg.get('max_steps',28))
         if limit<1:raise ValueError('max_steps must be positive')
         note_step=getattr(player,'note_step',None)
@@ -261,7 +274,7 @@ class LLMClient:
             stream('complete',thinking=msg.get('reasoning_content') or '',body=msg.get('content') or '',
                    tokens=stats.get('out_tokens'),estimated=bool(stats.get('estimated')),seconds=stats.get('wall'))
             self._usage(stats)
-            ctx.record_hit(player.actor,stats.get('hit',0),stats.get('miss',0))
+            ctx.record_hit(cache_key,stats.get('hit',0),stats.get('miss',0))
             calls=msg.get('tool_calls') or []
             assistant={key:deepcopy(msg[key]) for key in ('content','reasoning_content','tool_calls',REPLAY_KEY) if key in msg}
             assistant['role']='assistant';messages.append(assistant)
@@ -287,9 +300,9 @@ class LLMClient:
                 batch_contents.append(content if callable(render) and isinstance(content,str) else '')
                 self._receipt(player,action,fn.get('arguments'),receipt)
                 if on_result:on_result(action,fn.get('arguments'),receipt)
-                if action=='end_turn' and receipt['ok']:
+                if action==completion and receipt['ok']:
                     ended=True
-                    stream('summary',text=receipt['data']['text'])
+                    if completion=='end_turn':stream('summary',text=receipt['data']['text'])
                     self.state.summaries.append({'turn':obs['period'],'text':receipt['data']['text']})
             memory.record(self.state.history,obs['period'],memory.action_text(assistant,calls,batch_receipts,batch_contents))
             if on_call:on_call(step,receipts)
@@ -309,9 +322,9 @@ class LLMClient:
             if ended:break
             # 不再在批次之间追加上下文：模型本来就带着自己的对话历史与全部工具回执，
             # 要看最新状态就再调一次专门工具。回合开局的战情总纲负责给全景。
-            if not calls:messages.append({'role':'user','content':self.ui.text('llm.continue')})
+            if not calls:messages.append({'role':'user','content':self._continue_prompt()})
         # Only the normal end_turn gate can finish a step-limited turn.
-        if not ended:
+        if not ended and completion=='end_turn':
             fallback='达到本回合调用上限；已执行行动以回执为准，其余计划下回合继续。'
             receipt=self._submit(player,'end_turn',{'summary':fallback})
             receipts.append(receipt)

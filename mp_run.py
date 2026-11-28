@@ -398,6 +398,10 @@ def report_config(cfg,runtime=None):
             model=nation.get('model') or '（缺）'
             print(f'      端点：{endpoint}    模型：{model}')
             print('      状态：' + ('缺 ' + '、'.join(missing) if missing else '就绪'))
+            if monarch:=nation.get('monarch'):
+                missing=issues.get(f'config.nations[{index}].monarch',[])
+                print(f'      君主：{monarch.get("base_url") or "（缺）"}    模型：{monarch.get("model") or "（缺）"}')
+                print('      君主状态：' + ('缺 ' + '、'.join(missing) if missing else '就绪'))
         elif client=='rule':
             print('      状态：就绪（内置规则 AI，不需要密钥）')
         elif client and client in declared:

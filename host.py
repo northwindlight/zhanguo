@@ -81,6 +81,9 @@ class GameHost:
         prepared=cls.prepare(cfg,runtime=runtime)
         data=json.loads(Path(path).read_text(encoding='utf-8'))
         host=cls(prepared)
-        try:host.session.restore(data)
+        try:
+            host.session.restore(data)
+            load_sidecars=getattr(host.session,'load_sidecars',None)
+            if callable(load_sidecars):load_sidecars(path)
         except ValueError as exc:raise SaveFormatError(str(exc)) from exc
         return host
