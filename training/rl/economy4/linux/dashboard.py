@@ -88,13 +88,21 @@ def header(rows, saved, live, now):
         return top + [label + "   训练状态同步延迟，预计时间待刷新"]
     if recent.get("ppo_batch_complete", {}).get("games", 0) >= target:
         return top + [label + "   训练机已存盘，等待本地校验"]
-    hist = rows[:5]
+    active_limit = coverage.get("thought_limit", row["thought_limit"]) if in_update else row["thought_limit"]
+    thought_disabled = active_limit == 0
     if in_update:
-        seconds = coverage["sample_seconds"] + size * median(r["update_seconds"] / len(r["metrics"]) for r in hist)
         phase = "PPO 更新"
     else:
-        seconds = size * median((r["sample_seconds"] + r["update_seconds"]) / len(r["metrics"]) for r in hist)
         phase = "采样中" if live.get("state") == "running" else "按历史耗时估计"
+    if thought_disabled:
+        phase += " · 思考关闭"
+    hist = [r for r in rows if (r["thought_limit"] == 0) == thought_disabled][:5]
+    if not hist:
+        return top + [f"{label}   {phase}", "首批零思考完成后开始估算耗时"]
+    if in_update:
+        seconds = coverage["sample_seconds"] + size * median(r["update_seconds"] / len(r["metrics"]) for r in hist)
+    else:
+        seconds = size * median((r["sample_seconds"] + r["update_seconds"]) / len(r["metrics"]) for r in hist)
     eta = saved + seconds
     remaining = eta - now
     countdown = "剩 " + duration(remaining) if remaining >= 0 else "已过预计 " + duration(-remaining)
@@ -108,6 +116,7 @@ def overview(row):
     game = sum(g["game_decisions"] for g in games)
     thoughts = sum(g["thoughts"] for g in games)
     stops = sum(g["forced_stops"] for g in games)
+    thought = f"思考上限  {row['thought_limit']}    触顶 {stops}/{a['turns']}" if row["thought_limit"] else "思考关闭"
     accepted = sum(epoch["accepted"] for epoch in row["ppo"])
     game_rows = []
     for i, g in enumerate(games, row["games"] - len(games) + 1):
@@ -122,7 +131,7 @@ def overview(row):
         *game_rows,
         "", f"采样  {duration(s)}    PPO 更新  {duration(u)}    {len(games)*3600/(s+u):.1f} 局/小时",
         f"采样  {(game+thoughts)/s:.0f} 决策/秒    游戏 {game:,}    思考 {thoughts:,}",
-        f"思考上限  {row['thought_limit']}    触顶 {stops}/{a['turns']}    地皮奖励权重 {row['land_reward_weight']:.2f}",
+        f"{thought}    地皮奖励权重 {row['land_reward_weight']:.2f}",
         f"PPO 接受  {accepted}/{len(row['ppo'])} 轮",
     ]
 
@@ -142,9 +151,10 @@ def seats_view(row):
 def optimization(row):
     c = row["contract"]
     reward = c["land_reward_schedule"]
+    thought = f"思考 {c['thought_budget'][0]}–{row['thought_limit']} 步" if row["thought_limit"] else "思考关闭"
     lines = [f"{c['size']}×{c['size']} 地图   {c['seats']} 席   {c['turns']} 回合   {c['precision'].upper()}",
              f"全回合更新   γ {c['gamma']:g}   λ {c['gae_lambda']:g}   回报缩放 {c['reward_scale']}",
-             f"思考 {c['thought_budget'][0]}–{row['thought_limit']} 步   每窗口最多 {c['window_games']} 个游戏动作",
+             f"{thought}   每窗口最多 {c['window_games']} 个游戏动作",
              f"地皮奖励权重 {row['land_reward_weight']:.2f}   {reward['window_games']} 局 GDP 门槛 {reward['threshold']:g}",
              f"退坡触发局数 {row['land_reward']['triggered_at'] or '未触发'}    退坡时长 {reward['fade_games']} 局"]
     for i, e in enumerate(row["ppo"], 1):
