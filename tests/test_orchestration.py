@@ -197,6 +197,114 @@ class TestOrchestration(unittest.TestCase):
                 with self.assertRaises(RuntimeError):restored.clients[QIN].play(restored.player(QIN),max_steps=1)
                 self.assertEqual(endpoint.call_count,3)
 
+    def test_accepted_control_starts_next_turn_last_five_and_returns_action_history(self):
+        options=cfg();host=GameHost.new(options)
+        self.minister.responses=[
+            reply(call('premature','decide_control',accept=True)),
+            reply(call('ask','ask_monarch',reason='请决定如何优先扩产'),call('blind','decide_control',accept=True)),
+            reply(call('accept','decide_control',accept=True),call('again','decide_control',accept=True),
+                  call('buy','economy',action='buy',resource='wood',quantity=1),
+                  call('end','end_turn',summary='首辅完成当前回合')),
+        ]
+        self.monarch.responses=[reply(call('request','request_control',reason='亲自推进建设和采购'),call('plan','plan',**POLICY))]
+        first=host.cycle()
+        decisions=[r for r in first if r['action']=='decide_control']
+        self.assertEqual([r['ok'] for r in decisions],[False,False,True,False])
+        offer=next(r['data']['control_request'] for r in first if r['action']=='ask_monarch')
+        self.assertEqual((offer['start'],offer['end']),(1,5))
+        self.assertEqual([row['model'] for row in host.audit if row['actor']==QIN and row['action']=='economy'],['minister-a'])
+        self.assertEqual(host.clock(),1)
+
+        self.monarch.responses=[reply(call('revise','plan',**{**POLICY,'details':'推进建设和采购'}))]
+        for period in range(1,6):
+            self.monarch.responses.append(reply(call('buy','economy',action='buy',resource='wood',quantity=period),
+                                               call('end','end_turn',summary=f'君主任内第 {period} 回合买木'),
+                                               content='只给君主重播的正文',reasoning='只给君主重播的思考'))
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/'session.json'
+            for period in range(1,6):
+                self.assertEqual(host.clock(),period)
+                receipts=host.cycle()
+                self.assertTrue(any(r['actor']==QIN and r['action']=='end_turn' and r['ok'] for r in receipts))
+                if period==2:
+                    host.save(path)
+                    host=GameHost.load(path,options)
+                    self.assertTrue(host.clients[QIN].monarch_in_control(3))
+            host.save(path)
+            host=GameHost.load(path,options)
+        self.assertEqual(host.clock(),6)
+        self.assertEqual(len(self.minister.requests),3)
+        self.assertEqual(len(self.monarch.requests),7)
+        self.assertIn('economy',self.monarch.tools[-1]);self.assertNotIn('decide_control',self.monarch.tools[-1])
+        self.assertNotIn('request_control',self.monarch.tools[-1]);self.assertNotIn('ask_monarch',self.monarch.tools[-1])
+        self.assertEqual(host.clients[QIN].requests,[0])
+        self.assertEqual([row['model'] for row in host.audit if row['actor']==QIN and row['action']=='economy'],
+                         ['minister-a']+['monarch-b']*5)
+
+        self.minister.responses=[reply(call('history','control_history',after=0,limit=2)),
+                                 reply(call('end','end_turn',summary='首辅接手并核实任内回执'))]
+        resumed=host.cycle()
+        handover=self.minister.requests[-2][-1]['content']
+        self.assertIn('【首辅接手】',handover)
+        self.assertIn('【任内行动和回执】',handover)
+        self.assertIn('"quantity":5',handover)
+        for private in ('只给君主重播的正文','只给君主重播的思考'):
+            self.assertNotIn(private,handover)
+        history=next(r['data'] for r in resumed if r['action']=='control_history')
+        self.assertEqual([row['period'] for row in history['records']],[1,1])
+        self.assertEqual(history['next_after'],2)
+        self.assertTrue(history['has_more'])
+        self.assertEqual(next(row['model'] for row in reversed(host.audit) if row['actor']==QIN),'minister-a')
+
+    def test_decline_or_silence_does_not_grant_control(self):
+        for answer in (None,False):
+            with self.subTest(answer=answer):
+                options=cfg();host=GameHost.new(options)
+                self.minister.responses=[reply(call('ask','ask_monarch',reason='确定首期国策')),
+                                         reply(call('end','end_turn',summary='本期按国策筹备'))]
+                self.monarch.responses=[reply(call('plan','plan',**POLICY))]
+                host.cycle()
+                tools=[] if answer is None else [call('decline','decide_control',accept=answer)]
+                self.minister.responses=[reply(call('ask','ask_monarch',reason='请复核当前路线')),
+                                         reply(*tools,call('end','end_turn',summary='继续完成筹备'))]
+                self.monarch.responses=[reply(call('request','request_control',reason='希望亲自安排矿场'))]
+                receipts=host.cycle()
+                self.assertTrue(next(r for r in receipts if r['action']=='ask_monarch')['ok'])
+                self.assertIsNone(host.clients[QIN].control_term)
+                self.minister.responses=[reply(call('late','decide_control',accept=True),
+                                              call('end','end_turn',summary='首辅继续执行国策'))]
+                later=host.cycle()
+                self.assertEqual(next(r for r in later if r['action']=='decide_control')['code'],'no_control_request')
+                self.assertEqual(next(row['model'] for row in reversed(host.audit) if row['actor']==QIN),'minister-a')
+                self.assertIsNone(host.clients[QIN].control_term)
+
+    def test_previous_orchestration_save_loads_without_a_control_term(self):
+        options=cfg();data=GameHost.new(options).to_save()
+        old=data['clients'][QIN]
+        old['version']='orchestration/1'
+        old['state'].pop('control_term')
+        restored=GameHost(GameHost.prepare(options))
+        restored.session.restore(data)
+        self.assertIsNone(restored.clients[QIN].control_term)
+
+    def test_governing_monarch_renews_expired_policy_before_ending_turn(self):
+        host=GameHost.new(cfg())
+        self.minister.responses=[reply(call('ask','ask_monarch',reason='首次定策'))]
+        self.minister.responses.extend(reply(call('end','end_turn',summary='继续按当前国策发展')) for _ in range(9))
+        self.monarch.responses=[reply(call('plan','plan',**POLICY))]
+        for _ in range(9):host.cycle()
+        self.minister.responses=[reply(call('ask','ask_monarch',reason='国策将到期，请调整')),
+                                 reply(call('consent','decide_control',accept=True),call('end','end_turn',summary='首辅完成最后一期'))]
+        self.monarch.responses=[reply(call('offer','request_control',reason='亲自落实下阶段投资'))]
+        host.cycle()
+        self.assertEqual(host.clock(),10)
+        self.monarch.responses=[reply(call('early','end_turn',summary='尝试用到期国策结束')),
+                                reply(call('plan','plan',**POLICY)),
+                                reply(call('end','end_turn',summary='颁布新国策并完成本回合'))]
+        receipts=[r for r in host.cycle() if r['actor']==QIN]
+        self.assertEqual([(r['action'],r['ok']) for r in receipts],[('end_turn',False),('plan',True),('end_turn',True)])
+        self.assertEqual(host.player(QIN).query('government')['plan']['valid_until'],19)
+
     def test_council_stays_active_for_other_seats_and_executor_cannot_write_policy_by_api(self):
         options=cfg(experimental=True);host=GameHost.new(options)
         self.assertNotIn('council',host.services[QIN])

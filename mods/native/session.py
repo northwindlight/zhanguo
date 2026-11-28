@@ -28,7 +28,7 @@ class NativeSession(NativeObserver,GridSession):
         if record is not None and (not isinstance(record,dict) or set(record)!={'kind','version','state'} or record['kind']!='llm'):
             raise SaveFormatError('Invalid orchestration client record')
         return OrchestratedClient(self._client_cfg(item,joined_at),record=record,ui=self.presentation,
-                                  publish_plan=self._publish_monarch_plan,record_help=self._record_monarch_help,
+                                  publish_plan=self._publish_monarch_plan,record_coordination=self._record_coordination,
                                   persist_requests=self._persist_monarch_requests)
 
     def _usage_dir(self,path):
@@ -85,8 +85,10 @@ class NativeSession(NativeObserver,GridSession):
             try:return player.submit('plan',arguments)
             finally:self._publishing_monarch=None
 
-    def _record_monarch_help(self,player,arguments,receipt):
-        self.record(player,'ask_monarch',arguments,receipt)
+    def _record_coordination(self,player,arguments,receipt):
+        with self.lock:
+            if receipt['action']=='decide_control' and receipt['ok']:self._dirty()
+            self.record(player,receipt['action'],arguments,receipt)
 
     def submit(self,player,action,arguments,next_submit):
         client=self.clients.get(player.actor)
@@ -101,6 +103,9 @@ class NativeSession(NativeObserver,GridSession):
 
     def actor_model(self,actor):
         if self._publishing_monarch==actor:return self.clients[actor].monarch.cfg['model']
+        client=self.clients.get(actor)
+        if hasattr(client,'monarch_in_control') and client.monarch_in_control(self.clock()):
+            return client.monarch.cfg['model']
         return super().actor_model(actor)
 
     def _client_cfg(self,item,joined_at=0):
@@ -149,6 +154,11 @@ class NativeSession(NativeObserver,GridSession):
             raise SaveFormatError('Human seats differ from saved government control')
         if any(wire(self.world.government.snapshot(a))['ended'] for a in self.actors()):
             raise SaveFormatError('Cannot save a partially played cycle')
+        period=self.clock()
+        for actor,client in self.clients.items():
+            term=getattr(client,'control_term',None)
+            if term and not self.roster[actor]['joined_at']<term.start<=period:
+                raise SaveFormatError('Monarch control term is outside the saved action boundary')
 
     def after_spawn(self):
         self.world.intelligence.capture_maps(self.world.government.human_actors())
@@ -211,7 +221,7 @@ class NativeSession(NativeObserver,GridSession):
         # 并发行动期会从多个工作线程记录：地图采样与审计必须与写入串行。
         with self.lock:
             tool=self.runtime.tools.get(action) if isinstance(action,str) else None
-            game_action=isinstance(action,str) and action not in (*BUILTINS,'ask_monarch') and (tool is None or not tool.read_only)
+            game_action=isinstance(action,str) and action not in (*BUILTINS,'ask_monarch','decide_control') and (tool is None or not tool.read_only)
             if receipt and receipt.get('ok') and game_action:
                 self.world.intelligence.capture_maps()
                 if receipt.get('automatic') not in ('production_queue','auto_trades','diplomacy_finish'):

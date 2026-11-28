@@ -167,6 +167,10 @@ class LLMClient:
 
     def _completion_action(self):return 'end_turn'
 
+    def _completion_summary(self,action,receipt):
+        if action==self._completion_action() and receipt['ok']:return receipt['data']['text']
+        return None
+
     def _continue_prompt(self):return self.ui.text('llm.continue')
 
     def _cache_key(self,player):return player.actor
@@ -300,10 +304,11 @@ class LLMClient:
                 batch_contents.append(content if callable(render) and isinstance(content,str) else '')
                 self._receipt(player,action,fn.get('arguments'),receipt)
                 if on_result:on_result(action,fn.get('arguments'),receipt)
-                if action==completion and receipt['ok']:
+                summary=self._completion_summary(action,receipt)
+                if summary is not None:
                     ended=True
-                    if completion=='end_turn':stream('summary',text=receipt['data']['text'])
-                    self.state.summaries.append({'turn':obs['period'],'text':receipt['data']['text']})
+                    if completion=='end_turn':stream('summary',text=summary)
+                    self.state.summaries.append({'turn':obs['period'],'text':summary})
             memory.record(self.state.history,obs['period'],memory.action_text(assistant,calls,batch_receipts,batch_contents))
             if on_call:on_call(step,receipts)
             assert_paired(messages[start:])
