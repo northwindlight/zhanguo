@@ -126,13 +126,13 @@ def returns_from_events(events, land_weight=1.0):
     return returns
 
 
-def world_steps(policy, library, seed, size, turns, land_weight=1.0):
+def world_steps(policy, library, seed, size, turns, land_weight=1.0, *, no_thought=False):
     """Yield one native game decision request at a time, keeping each seat trajectory private."""
     start_time = time.monotonic()
     rng = random.Random(seed)
     chunk_games = [0] * 4
     seat_turns = 0
-    traces = [SeatTrace(policy) for _ in range(4)]
+    traces = [SeatTrace(policy, thought_budget=0 if no_thought else None) for _ in range(4)]
     starts = [[] for _ in traces]
     last_turn, open_window = [0] * 4, [None] * 4
     device = traces[0].device
@@ -224,8 +224,8 @@ def serial_decision(request):
 
 
 @torch.inference_mode()
-def rollout(policy, library, seed, size, turns, land_weight=1.0):
-    generator = world_steps(policy, library, seed, size, turns, land_weight)
+def rollout(policy, library, seed, size, turns, land_weight=1.0, *, no_thought=False):
+    generator = world_steps(policy, library, seed, size, turns, land_weight, no_thought=no_thought)
     try:
         request = next(generator)
         while True:
@@ -242,15 +242,15 @@ def replay(policy, window):
                   window.graph, window.game_records, game_phase=window.game_phase)
 
 
-def rollout_on_stream(policy, *args):
+def rollout_on_stream(policy, *args, **kwargs):
     device = policy.event_proj.weight.device
     if device.type != "cuda":
-        return rollout(policy, *args)
+        return rollout(policy, *args, **kwargs)
     stream = torch.cuda.Stream(device=device)
     # Model weights are loaded on the default stream before read-only sampling.
     stream.wait_stream(torch.cuda.default_stream(device))
     with torch.cuda.stream(stream):
-        result = rollout(policy, *args)
+        result = rollout(policy, *args, **kwargs)
     stream.synchronize()
     return result
 
@@ -341,7 +341,9 @@ def learning_pass(policy, windows, actor, critic, check, group=None):
         thought, groups = action_group(decisions, w)
         thought_loss = fragment_loss(thought, mean, std)
         game_loss = fragment_loss(groups, mean, std)
-        actor_loss = .5 * (thought_loss / thought_count + game_loss / game_count)
+        actor_loss = .5 * (game_loss / game_count)
+        if thought_count:
+            actor_loss = actor_loss + .5 * (thought_loss / thought_count)
         current_value = torch.stack([d.value for d in decisions])
         target = current_value.new_tensor([w.targets[d.record] for d in decisions])
         critic_loss = F.mse_loss(current_value, target, reduction="sum") / total
@@ -379,13 +381,17 @@ def anchor_kl(policy, anchors, group=None):
         thought.extend(sampled)
         game.extend(new - old for new, old, _ in groups)
     if group is None:
-        return tuple(float((r.expm1() - r).mean()) for r in map(torch.stack, (thought, game)))
+        means = []
+        for ratios in (thought, game):
+            r = torch.stack(ratios) if ratios else policy.operation.weight.new_empty(0)
+            means.append(float((r.expm1() - r).mean()) if ratios else 0.)
+        return tuple(means)
     stats = []
     for ratios in (thought, game):
         r = policy.operation.weight.new_empty(0) if not ratios else torch.stack(ratios)
         stats.extend((float((r.expm1() - r).sum(dtype=torch.float64)), len(ratios)))
     thought_sum, thoughts, game_sum, games = group.totals(stats)
-    return thought_sum / thoughts, game_sum / games
+    return thought_sum / thoughts if thoughts else 0., game_sum / games
 
 
 def actor_step(policy, optimizer, anchors, args, group=None):
@@ -442,7 +448,7 @@ def optimize(policy, windows, actor, critic, args, seed, group=None):
     return rows
 
 
-def sample_batch(pool, policies, seeds, args, land_weight):
+def sample_batch(pool, policies, seeds, args, land_weight, *, no_thought=False):
     parallel = len(policies) * args.rollouts_per_device
     sample_world = rollout if args.rollouts_per_device == 1 else rollout_on_stream
     windows, statistics_rows = [], []
@@ -451,14 +457,16 @@ def sample_batch(pool, policies, seeds, args, land_weight):
         if args.batch_inference:
             from batched_rollout import rollout_worlds
             jobs = [(i, pool.submit(rollout_worlds, policy_copy, args.library,
-                                    wave[i::len(policies)], args.size, args.turns, land_weight))
+                                    wave[i::len(policies)], args.size, args.turns, land_weight,
+                                    no_thought=no_thought))
                     for i, policy_copy in enumerate(policies) if i < len(wave)]
             results = [None] * len(wave)
             for i, job in jobs:
                 results[i::len(policies)] = job.result()
         else:
             jobs = [pool.submit(sample_world, policies[i % len(policies)], args.library, seed,
-                                args.size, args.turns, land_weight) for i, seed in enumerate(wave)]
+                                args.size, args.turns, land_weight, no_thought=no_thought)
+                    for i, seed in enumerate(wave)]
             results = [job.result() for job in jobs]
         for selections, row in results:
             windows.extend(selections)
@@ -481,8 +489,15 @@ def train(args, group=None):
     if not state.get("value_warmup", {}).get("accepted"):
         raise ValueError("Expected the validated value warmup checkpoint")
     completed = state.get("games", 0)
-    contract = dict(CONTRACT, size=args.size, turns=args.turns, seed=args.seed)
-    land_schedule = LandRewardSchedule.from_checkpoint(state, args.checkpoint, contract, args.lr)
+    adaptive_contract = dict(CONTRACT, size=args.size, turns=args.turns, seed=args.seed)
+    disabled_contract = dict(adaptive_contract, thought_budget=[0, 0], thought_limit_after_gdp_trigger=0)
+    saved_contract = state.get("contract") or {}
+    was_disabled = saved_contract.get("thought_budget") == [0, 0]
+    no_thought = getattr(args, "no_thought", False) or was_disabled
+    contract = disabled_contract if no_thought else adaptive_contract
+    # The explicit switch updates the sampling protocol while preserving the reward schedule.
+    parent_contract = disabled_contract if was_disabled else adaptive_contract
+    land_schedule = LandRewardSchedule.from_checkpoint(state, args.checkpoint, parent_contract, args.lr)
     initial = state.get("initial_sha256") or sha(args.checkpoint)
     policies = [Policy().to(device).eval() for device in local_devices]
     for policy in policies:
@@ -514,18 +529,23 @@ def train(args, group=None):
                 begin = (batch_size * group.rank) // group.size
                 end = (batch_size * (group.rank + 1)) // group.size
                 seeds = seeds[begin:end]
-            thought_limit = MAX_THOUGHTS if land_schedule.triggered_at is None else EXTENDED_THOUGHTS
+            adaptive_limit = MAX_THOUGHTS if land_schedule.triggered_at is None else EXTENDED_THOUGHTS
+            thought_limit = 0 if no_thought else adaptive_limit
             if thought_limit == EXTENDED_THOUGHTS:
                 for replica in policies:
                     replica.extend_thought_positions(actor if replica is policy else None)
-            elif policy.thought_position.num_embeddings != MAX_THOUGHTS + 1:
+            elif not no_thought and policy.thought_position.num_embeddings != MAX_THOUGHTS + 1:
                 raise ValueError("Extended positions in a checkpoint without a GDP trigger")
             sampled_at = time.monotonic()
             land_weight = land_schedule.weight(completed + batch_size)
-            windows, statistics_rows = sample_batch(pool, policies, seeds, args, land_weight)
-            if any(w.header.thought_limit != thought_limit for w in windows):
-                raise ValueError("Replay window uses a different adaptive thought limit from this batch")
+            windows, statistics_rows = sample_batch(pool, policies, seeds, args, land_weight,
+                                                   no_thought=no_thought)
+            if any((w.header.thought_budget, w.header.thought_limit) !=
+                   ((0, MAX_THOUGHTS) if no_thought else (None, thought_limit)) for w in windows):
+                raise ValueError("Replay window uses a different thought budget from this batch")
             counts = coverage(windows)
+            if no_thought and counts["trained_thoughts"]:
+                raise ValueError("Thought-free PPO received thought decisions")
             window_count = len(windows)
             if group is not None:
                 statistics_rows = [r for shard in group.gather(statistics_rows) for r in shard]
@@ -584,6 +604,8 @@ def arguments():
     p.add_argument("--workers", type=int, choices=(1, 2), default=2)
     p.add_argument("--distributed-update", action="store_true")
     p.add_argument("--batch-inference", action="store_true")
+    p.add_argument("--no-thought", action="store_true",
+                   help="Skip the thought phase and save that mode for automatic continuation")
     p.add_argument("--cuda-graph-history", action="store_true",
                    help="Replay the three single-event DeltaNet layers as one CUDA graph during sampling")
     p.add_argument("--rollouts-per-device", type=int, default=1,

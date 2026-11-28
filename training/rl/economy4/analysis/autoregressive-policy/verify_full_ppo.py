@@ -37,7 +37,7 @@ def verify_land_reward():
             assert math.isclose(values[0] * ppo.SCALE, 12 + weight * bonus)
 
 
-def verify(library, checkpoint):
+def verify(library, checkpoint, no_thought=False):
     verify_land_reward()
     torch.set_num_threads(2)
     torch.backends.mha.set_fastpath_enabled(False)
@@ -49,7 +49,17 @@ def verify(library, checkpoint):
         assert tuple(i for group in groups for i in group) == actions
         assert all(min(size, 2) <= len(group) <= 4 for group in groups)
 
-    windows, stats = ppo.rollout(policy, library, 640000, 24, 3)
+    if no_thought:
+        from batched_rollout import rollout_worlds
+
+        results = rollout_worlds(policy, library, (640000, 640005), 24, 3, no_thought=True)
+        windows, stats = results[0]
+        for sampled, metrics in results:
+            assert all(w.header.thought_budget == 0 for w in sampled)
+            assert metrics["thoughts"] == metrics["active_stops"] == metrics["forced_stops"] == 0
+            assert metrics["batched_games"] > 0
+    else:
+        windows, stats = ppo.rollout(policy, library, 640000, 24, 3)
     counts = ppo.coverage(windows)
     assert counts == dict(trained_turns=stats["seat_turns"], trained_game_actions=stats["game_decisions"],
                           trained_thoughts=stats["thoughts"])
@@ -70,6 +80,8 @@ def verify(library, checkpoint):
     critic = torch.optim.AdamW(policy.value.parameters(), lr=1e-4, weight_decay=0)
     rows = ppo.optimize(policy, windows, actor, critic, SimpleNamespace(ppo_epochs=1, lr=1e-4, target_kl=.02), 123)
     assert rows[0]["accepted"] and all(rows[0][k] == v for k, v in counts.items())
+    if no_thought:
+        assert rows[0]["thought_kl"] == 0. and rows[0]["game_kl"] > 0.
     print("Verified full-batch update", rows[0], flush=True)
 
 
@@ -77,5 +89,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--library", type=Path, required=True)
     parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--no-thought", action="store_true")
     options = parser.parse_args()
-    verify(options.library, options.checkpoint)
+    verify(options.library, options.checkpoint, options.no_thought)

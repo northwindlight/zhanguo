@@ -15,6 +15,9 @@ export PYTHONPATH="$src/analysis/dynamic-turn-dual-ppo-20261124/reference/python
 export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=2
 n=${PPO_GPUS:-$("$py" -c 'import torch; print(min(2, torch.cuda.device_count()))')}
 parallel=(--batch-inference --rollouts-per-device 2 --cuda-graph-history)
+if [[ ${PPO_NO_THOUGHT:-0} == 1 ]]; then
+    parallel+=(--no-thought)
+fi
 case "$n" in
     2) parallel+=(--distributed-update) ;;
     1) ;;

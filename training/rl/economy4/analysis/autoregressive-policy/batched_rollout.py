@@ -18,10 +18,10 @@ def _draw_rows(logits, values, generators):
 
 
 def batch_decisions(policy, requests):
-    """Sample standard adaptive PPO trajectories whose game tokens start with an empty decoder cache."""
+    """Sample PPO trajectories whose game tokens start with an empty decoder cache."""
     traces = [q[0] for q in requests]
     for trace in traces:
-        require_adaptive(trace.header, retain_thought_kv=False)
+        require_adaptive(trace.header, retain_thought_kv=False, allow_disabled=True)
     raw = [q[2] for q in requests]
     count = len(requests)
     packed, lengths = pack_observations(raw, traces[0].device)
@@ -67,11 +67,12 @@ def batch_decisions(policy, requests):
 
 
 @torch.inference_mode()
-def rollout_worlds(policy, library, seeds, size, turns, land_weight=1.0):
-    """Sample independent adaptive PPO games on one device with retain_thought_kv=False."""
+def rollout_worlds(policy, library, seeds, size, turns, land_weight=1.0, *, no_thought=False):
+    """Sample independent PPO games on one device with retain_thought_kv=False."""
     from thought_ppo import serial_decision, world_steps
 
-    generators = [world_steps(policy, library, seed, size, turns, land_weight) for seed in seeds]
+    generators = [world_steps(policy, library, seed, size, turns, land_weight, no_thought=no_thought)
+                  for seed in seeds]
     results = [None] * len(generators)
     pending = {}
     try:

@@ -37,9 +37,9 @@ class Decision:
     sampled_value: float
 
 
-def require_adaptive(header: TraceHeader, *, retain_thought_kv: bool):
-    """Adaptive PPO accepts only adaptive-budget traces sampled with the same K/V contract."""
-    if header.thought_budget is not None:
+def require_adaptive(header: TraceHeader, *, retain_thought_kv: bool, allow_disabled=False):
+    """Check the K/V contract and reject fixed-budget thought ablations."""
+    if header.thought_budget is not None and not (allow_disabled and header.thought_budget == 0):
         raise ValueError(f"fixed thought budget {header.thought_budget} is an ablation trace, not PPO data")
     if header.retain_thought_kv != retain_thought_kv:
         raise ValueError("trace thought K/V setting differs from the training contract")
@@ -283,7 +283,7 @@ def replay_turn(policy, header, records, observations, prefix, graph, game_recor
 
 
 def _turn_plan(header, records, graph, game_records, *, game_phase=False):
-    require_adaptive(header, retain_thought_kv=False)
+    require_adaptive(header, retain_thought_kv=False, allow_disabled=True)
     events, turns = _plan(header, records, graph, game_phase=game_phase)
     if len(turns) != 1:
         raise ValueError("Expected a single turn fragment")
